@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "description": "Single-file 3D turn-based artillery game",
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "tbay.tk LLC",
   "scripts": {
     "start": "node scripts/serve.cjs",
     "test": "node tests/game.cjs"
