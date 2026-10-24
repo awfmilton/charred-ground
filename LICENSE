@@ -1,0 +1,54 @@
+Charred Ground — Proprietary License (All Rights Reserved)
+
+Copyright (c) 2026 tbay.tk LLC, Helena, Montana. All rights reserved.
+
+This repository, the game "Charred Ground", and all of its source code, assets,
+documentation and related materials (together, the "Software") are the
+exclusive property of tbay.tk LLC (the "Owner").
+
+1. No license granted.
+   The Software is made visible for reference only. Nothing in this
+   repository, including its public availability, grants you any license or
+   right to the Software, whether express, implied, by estoppel or otherwise.
+
+2. Prohibited without prior written permission.
+   Unless the Owner has given you explicit prior written permission, you may
+   not, in whole or in part:
+     a. use, run, execute, load, or play the Software or the game;
+     b. copy, reproduce, download for reuse, or mirror the Software;
+     c. modify, adapt, translate, or create derivative works of the Software;
+     d. host, deploy, publish, distribute, share, sublicense, sell, rent,
+        lend, or otherwise make the Software available to any third party;
+     e. remove or alter any copyright, license, or proprietary notice.
+
+3. Permission.
+   Permission may be granted only in writing by tbay.tk LLC, may be limited
+   in scope and duration, and may be revoked. To request permission, contact
+   tbay.tk LLC (https://tbay.tk).
+
+4. GitHub.
+   Where this repository is hosted publicly on GitHub, GitHub's Terms of
+   Service allow GitHub users to view and fork it within GitHub. That
+   permission is limited to what those Terms require; it does not grant any
+   right described in section 2, and a fork carries no license to use, run,
+   modify, deploy, or distribute the Software.
+
+5. Termination.
+   Any use of the Software that is not permitted in writing is unauthorized
+   and infringes the Owner's rights. Any permission granted ends
+   automatically if its terms are breached, and you must then stop all use
+   and destroy all copies in your possession.
+
+6. Third-party components.
+   The Software loads third-party libraries (such as Three.js and PeerJS) that
+   are licensed by their own authors under their own terms. This license
+   covers only the Owner's work.
+
+7. No warranty; limitation of liability.
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED. TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE OWNER SHALL NOT BE
+   LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM OR IN
+   CONNECTION WITH THE SOFTWARE OR ITS USE.
+
+8. Governing law.
+   This license is governed by the laws of the State of Montana, United States.

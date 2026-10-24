@@ -57,3 +57,7 @@ This is an independent browser remake, not an official release of the original g
 ## Repository coordination
 
 Managed by kôdex / MCP Config Manager. Session Bus room: `#charred-ground`.
+
+## License
+
+Copyright (c) 2026 tbay.tk LLC. All rights reserved. This is proprietary software: using, copying, modifying, playing, hosting or sharing it requires prior written permission from tbay.tk LLC. See [LICENSE](LICENSE).
