@@ -1,0 +1,16 @@
+{
+  "name": "charred-ground",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Single-file 3D turn-based artillery game",
+  "scripts": {
+    "start": "node scripts/serve.cjs",
+    "test": "node tests/game.cjs"
+  },
+  "devDependencies": {
+    "three": "0.128.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
