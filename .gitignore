@@ -3,8 +3,7 @@ node_modules/
 .env.*
 *.log
 .claude/triage.lock
-
-.env
-.env.*
-*.log
 .openai/
+.scaffold-cache/
+.codex/
+.gemini/

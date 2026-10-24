@@ -1,0 +1,111 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/triage-enforce.sh",
+            "timeout": 10,
+            "statusMessage": "Checking triage authorization..."
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__mcpm_tools__edit_file|mcp__mcpm_tools__write_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/triage-enforce.sh",
+            "timeout": 10,
+            "statusMessage": "Checking triage authorization..."
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/cancel-wait-notify.sh",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/triage-stop-guard.sh",
+            "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/stop-wait-notify.sh",
+            "async": true
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/session-bus-inbox.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rm -f .claude/triage.pending .claude/triage.lock",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/session-bus-inbox.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "mcpServers": {
+    "kodex-bus": {
+      "command": "C:\\Users\\user\\Documents\\MCP_Manager\\mcp-manager\\node_modules\\electron\\dist\\electron.exe",
+      "args": [
+        "C:\\Users\\user\\Documents\\MCP_Manager\\mcp-manager\\lib\\mcp-tools-server.js",
+        "--project",
+        "C:\\Users\\user\\Documents\\charred-ground",
+        "--app-url",
+        "http://127.0.0.1:7329",
+        "--bus-identity",
+        "own",
+        "--bus-kind",
+        "claude-code"
+      ],
+      "env": {
+        "ELECTRON_RUN_AS_NODE": "1",
+        "MCPM_APP_TOKEN": "kodex://vault/14182eaa528a1e97"
+      }
+    }
+  },
+  "allow": [
+    "ls",
+    "cat",
+    "grep",
+    "git status",
+    "git diff"
+  ]
+}

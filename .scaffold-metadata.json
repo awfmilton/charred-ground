@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "userContext": {
+    "projectType": "Web Application",
+    "description": "Charred Ground is a single-file (index.html) 3D turn-based artillery game for the browser, an independent remake in the Scorched Earth style. 2-6 human or AI commanders fight on a 480 m x 160 m extruded 1D heightfield battlefield with craters, dirt, trees, rocks and animated water. A data-driven registry of 34 items (ballistics, nuclear, cluster, rollers, diggers, napalm, beams, shields, structures, drones) plus a between-round shop with credits and interest. Camera modes: tactical, tank focus (F), explore (E, WASD), gunner view (V). Online multiplayer is host-authoritative over PeerJS (private room codes plus public matchmaking; disconnected guests become AI). Optional \"Gemini 4 Argon Mastermind\" AI calls the Google AI Studio generateContent API with a user-entered key and falls back to a local ballistic search after failure or a 3 s timeout.",
+    "techStack": "HTML5, vanilla JavaScript (inline), Three.js r128 (CDN), PeerJS 1.5.4 (CDN), WebGL, Web Audio API, Google AI Studio Gemini API, Node.js 20+ (dev server and tests only), GitHub Actions",
+    "conventions": "The whole runtime lives in index.html: no build step, no bundler, no asset folder, no backend. Keep it that way. Fixed-step simulation; host-authoritative multiplayer snapshots; camera state and API keys must never be broadcast to peers or put in snapshots. Dispose removed Three.js geometry and materials. Respect the 400-slot particle buffer and instancing.",
+    "extraContext": "Dev: npm install, npm start (scripts/serve.cjs, http://127.0.0.1:8187). Tests: npm test runs tests/game.cjs, 154 assertions in a Node VM with a small DOM fixture (no WebGL, WebRTC or live Gemini). CI: .github/workflows/test.yml on push/PR. Docs: docs/ARCHITECTURE.md and docs/TESTING.md. Hosted on a ChatGPT Sites deployment (owner-private); hosting credentials are deliberately not in the repo. The game was authored in a ChatGPT/Codex session; the project's Session Bus room is #charred-ground and Argon (Gemini 4) is a room participant."
+  },
+  "files": {
+    "CLAUDE.md": {
+      "updatedAt": "2026-10-24T17:14:44.397Z",
+      "method": "claude",
+      "appVersion": "1.0.0-beta.10"
+    },
+    "AGENTS.md": {
+      "updatedAt": "2026-10-24T17:14:44.397Z",
+      "method": "claude",
+      "appVersion": "1.0.0-beta.10"
+    },
+    "PROJECT_BLUEPRINT.md": {
+      "updatedAt": "2026-10-24T17:16:47.056Z",
+      "method": "claude",
+      "appVersion": "1.0.0-beta.10"
+    },
+    "TRIAGE_WORKFLOW.md": {
+      "updatedAt": "2026-10-24T17:14:44.397Z",
+      "method": "built",
+      "appVersion": "1.0.0-beta.10"
+    },
+    "AI CLI Reference Guide.md": {
+      "updatedAt": "2026-10-24T17:14:44.397Z",
+      "method": "copy",
+      "appVersion": "1.0.0-beta.10"
+    },
+    "AGENT_MEMORY.md": {
+      "updatedAt": "2026-10-24T17:14:44.397Z",
+      "method": "claude",
+      "appVersion": "1.0.0-beta.10"
+    }
+  }
+}
