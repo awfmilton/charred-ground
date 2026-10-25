@@ -2,7 +2,7 @@
 
 ## Automated regression suite
 
-`npm test` runs 190 assertions against the inline application logic in a Node VM with a small DOM fixture and the same Three.js version used by the browser. It exercises all 34 inventory items, offensive-action completion, finite terrain/health, shields, batteries, parachutes, boundary rules, CIWS charges, purchasing, rewards and power caps. Camera checks cover focus, exploration panning, launch-to-tactical transitions, post-flight control recovery, trail construction/expiry, tree pooling, water setup, and all four enlarged terrain generators.
+`npm test` runs 316 assertions against the inline application logic in a Node VM with a small DOM fixture and the same Three.js version used by the browser. It exercises all 39 inventory items, offensive-action completion, finite terrain/health, shields, batteries, parachutes, boundary rules, CIWS charges, purchasing, rewards and power caps. Camera checks cover focus, exploration panning, launch-to-tactical transitions, post-flight control recovery, trail construction/expiry, tree pooling, water setup, and all four enlarged terrain generators.
 
 The fixture does not render WebGL, exercise the real DOM, emulate WebRTC, or call Gemini. It is not a substitute for browser tests.
 
@@ -20,8 +20,14 @@ Browser inspection found a parachute that could remain drawn after landing; the 
 
 ## Map editor update
 
-190 checks pass, including the original weapons/camera suite and new coastal deck crossing, intermediate water gaps, isolated platform destruction and falling, stable flatten/water brushes, strict map imports, local storage, prototype-like names, full editor cancel restoration, paused simulation/AI, invalid Apply handling, custom-map round resets, host snapshots and projectile prediction against decks. The full inline script also receives a syntax check.
+190 checks pass, including the original weapons/camera suite and new coastal deck crossing, intermediate water gaps, isolated platform destruction and falling, stable flatten/water brushes, strict map imports, local storage, prototype-like names, full editor cancel restoration, paused simulation/AI, invalid Apply handling, custom-map round resets, host snapshots and (at that release) projectile prediction against decks. The full inline script also receives a syntax check.
 
 The embedded browser repeatedly timed out opening the editor preview during this update. New editor layout, pointer interactions and two-browser platform rendering therefore remain unverified in a real browser; the simulation tests are not visual certification.
 
 Argon drafted the feature and correction patches through the user-authorized #charred-ground session bus. Codex reviewed and integrated the patches, resolved runtime and test mismatches, and ran the checks. Relay credentials and transcripts are excluded from the repository.
+
+## Combat expansion update
+
+316 checks pass across 39 items. New assertions cover both players’ first four personal turns, invalid/zero-cost commands, action retention after flight, piloted 3D steering, wind independent of throttle, stale/non-owner/malformed input rejection, snapshot state, three-shot limits, orbital movement, shield/canopy laser interception, silo destruction, friendly-target rejection, net/shotgun defenses, satellite caps, blast cover, deck-supported structures, and round resets.
+
+The test fixture does not certify real DOM keyboard events, WebGL presentation or live PeerJS steering. The embedded browser showed both existing tabs as crashed; reconnecting could not inspect the crash document, and a fresh local preview timed out. New visual/UI and live network checks remain outstanding.
