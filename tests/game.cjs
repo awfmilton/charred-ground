@@ -1163,12 +1163,31 @@ vm.runInContext(test,context,{timeout:30000});
       apiOk(/^DB_USER=\s*$/m.test(envExample), '.env.example documents DB_USER= with an empty placeholder');
       apiOk(/^DB_PASSWORD=''\s*$/m.test(envExample), ".env.example documents DB_PASSWORD='' with an empty quoted placeholder");
       apiOk(/^DB_NAME=\s*$/m.test(envExample), '.env.example documents DB_NAME= with an empty placeholder');
+      const expectedDreamhostCaRel = 'certs/dreamhost-mysql-ca.pem';
+      const expectedDreamhostCaFp = 'AC:EE:52:21:C1:59:E6:CF:F8:63:AD:EB:C3:B9:20:43:FF:3C:F9:8C:A0:E6:66:F4:01:D5:00:C0:E9:EC:80:BA';
+      const expectedDreamhostServerPin = 'D5:6E:77:06:BF:66:B5:A8:76:40:8C:B5:02:06:90:16:25:99:5A:31:DA:32:99:08:BF:CD:DF:30:99:2B:35:0E';
+      apiOk(
+        /^#[^\n]*\r?\nDB_SSL=verify\s*$/m.test(envExample) &&
+          /^#[^\n]*\r?\nDB_SSL_CA=certs\/dreamhost-mysql-ca\.pem\s*$/m.test(envExample) &&
+          envExample.includes(`DB_SSL_FINGERPRINT=${expectedDreamhostServerPin}`) &&
+          /^#[^\n]*\r?\nDB_SSL_FINGERPRINT=/m.test(envExample),
+        '.env.example documents DB_SSL=verify, DB_SSL_CA=certs/dreamhost-mysql-ca.pem, and DB_SSL_FINGERPRINT with one-line comments'
+      );
       apiOk(
         /#.*paste it between single quotes, exactly as it is[^\n]*\r?\n#[^\n]*\r?\nDB_PASSWORD=''/i.test(envExample) &&
           require('node:util').parseEnv("DB_PASSWORD='p#ss w0rd'").DB_PASSWORD === 'p#ss w0rd',
         '.env.example DB_PASSWORD says to single-quote the password, and a single-quoted # survives .env parsing'
       );
       apiOk(/^TRUST_PROXY=\s*$/m.test(envExample), '.env.example documents TRUST_PROXY= with an empty placeholder');
+
+      // Real X.509 verification of the committed DreamHost MySQL CA certificate
+      const nodeCrypto = require('node:crypto');
+      const committedCaPem = fs.readFileSync(require.resolve('../certs/dreamhost-mysql-ca.pem'), 'utf8');
+      const committedCaX509 = new nodeCrypto.X509Certificate(committedCaPem);
+      apiOk(
+        committedCaX509.fingerprint256.toUpperCase() === expectedDreamhostCaFp && committedCaX509.ca === true,
+        'Committed certs/dreamhost-mysql-ca.pem parses as a valid X.509 CA with expected sha256 fingerprint AC:EE:...:80:BA'
+      );
 
       const { openStore } = require('../scripts/db.cjs');
       const { loadProjectEnv } = require('../scripts/serve.cjs');
@@ -1178,7 +1197,7 @@ vm.runInContext(test,context,{timeout:30000});
       apiOk(sqliteDefaultStore.backend === 'sqlite', 'openStore selects sqlite backend when DB_HOST is unset');
       sqliteDefaultStore.close();
 
-      // Pool options object & verbatim password checks
+      // Pool options object, default TLS verify mode, & verbatim password checks
       const poolCalls = [];
       const noopPool = {
         async execute() { return [[], []]; },
@@ -1194,7 +1213,9 @@ vm.runInContext(test,context,{timeout:30000});
           DB_HOST: 'db.example.com',
           DB_USER: 'charred_user',
           DB_PASSWORD: rawPassword,
-          DB_NAME: 'charred_db'
+          DB_NAME: 'charred_db',
+          DB_SSL_CA: expectedDreamhostCaRel,
+          DB_SSL_FINGERPRINT: expectedDreamhostServerPin.toLowerCase()
         },
         createPool: createPoolSpy
       });
@@ -1215,6 +1236,37 @@ vm.runInContext(test,context,{timeout:30000});
         poolCalls[0].password === rawPassword,
         'DB_PASSWORD with special characters (@ : / # % " \' \\ and spaces) is passed verbatim without URL encoding or trimming'
       );
+      apiOk(
+        Boolean(poolCalls[0].ssl) &&
+          typeof poolCalls[0].ssl.ca === 'string' &&
+          poolCalls[0].ssl.ca.includes('BEGIN CERTIFICATE') &&
+          poolCalls[0].ssl.ca === committedCaPem &&
+          poolCalls[0].ssl.rejectUnauthorized === true &&
+          typeof poolCalls[0].ssl.checkServerIdentity === 'function',
+        'Default MySQL TLS mode (when DB_HOST is set and DB_SSL is omitted) is verify with ssl.ca, rejectUnauthorized:true, and checkServerIdentity'
+      );
+
+      // Certificate pin checkServerIdentity behaviour (case-insensitive pin, replaces hostname check)
+      const pinnedCheck = poolCalls[0].ssl.checkServerIdentity;
+      const pinMatchRes = pinnedCheck('mysql.tbay.tk', {
+        subject: { CN: 'MySQL_Server_8.0.28_Auto_Generated_Server_Certificate' },
+        fingerprint256: expectedDreamhostServerPin.toLowerCase()
+      });
+      const otherFp = '00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF';
+      const pinMismatchErr = pinnedCheck('mysql.tbay.tk', {
+        subject: { CN: 'mysql.tbay.tk' },
+        fingerprint256: otherFp
+      });
+      apiOk(
+        pinMatchRes === undefined &&
+          pinMismatchErr instanceof Error &&
+          pinMismatchErr.code === 'ERR_MYSQL_CERT_PIN_MISMATCH' &&
+          /certificate changed or could not be verified/i.test(pinMismatchErr.message) &&
+          pinMismatchErr.message.includes('DB_SSL_FINGERPRINT') &&
+          pinMismatchErr.message.includes('DB_SSL_CA') &&
+          !pinMismatchErr.message.includes(rawPassword.trim()),
+        'DB_SSL_FINGERPRINT checkServerIdentity accepts matching sha256 fingerprint (ignoring mismatched CN) and rejects any other fingerprint naming DB_SSL_FINGERPRINT and DB_SSL_CA'
+      );
 
       const spyStoreCustomPort = openStore({
         env: {
@@ -1222,7 +1274,9 @@ vm.runInContext(test,context,{timeout:30000});
           DB_PORT: '3307',
           DB_USER: 'charred_user',
           DB_PASSWORD: 'pw',
-          DB_NAME: 'charred_db'
+          DB_NAME: 'charred_db',
+          DB_SSL: 'verify',
+          DB_SSL_CA: expectedDreamhostCaRel
         },
         createPool: createPoolSpy
       });
@@ -1232,6 +1286,70 @@ vm.runInContext(test,context,{timeout:30000});
           poolCalls[1].port === 3307 &&
           poolCalls.every(arg => typeof arg !== 'string'),
         'openStore honours custom DB_PORT and never calls createPool with a URL string'
+      );
+
+      // Without DB_SSL_FINGERPRINT, verify mode keeps standard tls.checkServerIdentity hostname verification
+      const unpinnedCheck = poolCalls[1].ssl.checkServerIdentity;
+      const hostMatchRes = unpinnedCheck('db.example.com', {
+        subject: { CN: 'db.example.com' },
+        subjectaltname: 'DNS:db.example.com'
+      });
+      const hostMismatchErr = unpinnedCheck('db.example.com', {
+        subject: { CN: 'MySQL_Server_Auto_Generated' },
+        subjectaltname: 'DNS:other.example.com'
+      });
+      apiOk(
+        hostMatchRes === undefined &&
+          hostMismatchErr instanceof Error &&
+          hostMismatchErr.code === 'ERR_TLS_CERT_ALTNAME_INVALID',
+        'When DB_SSL_FINGERPRINT is unset, DB_SSL=verify preserves standard tls.checkServerIdentity hostname verification'
+      );
+
+      // DB_SSL=require and DB_SSL=off modes and warnings
+      const requireWarnings = [];
+      const spyStoreRequire = openStore({
+        env: {
+          DB_HOST: 'db.example.com',
+          DB_USER: 'charred_user',
+          DB_PASSWORD: 'pw',
+          DB_NAME: 'charred_db',
+          DB_SSL: 'require'
+        },
+        warn: msg => requireWarnings.push(msg),
+        createPool: createPoolSpy
+      });
+      await spyStoreRequire.ready;
+      apiOk(
+        poolCalls.length === 3 &&
+          Boolean(poolCalls[2].ssl) &&
+          poolCalls[2].ssl.rejectUnauthorized === false &&
+          !('ca' in poolCalls[2].ssl) &&
+          requireWarnings.length === 1 &&
+          requireWarnings[0].includes('DB_SSL=require') &&
+          /not verified/i.test(requireWarnings[0]),
+        'DB_SSL=require configures encrypted connection with rejectUnauthorized:false and logs a one-line warning that the server is not verified'
+      );
+
+      const offWarnings = [];
+      const spyStoreOff = openStore({
+        env: {
+          DB_HOST: 'db.example.com',
+          DB_USER: 'charred_user',
+          DB_PASSWORD: 'pw',
+          DB_NAME: 'charred_db',
+          DB_SSL: 'off'
+        },
+        warn: msg => offWarnings.push(msg),
+        createPool: createPoolSpy
+      });
+      await spyStoreOff.ready;
+      apiOk(
+        poolCalls.length === 4 &&
+          !('ssl' in poolCalls[3]) &&
+          offWarnings.length === 1 &&
+          offWarnings[0].includes('DB_SSL=off') &&
+          /unencrypted|plaintext/i.test(offWarnings[0]),
+        'DB_SSL=off omits ssl option for an explicit plaintext connection and logs a one-line warning'
       );
 
       // Missing-setting start-up validation when DB_HOST is set
@@ -1294,11 +1412,103 @@ vm.runInContext(test,context,{timeout:30000});
         'openStore fails at start-up naming all missing settings (DB_USER, DB_PASSWORD, DB_NAME) when all three are omitted'
       );
 
-      // Password redaction on connection / query failure errors
-      let connCreateErr = null;
+      // TLS start-up validation errors (missing DB_SSL_CA, unreadable CA file, invalid DB_SSL, invalid DB_SSL_FINGERPRINT)
+      let errMissingSslCa = null;
       try {
         openStore({
           env: { DB_HOST: 'db.example.com', DB_USER: 'u', DB_PASSWORD: secretPw, DB_NAME: 'd' },
+          createPool: createPoolSpy
+        });
+      } catch (err) {
+        errMissingSslCa = err;
+      }
+      apiOk(
+        Boolean(errMissingSslCa) &&
+          errMissingSslCa.message.includes('DB_SSL_CA') &&
+          !errMissingSslCa.message.includes(secretPw),
+        'DB_SSL=verify (default) without DB_SSL_CA fails at start-up naming DB_SSL_CA and never leaks DB_PASSWORD'
+      );
+
+      let errUnreadableSslCa = null;
+      try {
+        openStore({
+          env: {
+            DB_HOST: 'db.example.com',
+            DB_USER: 'u',
+            DB_PASSWORD: secretPw,
+            DB_NAME: 'd',
+            DB_SSL_CA: 'certs/does-not-exist-ca.pem'
+          },
+          createPool: createPoolSpy
+        });
+      } catch (err) {
+        errUnreadableSslCa = err;
+      }
+      apiOk(
+        Boolean(errUnreadableSslCa) &&
+          errUnreadableSslCa.message.includes('DB_SSL_CA') &&
+          errUnreadableSslCa.message.includes('certs/does-not-exist-ca.pem') &&
+          !errUnreadableSslCa.message.includes(secretPw),
+        'DB_SSL=verify with a nonexistent DB_SSL_CA path fails at start-up naming DB_SSL_CA and the path'
+      );
+
+      let errBadSslMode = null;
+      try {
+        openStore({
+          env: {
+            DB_HOST: 'db.example.com',
+            DB_USER: 'u',
+            DB_PASSWORD: secretPw,
+            DB_NAME: 'd',
+            DB_SSL: 'bogus'
+          },
+          createPool: createPoolSpy
+        });
+      } catch (err) {
+        errBadSslMode = err;
+      }
+      apiOk(
+        Boolean(errBadSslMode) &&
+          errBadSslMode.message.includes('DB_SSL') &&
+          !errBadSslMode.message.includes(secretPw),
+        'Invalid DB_SSL mode fails at start-up naming DB_SSL'
+      );
+
+      let errBadFingerprint = null;
+      try {
+        openStore({
+          env: {
+            DB_HOST: 'db.example.com',
+            DB_USER: 'u',
+            DB_PASSWORD: secretPw,
+            DB_NAME: 'd',
+            DB_SSL_CA: expectedDreamhostCaRel,
+            DB_SSL_FINGERPRINT: 'not-a-valid-sha256-pin'
+          },
+          createPool: createPoolSpy
+        });
+      } catch (err) {
+        errBadFingerprint = err;
+      }
+      apiOk(
+        Boolean(errBadFingerprint) &&
+          errBadFingerprint.message.includes('DB_SSL_FINGERPRINT') &&
+          !errBadFingerprint.message.includes(secretPw),
+        'Malformed DB_SSL_FINGERPRINT fails at start-up naming DB_SSL_FINGERPRINT'
+      );
+
+      // Password redaction on connection / query failure errors (including TLS chain/pin failures)
+      let connCreateErr = null;
+      try {
+        openStore({
+          env: {
+            DB_HOST: 'db.example.com',
+            DB_USER: 'u',
+            DB_PASSWORD: secretPw,
+            DB_NAME: 'd',
+            DB_SSL_CA: expectedDreamhostCaRel,
+            DB_SSL_FINGERPRINT: expectedDreamhostServerPin
+          },
           createPool() {
             const e = new Error(`Access denied for user 'u' with password '${secretPw}'`);
             e.sqlMessage = `Auth failed (${secretPw})`;
@@ -1320,7 +1530,14 @@ vm.runInContext(test,context,{timeout:30000});
       let queryConnErr = null;
       try {
         const failingStore = openStore({
-          env: { DB_HOST: 'db.example.com', DB_USER: 'u', DB_PASSWORD: secretPw, DB_NAME: 'd' },
+          env: {
+            DB_HOST: 'db.example.com',
+            DB_USER: 'u',
+            DB_PASSWORD: secretPw,
+            DB_NAME: 'd',
+            DB_SSL_CA: expectedDreamhostCaRel,
+            DB_SSL_FINGERPRINT: expectedDreamhostServerPin
+          },
           createPool() {
             return {
               async execute() {
@@ -1345,6 +1562,50 @@ vm.runInContext(test,context,{timeout:30000});
           !String(queryConnErr.stack || '').includes(secretPw) &&
           !String(queryConnErr.sqlMessage || '').includes(secretPw),
         'Connection/query failure in pool.execute redacts DB_PASSWORD while preserving error code'
+      );
+
+      let tlsChainErr = null;
+      let tlsChainExecuteCalls = 0;
+      try {
+        const tlsFailingStore = openStore({
+          env: {
+            DB_HOST: 'mysql.tbay.tk',
+            DB_USER: 'u',
+            DB_PASSWORD: secretPw,
+            DB_NAME: 'd',
+            DB_SSL_CA: expectedDreamhostCaRel,
+            DB_SSL_FINGERPRINT: expectedDreamhostServerPin
+          },
+          createPool() {
+            return {
+              async execute() {
+                tlsChainExecuteCalls += 1;
+                const e = new Error(
+                  `unable to verify the first certificate (auth=${secretPw}, url=${encodeURIComponent(secretPw)})`
+                );
+                e.code = 'UNABLE_TO_VERIFY_LEAF_SIGNATURE';
+                e.sqlMessage = `SSL handshake failed for ${secretPw}`;
+                throw e;
+              },
+              async end() {}
+            };
+          }
+        });
+        await tlsFailingStore.ready;
+      } catch (err) {
+        tlsChainErr = err;
+      }
+      apiOk(
+        Boolean(tlsChainErr) &&
+          tlsChainExecuteCalls === 1 &&
+          /certificate changed or could not be verified/i.test(tlsChainErr.message) &&
+          tlsChainErr.message.includes('DB_SSL_CA') &&
+          tlsChainErr.message.includes('DB_SSL_FINGERPRINT') &&
+          !tlsChainErr.message.includes(secretPw) &&
+          !tlsChainErr.message.includes(encodeURIComponent(secretPw)) &&
+          !String(tlsChainErr.stack || '').includes(secretPw) &&
+          !String(tlsChainErr.sqlMessage || '').includes(secretPw),
+        'TLS chain/pin failure produces a clear message naming DB_SSL_CA and DB_SSL_FINGERPRINT, never retries in plaintext, and strips DB_PASSWORD'
       );
 
       // Automatic .env loading helper & test isolation

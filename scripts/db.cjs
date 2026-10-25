@@ -3,8 +3,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const tls = require('node:tls');
 const { DatabaseSync } = require('node:sqlite');
 
+const PROJECT_ROOT = path.resolve(__dirname, '..');
 const MAX_EMAIL_VERIFY_ATTEMPTS = 5;
 
 function clampLimit(limit, fallback = 50) {
@@ -598,16 +600,121 @@ function openSqliteStore(file) {
 
 function redactPassword(err, password) {
   if (!err || typeof password !== 'string' || password.length === 0) return err;
+  const encoded = encodeURIComponent(password);
+  const needles = encoded && encoded !== password ? [password, encoded] : [password];
   for (const prop of ['message', 'stack', 'sqlMessage']) {
-    if (typeof err[prop] === 'string' && err[prop].includes(password)) {
-      err[prop] = err[prop].split(password).join('***');
+    if (typeof err[prop] === 'string') {
+      for (const needle of needles) {
+        if (needle.length > 0 && err[prop].includes(needle)) {
+          err[prop] = err[prop].split(needle).join('***');
+        }
+      }
     }
   }
   return err;
 }
 
-function wrapMysqlPool(rawPool, password) {
+const TLS_ERROR_CODES = new Set([
+  'ERR_MYSQL_CERT_PIN_MISMATCH',
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+  'SELF_SIGNED_CERT_IN_CHAIN',
+  'DEPTH_ZERO_SELF_SIGNED_CERT',
+  'CERT_HAS_EXPIRED',
+  'CERT_UNTRUSTED',
+  'ERR_TLS_CERT_ALTNAME_INVALID',
+  'HANDSHAKE_SSL_ERROR'
+]);
+
+const TLS_ERROR_PREFIX = 'MySQL TLS verification failed:';
+
+function formatTlsError(err, { caPath, fingerprint } = {}) {
+  if (!err || typeof err !== 'object') return err;
+  const code = String(err.code || '');
+  const msg = String(err.message || '');
+  const isTls =
+    TLS_ERROR_CODES.has(code) ||
+    /certificate|self[- ]signed|checkServerIdentity|SSL|TLS/i.test(msg);
+  if (!isTls) return err;
+  if (!msg.startsWith(TLS_ERROR_PREFIX)) {
+    const caLabel = caPath ? `DB_SSL_CA (${caPath})` : 'DB_SSL_CA';
+    const fpLabel = fingerprint ? `DB_SSL_FINGERPRINT (${fingerprint})` : 'DB_SSL_FINGERPRINT';
+    err.message = `${TLS_ERROR_PREFIX} the database certificate changed or could not be verified — check ${caLabel} and ${fpLabel}: ${msg}`;
+  }
+  return err;
+}
+
+function buildMysqlSslConfig({ options = {}, env = {} } = {}) {
+  const rawMode = String(options.dbSsl ?? env.DB_SSL ?? '').trim();
+  const mode = rawMode === '' ? 'verify' : rawMode.toLowerCase();
+  if (mode !== 'verify' && mode !== 'require' && mode !== 'off') {
+    throw new Error(`Invalid DB_SSL "${rawMode}": expected verify, require, or off`);
+  }
+  const warnings = [];
+  if (mode === 'off') {
+    warnings.push('[db] DB_SSL=off: the MySQL connection is UNENCRYPTED (plaintext).');
+    return { mode, ssl: null, caPath: null, fingerprint: null, warnings };
+  }
+  if (mode === 'require') {
+    warnings.push('[db] DB_SSL=require: the MySQL connection is encrypted but the server certificate is NOT verified.');
+    return { mode, ssl: { rejectUnauthorized: false }, caPath: null, fingerprint: null, warnings };
+  }
+
+  const rawCa = String(options.dbSslCa ?? env.DB_SSL_CA ?? '').trim();
+  if (!rawCa) {
+    throw new Error(
+      'DB_SSL=verify requires DB_SSL_CA (path to the MySQL server CA certificate PEM; relative paths resolve from the project root)'
+    );
+  }
+  const caPath = path.isAbsolute(rawCa) ? rawCa : path.resolve(PROJECT_ROOT, rawCa);
+  let caPem;
+  try {
+    caPem = fs.readFileSync(caPath, 'utf8');
+  } catch (readErr) {
+    throw new Error(`Cannot read the MySQL CA certificate from DB_SSL_CA (${rawCa}): ${readErr.message}`);
+  }
+  if (!caPem || !caPem.includes('BEGIN CERTIFICATE')) {
+    throw new Error(`Cannot read the MySQL CA certificate from DB_SSL_CA (${rawCa}): file does not contain a PEM certificate`);
+  }
+
+  const rawFp = String(options.dbSslFingerprint ?? env.DB_SSL_FINGERPRINT ?? '').trim();
+  let fingerprint = null;
+  if (rawFp !== '') {
+    if (!/^([0-9a-f]{2}:){31}[0-9a-f]{2}$/i.test(rawFp)) {
+      throw new Error(
+        `Invalid DB_SSL_FINGERPRINT "${rawFp}": expected 32 colon-separated hex bytes (sha256 of the server certificate)`
+      );
+    }
+    fingerprint = rawFp.toUpperCase();
+  }
+
+  const checkServerIdentity = fingerprint
+    ? (_host, cert) => {
+        const actual = String(cert?.fingerprint256 || '').toUpperCase();
+        if (actual === fingerprint) return undefined;
+        const err = new Error(
+          `${TLS_ERROR_PREFIX} the database server certificate changed or could not be verified — expected DB_SSL_FINGERPRINT ${fingerprint}, got ${actual || 'none'} (CA from DB_SSL_CA ${rawCa})`
+        );
+        err.code = 'ERR_MYSQL_CERT_PIN_MISMATCH';
+        return err;
+      }
+    : (host, cert) => tls.checkServerIdentity(host, cert);
+
+  return {
+    mode,
+    ssl: {
+      ca: caPem,
+      rejectUnauthorized: true,
+      checkServerIdentity
+    },
+    caPath: rawCa,
+    fingerprint,
+    warnings
+  };
+}
+
+function wrapMysqlPool(rawPool, password, tlsMeta = {}) {
   if (!rawPool) return rawPool;
+  const sanitize = err => redactPassword(formatTlsError(err, tlsMeta), password);
   const wrapConn = conn => {
     if (!conn || conn.__redactedWrapped) return conn;
     return new Proxy(conn, {
@@ -618,7 +725,7 @@ function wrapMysqlPool(rawPool, password) {
             try {
               return await target.execute(...args);
             } catch (err) {
-              throw redactPassword(err, password);
+              throw sanitize(err);
             }
           };
         }
@@ -635,7 +742,7 @@ function wrapMysqlPool(rawPool, password) {
           try {
             return await target.execute(...args);
           } catch (err) {
-            throw redactPassword(err, password);
+            throw sanitize(err);
           }
         };
       }
@@ -645,7 +752,7 @@ function wrapMysqlPool(rawPool, password) {
             const conn = await target.getConnection(...args);
             return wrapConn(conn);
           } catch (err) {
-            throw redactPassword(err, password);
+            throw sanitize(err);
           }
         };
       }
@@ -655,19 +762,32 @@ function wrapMysqlPool(rawPool, password) {
   });
 }
 
-function openMysqlStore({ host, port = 3306, user, password, database, pool: injectedPool, createPool } = {}) {
+function openMysqlStore({
+  host,
+  port = 3306,
+  user,
+  password,
+  database,
+  ssl = null,
+  sslMode = null,
+  sslCaPath = null,
+  sslFingerprint = null,
+  pool: injectedPool,
+  createPool
+} = {}) {
+  const tlsMeta = { sslMode, caPath: sslCaPath, fingerprint: sslFingerprint };
   let rawPool;
   try {
     rawPool =
       injectedPool ||
       (() => {
         const poolFactory = createPool || require('mysql2/promise').createPool;
-        return poolFactory({ host, port, user, password, database });
+        return poolFactory({ host, port, user, password, database, ...(ssl ? { ssl } : {}) });
       })();
   } catch (err) {
-    throw redactPassword(err, password);
+    throw redactPassword(formatTlsError(err, tlsMeta), password);
   }
-  const pool = wrapMysqlPool(rawPool, password);
+  const pool = wrapMysqlPool(rawPool, password, tlsMeta);
 
   async function migrate() {
     const ddl = [
@@ -1197,12 +1317,21 @@ function openStore(options = {}) {
       }
       port = parsedPort;
     }
+    const sslConfig = buildMysqlSslConfig({ options, env });
+    const warnFn = typeof options.warn === 'function' ? options.warn : console.warn;
+    for (const msg of sslConfig.warnings) {
+      warnFn(msg);
+    }
     return openMysqlStore({
       host: dbHost,
       port,
       user,
       password,
       database,
+      ssl: sslConfig.ssl,
+      sslMode: sslConfig.mode,
+      sslCaPath: sslConfig.caPath,
+      sslFingerprint: sslConfig.fingerprint,
       pool: options.mysqlPool,
       createPool: options.createPool
     });
@@ -1222,6 +1351,8 @@ module.exports = {
   openStore,
   openSqliteStore,
   openMysqlStore,
+  buildMysqlSslConfig,
+  formatTlsError,
   publicProfile,
   MAX_EMAIL_VERIFY_ATTEMPTS
 };
