@@ -256,11 +256,18 @@ async function exchangeOAuthCode(providerCfg, code, fetchImpl = globalThis.fetch
   const email = String(p.email || `${providerCfg.id}_${providerUserId}@oauth.local`).toLowerCase();
   const displayName = String(p.name || p.global_name || p.username || usernameHint);
   const avatar = String(p.picture || p.avatar_url || '');
+  let emailVerified = false;
+  if (providerCfg.id === 'google') {
+    emailVerified = p.email_verified === true;
+  } else if (providerCfg.id === 'discord') {
+    emailVerified = p.verified === true;
+  }
   return {
     provider: providerCfg.id,
     providerUserId,
     usernameHint,
     email,
+    emailVerified,
     displayName,
     avatar
   };

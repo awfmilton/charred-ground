@@ -57,8 +57,8 @@ vm.runInContext(test,context,{timeout:30000});
   };
 
   const mockOAuthProfiles = {
-    google: { sub: 'g-101', name: 'Google Commander', email: 'gcmd@example.com', picture: 'https://example.com/g.png' },
-    discord: { id: 'd-202', username: 'discord_cmd', email: 'dcmd@example.com' },
+    google: { sub: 'g-101', name: 'Google Commander', email: 'gcmd@example.com', email_verified: true, picture: 'https://example.com/g.png' },
+    discord: { id: 'd-202', username: 'discord_cmd', email: 'dcmd@example.com', verified: true },
     facebook: { id: 'f-303', name: 'FB Commander', email: 'fbcmd@example.com' },
     twitter: { data: { id: 't-404', username: 'x_cmd', name: 'X Commander' } }
   };
@@ -237,7 +237,113 @@ vm.runInContext(test,context,{timeout:30000});
       const startRes = await req(`/api/auth/oauth/${p}/start`);
       apiOk(startRes.status === 200 && startRes.data.state && startRes.data.authorizeUrl, `Configured ${p} start returns state and authorizeUrl`);
       const cbRes = await req(`/api/auth/oauth/${p}/callback?code=testcode&state=${encodeURIComponent(startRes.data.state)}`);
-      apiOk(cbRes.status === 200 && cbRes.data.token && cbRes.data.user.emailVerified, `Configured ${p} callback provisions/signs in user`);
+      const expectedVerified = p === 'google' || p === 'discord';
+      apiOk(
+        cbRes.status === 200 && cbRes.data.token && cbRes.data.user.emailVerified === expectedVerified,
+        `Configured ${p} callback provisions/signs in user (emailVerified=${expectedVerified})`
+      );
+    }
+
+    // 3b. OAuth pre-account takeover defenses:
+    // (i) Verified provider email linking to an unverified squatter account wipes squatter password, TOTP, and sessions
+    {
+      const origGoogleProfile = { ...mockOAuthProfiles.google };
+      try {
+        const squatterReg = await req('/api/auth/register', {
+          method: 'POST',
+          body: { username: 'squatter_victim', email: 'victim@example.com', password: 'SquatterPassword1!' }
+        });
+        apiOk(squatterReg.status === 201, 'Squatter registers victim@example.com (unverified)');
+
+        const squatterLogin = await req('/api/auth/login', {
+          method: 'POST',
+          body: { username: 'squatter_victim', password: 'SquatterPassword1!' }
+        });
+        apiOk(
+          squatterLogin.status === 200 && squatterLogin.data.token && squatterLogin.data.user.emailVerified === false,
+          'Squatter logs in to unverified victim@example.com account'
+        );
+        const squatterToken = squatterLogin.data.token;
+        const victimAccountId = squatterLogin.data.user.id;
+
+        const sqTotpSetup = await req('/api/auth/totp/setup', { method: 'POST', token: squatterToken });
+        const sqTotpEnable = await req('/api/auth/totp/enable', {
+          method: 'POST',
+          token: squatterToken,
+          body: { code: generateTotpCode(sqTotpSetup.data.secret) }
+        });
+        apiOk(sqTotpEnable.status === 200 && sqTotpEnable.data.totpEnabled === true, 'Squatter enables TOTP on unverified account');
+
+        mockOAuthProfiles.google = {
+          sub: 'g-victim-999',
+          name: 'Real Victim',
+          email: 'victim@example.com',
+          email_verified: true,
+          picture: 'https://example.com/victim.png'
+        };
+        const gStart = await req('/api/auth/oauth/google/start');
+        const gCb = await req(`/api/auth/oauth/google/callback?code=victimcode&state=${encodeURIComponent(gStart.data.state)}`);
+        apiOk(
+          gCb.status === 200 &&
+            gCb.data.user.id === victimAccountId &&
+            gCb.data.user.emailVerified === true &&
+            gCb.data.user.totpEnabled === false,
+          'Verified Google OAuth links to existing unverified account, marks verified, and disables squatter TOTP'
+        );
+
+        const squatterMeAfter = await req('/api/auth/me', { token: squatterToken });
+        apiOk(squatterMeAfter.status === 401, 'Squatter pre-existing session is invalidated upon verified OAuth link');
+
+        const squatterPassLoginAfter = await req('/api/auth/login', {
+          method: 'POST',
+          body: { username: 'squatter_victim', password: 'SquatterPassword1!' }
+        });
+        apiOk(squatterPassLoginAfter.status === 401, 'Squatter password login is rejected after verified OAuth takeover cleanup');
+
+        const storedVictim = await server.store.getUserById(victimAccountId);
+        apiOk(storedVictim.passwordHash === null && storedVictim.totpEnabled === false, 'Squatter passwordHash is cleared in store');
+      } finally {
+        mockOAuthProfiles.google = origGoogleProfile;
+      }
+    }
+
+    // (ii) Unverified provider email (e.g. Facebook or Google with email_verified:false) never links to existing account by email
+    {
+      const origFbProfile = { ...mockOAuthProfiles.facebook };
+      try {
+        const targetReg = await req('/api/auth/register', {
+          method: 'POST',
+          body: { username: 'target_owner', email: 'target@example.com', password: 'TargetPassword1!' }
+        });
+        apiOk(targetReg.status === 201, 'Target user registers target@example.com');
+        const targetUser = await server.store.getUserByEmail('target@example.com');
+
+        mockOAuthProfiles.facebook = {
+          id: 'fb-unverified-777',
+          name: 'FB Attacker',
+          email: 'target@example.com'
+        };
+        const fbStart = await req('/api/auth/oauth/facebook/start');
+        const fbCb = await req(`/api/auth/oauth/facebook/callback?code=fbcode&state=${encodeURIComponent(fbStart.data.state)}`);
+        apiOk(
+          fbCb.status === 200 &&
+            fbCb.data.user.id !== targetUser.id &&
+            fbCb.data.user.email === 'facebook_fb-unverified-777@oauth.local' &&
+            fbCb.data.user.emailVerified === false,
+          'Unverified provider email does not link to existing account and creates separate unverified account with fallback email'
+        );
+
+        const targetLogin = await req('/api/auth/login', {
+          method: 'POST',
+          body: { username: 'target_owner', password: 'TargetPassword1!' }
+        });
+        apiOk(
+          targetLogin.status === 200 && targetLogin.data.user.id === targetUser.id,
+          'Original target@example.com account remains untouched and can still log in with its password'
+        );
+      } finally {
+        mockOAuthProfiles.facebook = origFbProfile;
+      }
     }
 
     // 4. Profile update & custom fields boundary validation (max 2 fields, name <= 80, value <= 175)
@@ -724,6 +830,54 @@ vm.runInContext(test,context,{timeout:30000});
         'After 20 parallel wrong guesses, the correct verification code is refused with email_verify_invalidated'
       );
 
+      // Parallel burst of 30 guesses where index 20 carries the CORRECT code (after >= 5 wrong ones):
+      // at most 5 comparisons may happen per code, and the account must remain unverified.
+      // (Checked on Both SQLite and async MySQL store so requests concurrently enter the route before attempt #5 invalidates.)
+      const authMod = require('../scripts/auth.cjs');
+      const origVerifyEmailCodeHash = authMod.verifyEmailCodeHash;
+      let compareCalls = 0;
+      authMod.verifyEmailCodeHash = function (...args) {
+        compareCalls++;
+        return origVerifyEmailCodeHash.apply(this, args);
+      };
+      try {
+        const regBurst = await req('/api/auth/register', {
+          method: 'POST',
+          body: { username: 'burstcapuser', email: 'burstcap@example.com', password: 'Password123!' }
+        });
+        const burstValidCode = regBurst.data.devVerificationCode;
+        const origGetByUser = server.store.getUserByUsername.bind(server.store);
+        server.store.getUserByUsername = async (u) => {
+          const res = await origGetByUser(u);
+          if (String(u).toLowerCase() === 'burstcapuser') {
+            await new Promise(r => setImmediate(r));
+          }
+          return res;
+        };
+        try {
+          compareCalls = 0;
+          const burstResponses = await Promise.all(
+            Array.from({ length: 30 }, (_, idx) => {
+              const guess = idx === 20 ? burstValidCode : String((Number(burstValidCode) + idx + 1) % 900000 + 100000).padStart(6, '0');
+              return req('/api/auth/verify-email', {
+                method: 'POST',
+                body: { username: 'burstcapuser', code: guess }
+              });
+            })
+          );
+          const burstUserAfter = await origGetByUser('burstcapuser');
+          apiOk(
+            compareCalls === 5 &&
+              burstResponses.every(r => r.status === 400) &&
+              burstUserAfter.emailVerified === false,
+            `30-request parallel burst with valid code at index 20 performs at most 5 hash comparisons (got ${compareCalls}) and leaves account unverified`
+          );
+        } finally {
+          server.store.getUserByUsername = origGetByUser;
+        }
+      } finally {
+        authMod.verifyEmailCodeHash = origVerifyEmailCodeHash;
+      }
       // Resend-code per-account rate limit (max 3 per window)
       const resend1 = await req('/api/auth/resend-code', { method: 'POST', body: { username: 'racecapuser' } });
       const resend2 = await req('/api/auth/resend-code', { method: 'POST', body: { username: 'racecapuser' } });
@@ -1065,8 +1219,11 @@ vm.runInContext(test,context,{timeout:30000});
             return [{ affectedRows: u ? 1 : 0 }, []];
           }
           if (norm.startsWith('UPDATE users SET email_verify_attempts = email_verify_attempts + 1')) {
-            const [now, id] = params;
-            const u = tables.users.find(r => r.id === id && r.email_verify_hash !== null);
+            const [now, id, maxAttempts] = params;
+            const cap = maxAttempts !== undefined ? Number(maxAttempts) : 5;
+            const u = tables.users.find(
+              r => r.id === id && r.email_verify_hash !== null && Number(r.email_verify_attempts || 0) < cap
+            );
             if (u) {
               u.email_verify_attempts = Number(u.email_verify_attempts || 0) + 1;
               u.updated_at = now;
@@ -1113,6 +1270,12 @@ vm.runInContext(test,context,{timeout:30000});
             if (u) { u.totp_enabled = 0; u.totp_secret = null; u.updated_at = now; }
             return [{ affectedRows: u ? 1 : 0 }, []];
           }
+          if (norm.startsWith('UPDATE users SET password_hash = NULL')) {
+            const [now, id] = params;
+            const u = tables.users.find(r => r.id === id);
+            if (u) { u.password_hash = null; u.updated_at = now; }
+            return [{ affectedRows: u ? 1 : 0 }, []];
+          }
           if (norm.startsWith('INSERT INTO sessions')) {
             const [token_hash, user_id, expires_at, created_at] = params;
             tables.sessions.push({ token_hash, user_id, expires_at, created_at });
@@ -1123,6 +1286,10 @@ vm.runInContext(test,context,{timeout:30000});
           }
           if (norm === 'DELETE FROM sessions WHERE token_hash = ?') {
             tables.sessions = tables.sessions.filter(s => s.token_hash !== params[0]);
+            return [{ affectedRows: 1 }, []];
+          }
+          if (norm === 'DELETE FROM sessions WHERE user_id = ?') {
+            tables.sessions = tables.sessions.filter(s => s.user_id !== params[0]);
             return [{ affectedRows: 1 }, []];
           }
           if (norm.startsWith('INSERT INTO matches')) {
@@ -1265,9 +1432,15 @@ vm.runInContext(test,context,{timeout:30000});
 
       await mysqlStore.setEmailVerificationCode(u1.id, 'codehash123', new Date(Date.now() + 60000).toISOString());
       for (let i = 1; i <= 5; i++) {
-        const resAttempt = await mysqlStore.recordFailedEmailVerifyAttempt(u1.id);
-        if (i === 5) apiOk(resAttempt.invalidated === true && !resAttempt.user.emailVerifyHash, 'MySQL adapter invalidates email code on 5th failed attempt');
+        const resAttempt = await mysqlStore.countEmailVerifyAttempt(u1.id);
+        apiOk(resAttempt.counted === true && resAttempt.attempts === i, `MySQL adapter countEmailVerifyAttempt counts attempt ${i}`);
       }
+      const sixthAttempt = await mysqlStore.countEmailVerifyAttempt(u1.id);
+      const invalidatedU1 = await mysqlStore.invalidateEmailVerificationCode(u1.id);
+      apiOk(
+        sixthAttempt.counted === false && sixthAttempt.attempts === 5 && !invalidatedU1.emailVerifyHash,
+        'MySQL adapter refuses 6th attempt (counted=false) and invalidateEmailVerificationCode nulls hash'
+      );
       await mysqlStore.setEmailVerificationCode(u1.id, 'codehash456', new Date(Date.now() + 60000).toISOString());
       const verifiedU1 = await mysqlStore.verifyEmailCode(u1.id);
       apiOk(verifiedU1.emailVerified === true, 'MySQL adapter verifyEmailCode marks user verified');

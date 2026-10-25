@@ -303,25 +303,28 @@ function openSqliteStore(file) {
       return this.getUserById(userId);
     },
 
-    recordFailedEmailVerifyAttempt(userId) {
+    countEmailVerifyAttempt(userId) {
       const now = nowIso();
       const inc = db.prepare(`
         UPDATE users
         SET email_verify_attempts = email_verify_attempts + 1, updated_at = ?
-        WHERE id = ? AND email_verify_hash IS NOT NULL
-      `).run(now, userId);
+        WHERE id = ? AND email_verify_hash IS NOT NULL AND email_verify_attempts < ?
+      `).run(now, userId, MAX_EMAIL_VERIFY_ATTEMPTS);
       const user = this.getUserById(userId);
-      if (!user) return { attempts: 0, invalidated: true, user: null };
+      if (!user) return { counted: false, attempts: 0, user: null };
+      const counted = Number(inc.changes || 0) === 1;
       const attempts = Number(user.emailVerifyAttempts || 0);
-      const invalidated = Number(inc.changes || 0) === 0 || attempts >= MAX_EMAIL_VERIFY_ATTEMPTS || !user.emailVerifyHash;
-      if (invalidated) {
-        db.prepare(`
-          UPDATE users
-          SET email_verify_hash = NULL, email_verify_expires_at = NULL, updated_at = ?
-          WHERE id = ?
-        `).run(now, userId);
-      }
-      return { attempts, invalidated, user: this.getUserById(userId) };
+      return { counted, attempts, user };
+    },
+
+    invalidateEmailVerificationCode(userId) {
+      const now = nowIso();
+      db.prepare(`
+        UPDATE users
+        SET email_verify_hash = NULL, email_verify_expires_at = NULL, updated_at = ?
+        WHERE id = ?
+      `).run(now, userId);
+      return this.getUserById(userId);
     },
 
     verifyEmailCode(userId) {
@@ -356,6 +359,19 @@ function openSqliteStore(file) {
         UPDATE users SET totp_enabled = 0, totp_secret = NULL, updated_at = ? WHERE id = ?
       `).run(now, userId);
       return this.getUserById(userId);
+    },
+
+    clearPasswordHash(userId) {
+      const now = nowIso();
+      db.prepare(`
+        UPDATE users SET password_hash = NULL, updated_at = ? WHERE id = ?
+      `).run(now, userId);
+      return this.getUserById(userId);
+    },
+
+    deleteSessionsForUser(userId) {
+      if (!userId) return;
+      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
     },
 
     createSession({ tokenHash, userId, expiresAt }) {
@@ -768,31 +784,30 @@ function openMysqlStore({ databaseUrl, pool: injectedPool } = {}) {
       return this.getUserById(userId);
     },
 
-    async recordFailedEmailVerifyAttempt(userId) {
+    async countEmailVerifyAttempt(userId) {
       const now = nowIso();
       const [incResult] = await pool.execute(
         `UPDATE users
          SET email_verify_attempts = email_verify_attempts + 1, updated_at = ?
-         WHERE id = ? AND email_verify_hash IS NOT NULL`,
-        [now, userId]
+         WHERE id = ? AND email_verify_hash IS NOT NULL AND email_verify_attempts < ?`,
+        [now, userId, MAX_EMAIL_VERIFY_ATTEMPTS]
       );
       const user = await this.getUserById(userId);
-      if (!user) return { attempts: 0, invalidated: true, user: null };
+      if (!user) return { counted: false, attempts: 0, user: null };
+      const counted = Number(incResult?.affectedRows || 0) === 1;
       const attempts = Number(user.emailVerifyAttempts || 0);
-      const invalidated =
-        Number(incResult?.affectedRows || 0) === 0 ||
-        attempts >= MAX_EMAIL_VERIFY_ATTEMPTS ||
-        !user.emailVerifyHash;
-      if (invalidated) {
-        await pool.execute(
-          `UPDATE users
-           SET email_verify_hash = NULL, email_verify_expires_at = NULL, updated_at = ?
-           WHERE id = ?`,
-          [now, userId]
-        );
-      }
-      const updated = await this.getUserById(userId);
-      return { attempts, invalidated, user: updated };
+      return { counted, attempts, user };
+    },
+
+    async invalidateEmailVerificationCode(userId) {
+      const now = nowIso();
+      await pool.execute(
+        `UPDATE users
+         SET email_verify_hash = NULL, email_verify_expires_at = NULL, updated_at = ?
+         WHERE id = ?`,
+        [now, userId]
+      );
+      return this.getUserById(userId);
     },
 
     async verifyEmailCode(userId) {
@@ -831,6 +846,20 @@ function openMysqlStore({ databaseUrl, pool: injectedPool } = {}) {
         [now, userId]
       );
       return this.getUserById(userId);
+    },
+
+    async clearPasswordHash(userId) {
+      const now = nowIso();
+      await pool.execute(
+        'UPDATE users SET password_hash = NULL, updated_at = ? WHERE id = ?',
+        [now, userId]
+      );
+      return this.getUserById(userId);
+    },
+
+    async deleteSessionsForUser(userId) {
+      if (!userId) return;
+      await pool.execute('DELETE FROM sessions WHERE user_id = ?', [userId]);
     },
 
     async createSession({ tokenHash, userId, expiresAt }) {

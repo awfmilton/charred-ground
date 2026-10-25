@@ -536,8 +536,8 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
           return true;
         }
         // Count the attempt atomically FIRST before comparing the code
-        const attempt = await store.recordFailedEmailVerifyAttempt(user.id);
-        if (attempt.attempts > 5 || (attempt.invalidated && attempt.attempts !== 5)) {
+        const attempt = await store.countEmailVerifyAttempt(user.id);
+        if (!attempt.counted || attempt.attempts > 5) {
           json(res, 400, {
             code: 'email_verify_invalidated',
             error: 'Too many wrong attempts. Your verification code has been invalidated; request a new code.'
@@ -546,7 +546,8 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
         }
         const check = auth.verifyEmailCodeHash(code, user.emailVerifyHash, user.emailVerifyExpiresAt);
         if (!check.ok) {
-          if (attempt.invalidated || attempt.attempts >= 5) {
+          if (attempt.attempts >= 5) {
+            await store.invalidateEmailVerificationCode(user.id);
             json(res, 400, {
               code: 'email_verify_invalidated',
               error: 'Too many wrong attempts. Your verification code has been invalidated; request a new code.'
@@ -827,9 +828,12 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
         oauthStateMap.delete(state);
 
         const oauthProfile = await auth.exchangeOAuthCode(cfg, code, fetchImpl);
+        const providerEmailVerified = oauthProfile.emailVerified === true;
         let user = await store.getUserByOAuth(cfg.id, oauthProfile.providerUserId);
-        if (!user) {
+        let linkedByEmail = false;
+        if (!user && providerEmailVerified) {
           user = await store.getUserByEmail(oauthProfile.email);
+          if (user) linkedByEmail = true;
         }
         if (!user) {
           let baseUsername = sanitizeUsername(oauthProfile.usernameHint);
@@ -847,11 +851,15 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
             username: candidate,
             email: emailCandidate,
             passwordHash: null,
-            emailVerified: true,
+            emailVerified: providerEmailVerified,
             displayName: oauthProfile.displayName || candidate,
             avatar: oauthProfile.avatar || ''
           });
-        } else if (!user.emailVerified) {
+        } else if (!user.emailVerified && providerEmailVerified) {
+          await store.clearPasswordHash(user.id);
+          await store.disableTotp(user.id);
+          clearTotpAttempts(user.id);
+          await store.deleteSessionsForUser(user.id);
           user = await store.verifyEmailCode(user.id);
         }
         await store.linkOAuthAccount({
