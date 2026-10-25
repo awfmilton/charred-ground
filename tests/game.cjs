@@ -1161,11 +1161,12 @@ vm.runInContext(test,context,{timeout:30000});
       apiOk(/^DB_HOST=\s*$/m.test(envExample), '.env.example documents DB_HOST= with an empty placeholder');
       apiOk(/^DB_PORT=3306\s*$/m.test(envExample), '.env.example documents DB_PORT=3306 default');
       apiOk(/^DB_USER=\s*$/m.test(envExample), '.env.example documents DB_USER= with an empty placeholder');
-      apiOk(/^DB_PASSWORD=\s*$/m.test(envExample), '.env.example documents DB_PASSWORD= with an empty placeholder');
+      apiOk(/^DB_PASSWORD=''\s*$/m.test(envExample), ".env.example documents DB_PASSWORD='' with an empty quoted placeholder");
       apiOk(/^DB_NAME=\s*$/m.test(envExample), '.env.example documents DB_NAME= with an empty placeholder');
       apiOk(
-        /#.*paste the password exactly as it is,\s*quotes are not needed\r?\nDB_PASSWORD=/i.test(envExample),
-        '.env.example DB_PASSWORD comment states to paste the password exactly as it is, quotes are not needed'
+        /#.*paste it between single quotes, exactly as it is[^\n]*\r?\n#[^\n]*\r?\nDB_PASSWORD=''/i.test(envExample) &&
+          require('node:util').parseEnv("DB_PASSWORD='p#ss w0rd'").DB_PASSWORD === 'p#ss w0rd',
+        '.env.example DB_PASSWORD says to single-quote the password, and a single-quoted # survives .env parsing'
       );
       apiOk(/^TRUST_PROXY=\s*$/m.test(envExample), '.env.example documents TRUST_PROXY= with an empty placeholder');
 
