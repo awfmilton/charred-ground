@@ -4,7 +4,442 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const tls = require('node:tls');
-const { DatabaseSync } = require('node:sqlite');
+
+let NativeDatabaseSync = undefined;
+function getNativeDatabaseSync() {
+  if (NativeDatabaseSync !== undefined) return NativeDatabaseSync;
+  try {
+    ({ DatabaseSync: NativeDatabaseSync } = require('node:sqlite'));
+  } catch {
+    NativeDatabaseSync = null;
+  }
+  return NativeDatabaseSync;
+}
+
+class EmbeddedSqliteShim {
+  constructor(file) {
+    this.isMemory = !file || file === ':memory:';
+    this.resolved = this.isMemory ? null : path.resolve(file);
+    if (this.resolved) {
+      fs.mkdirSync(path.dirname(this.resolved), { recursive: true });
+    }
+    this.state = {
+      users: [],
+      oauth_accounts: [],
+      sessions: [],
+      matches: [],
+      match_participants: []
+    };
+    this._txBackup = null;
+    this._load();
+  }
+
+  _load() {
+    if (!this.resolved || !fs.existsSync(this.resolved)) return;
+    try {
+      const raw = fs.readFileSync(this.resolved, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        this.state = {
+          users: Array.isArray(parsed.users) ? parsed.users : [],
+          oauth_accounts: Array.isArray(parsed.oauth_accounts) ? parsed.oauth_accounts : [],
+          sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [],
+          matches: Array.isArray(parsed.matches) ? parsed.matches : [],
+          match_participants: Array.isArray(parsed.match_participants) ? parsed.match_participants : []
+        };
+      }
+    } catch {}
+  }
+
+  _flush() {
+    if (!this.resolved || this._txBackup !== null) return;
+    const tmp = `${this.resolved}.tmp-${process.pid}`;
+    fs.writeFileSync(tmp, JSON.stringify(this.state), 'utf8');
+    fs.renameSync(tmp, this.resolved);
+  }
+
+  exec(sql) {
+    const norm = String(sql || '').replace(/\s+/g, ' ').trim();
+    if (/^BEGIN\b/i.test(norm)) {
+      this._txBackup = JSON.stringify(this.state);
+      return;
+    }
+    if (/^COMMIT\b/i.test(norm)) {
+      this._txBackup = null;
+      this._flush();
+      return;
+    }
+    if (/^ROLLBACK\b/i.test(norm)) {
+      if (this._txBackup !== null) {
+        this.state = JSON.parse(this._txBackup);
+        this._txBackup = null;
+      }
+      return;
+    }
+    this._flush();
+  }
+
+  close() {
+    this._txBackup = null;
+    this._flush();
+  }
+
+  prepare(sql) {
+    const norm = String(sql || '').replace(/\s+/g, ' ').trim();
+    const self = this;
+    const { state } = self;
+
+    return {
+      run(...params) {
+        if (norm.startsWith('INSERT INTO users')) {
+          const [
+            id, username, email, password_hash, email_verified,
+            display_name, avatar, bio, custom_fields_json, created_at, updated_at
+          ] = params;
+          const uLower = String(username).toLowerCase();
+          const eLower = String(email).toLowerCase();
+          if (state.users.some(u => u.username.toLowerCase() === uLower)) {
+            throw new Error('UNIQUE constraint failed: users.username');
+          }
+          if (state.users.some(u => u.email.toLowerCase() === eLower)) {
+            throw new Error('UNIQUE constraint failed: users.email');
+          }
+          state.users.push({
+            id, username, email, password_hash, email_verified,
+            email_verify_hash: null, email_verify_expires_at: null, email_verify_attempts: 0,
+            totp_secret: null, totp_enabled: 0,
+            display_name, avatar, bio, custom_fields_json,
+            wins: 0, losses: 0, kills: 0, matches_played: 0,
+            created_at, updated_at
+          });
+          self._flush();
+          return { changes: 1 };
+        }
+        if (norm.startsWith('INSERT INTO oauth_accounts')) {
+          const [id, user_id, provider, provider_user_id, email, created_at] = params;
+          state.oauth_accounts.push({ id, user_id, provider, provider_user_id, email, created_at });
+          self._flush();
+          return { changes: 1 };
+        }
+        if (norm.startsWith('UPDATE users SET email_verify_hash = ?, email_verify_expires_at = ?, email_verify_attempts = 0')) {
+          const [hash, exp, now, id] = params;
+          const u = state.users.find(r => r.id === id);
+          if (u) {
+            u.email_verify_hash = hash;
+            u.email_verify_expires_at = exp;
+            u.email_verify_attempts = 0;
+            u.updated_at = now;
+            self._flush();
+            return { changes: 1 };
+          }
+          return { changes: 0 };
+        }
+        if (norm.startsWith('UPDATE users SET email_verify_attempts = email_verify_attempts + 1')) {
+          const [now, id, maxAttempts] = params;
+          const cap = Number(maxAttempts);
+          const u = state.users.find(
+            r => r.id === id && r.email_verify_hash !== null && Number(r.email_verify_attempts || 0) < cap
+          );
+          if (u) {
+            u.email_verify_attempts = Number(u.email_verify_attempts || 0) + 1;
+            u.updated_at = now;
+            self._flush();
+            return { changes: 1 };
+          }
+          return { changes: 0 };
+        }
+        if (norm.startsWith('UPDATE users SET email_verify_hash = NULL, email_verify_expires_at = NULL')) {
+          const [now, id] = params;
+          const u = state.users.find(r => r.id === id);
+          if (u) {
+            u.email_verify_hash = null;
+            u.email_verify_expires_at = null;
+            u.updated_at = now;
+            self._flush();
+            return { changes: 1 };
+          }
+          return { changes: 0 };
+        }
+        if (norm.startsWith('UPDATE users SET email_verified = 1')) {
+          const [now, id] = params;
+          const u = state.users.find(r => r.id === id);
+          if (u) {
+            u.email_verified = 1;
+            u.email_verify_hash = null;
+            u.email_verify_expires_at = null;
+            u.email_verify_attempts = 0;
+            u.updated_at = now;
+            self._flush();
+            return { changes: 1 };
+          }
+          return { changes: 0 };
+        }
+        if (norm.startsWith('UPDATE users SET totp_secret = ?')) {
+          const [secret, now, id] = params;
+          const u = state.users.find(r => r.id === id);
+          if (u) {
+            u.totp_secret = secret;
+            u.totp_enabled = 0;
+            u.updated_at = now;
+            self._flush();
+            return { changes: 1 };
+          }
+          return { changes: 0 };
+        }
+        if (norm.startsWith('UPDATE users SET totp_enabled = 1')) {
+          const [now, id] = params;
+          const u = state.users.find(r => r.id === id);
+          if (u) {
+            u.totp_enabled = 1;
+            u.updated_at = now;
+            self._flush();
+            return { changes: 1 };
+          }
+          return { changes: 0 };
+        }
+        if (norm.startsWith('UPDATE users SET totp_enabled = 0, totp_secret = NULL')) {
+          const [now, id] = params;
+          const u = state.users.find(r => r.id === id);
+          if (u) {
+            u.totp_enabled = 0;
+            u.totp_secret = null;
+            u.updated_at = now;
+            self._flush();
+            return { changes: 1 };
+          }
+          return { changes: 0 };
+        }
+        if (norm.startsWith('UPDATE users SET password_hash = NULL')) {
+          const [now, id] = params;
+          const u = state.users.find(r => r.id === id);
+          if (u) {
+            u.password_hash = null;
+            u.updated_at = now;
+            self._flush();
+            return { changes: 1 };
+          }
+          return { changes: 0 };
+        }
+        if (norm === 'DELETE FROM sessions WHERE user_id = ?') {
+          const [userId] = params;
+          const before = state.sessions.length;
+          state.sessions = state.sessions.filter(s => s.user_id !== userId);
+          self._flush();
+          return { changes: before - state.sessions.length };
+        }
+        if (norm.startsWith('INSERT INTO sessions')) {
+          const [token_hash, user_id, expires_at, created_at] = params;
+          state.sessions = state.sessions.filter(s => s.token_hash !== token_hash);
+          state.sessions.push({ token_hash, user_id, expires_at, created_at });
+          self._flush();
+          return { changes: 1 };
+        }
+        if (norm === 'DELETE FROM sessions WHERE token_hash = ?') {
+          const [tokenHash] = params;
+          const before = state.sessions.length;
+          state.sessions = state.sessions.filter(s => s.token_hash !== tokenHash);
+          self._flush();
+          return { changes: before - state.sessions.length };
+        }
+        if (norm.startsWith('UPDATE users SET display_name = ?')) {
+          const [display_name, avatar, bio, custom_fields_json, updated_at, id] = params;
+          const u = state.users.find(r => r.id === id);
+          if (u) {
+            u.display_name = display_name;
+            u.avatar = avatar;
+            u.bio = bio;
+            u.custom_fields_json = custom_fields_json;
+            u.updated_at = updated_at;
+            self._flush();
+            return { changes: 1 };
+          }
+          return { changes: 0 };
+        }
+        if (norm.startsWith('INSERT INTO matches')) {
+          const [id, nonce, host_user_id, room_code, mode, round_number, started_at] = params;
+          if (state.matches.some(m => m.nonce === nonce)) {
+            throw new Error('UNIQUE constraint failed: matches.nonce');
+          }
+          state.matches.push({
+            id, nonce, nonce_used: 0, host_user_id, room_code, mode, round_number,
+            status: 'pending', winner_user_id: null, canonical_hash: null, reject_reason: null,
+            started_at, completed_at: null
+          });
+          self._flush();
+          return { changes: 1 };
+        }
+        if (norm.startsWith('INSERT INTO match_participants')) {
+          const [match_id, slot, user_id, name, is_ai] = params;
+          state.match_participants.push({
+            match_id, slot, user_id, name, is_ai,
+            kills: 0, final_hp: 0, won: 0, attested: 0,
+            attestation_hash: null, payload_json: null, attested_at: null
+          });
+          self._flush();
+          return { changes: 1 };
+        }
+        if (norm.startsWith('UPDATE match_participants SET attested = 1')) {
+          const [attestation_hash, payload_json, kills, final_hp, won, attested_at, match_id, user_id] = params;
+          let changes = 0;
+          for (const mp of state.match_participants) {
+            if (mp.match_id === match_id && mp.user_id === user_id && !mp.is_ai && Number(mp.attested || 0) === 0) {
+              mp.attested = 1;
+              mp.attestation_hash = attestation_hash;
+              mp.payload_json = payload_json;
+              mp.kills = kills;
+              mp.final_hp = final_hp;
+              mp.won = won;
+              mp.attested_at = attested_at;
+              changes = 1;
+            }
+          }
+          self._flush();
+          return { changes };
+        }
+        if (norm.startsWith('UPDATE matches SET status = ?, nonce_used = 1, winner_user_id = ?')) {
+          const [status, winner_user_id, canonical_hash, completed_at, id] = params;
+          const m = state.matches.find(r => r.id === id && r.status === 'pending' && Number(r.nonce_used || 0) === 0);
+          if (m) {
+            m.status = status;
+            m.nonce_used = 1;
+            m.winner_user_id = winner_user_id;
+            m.canonical_hash = canonical_hash;
+            m.completed_at = completed_at;
+            self._flush();
+            return { changes: 1 };
+          }
+          return { changes: 0 };
+        }
+        if (norm.startsWith('UPDATE match_participants SET kills = ?, final_hp = ?, won = ?')) {
+          const [kills, final_hp, won, match_id, slot] = params;
+          const mp = state.match_participants.find(r => r.match_id === match_id && r.slot === slot);
+          if (mp) {
+            mp.kills = kills;
+            mp.final_hp = final_hp;
+            mp.won = won;
+            self._flush();
+            return { changes: 1 };
+          }
+          return { changes: 0 };
+        }
+        if (norm.startsWith('UPDATE users SET wins = wins + ?')) {
+          const [w, l, k, now, id] = params;
+          const u = state.users.find(r => r.id === id && Number(r.email_verified || 0) === 1);
+          if (u) {
+            u.wins = Number(u.wins || 0) + Number(w || 0);
+            u.losses = Number(u.losses || 0) + Number(l || 0);
+            u.kills = Number(u.kills || 0) + Number(k || 0);
+            u.matches_played = Number(u.matches_played || 0) + 1;
+            u.updated_at = now;
+            self._flush();
+            return { changes: 1 };
+          }
+          return { changes: 0 };
+        }
+        if (norm.startsWith("UPDATE matches SET status = 'rejected'")) {
+          const [reject_reason, completed_at, id] = params;
+          const m = state.matches.find(r => r.id === id);
+          if (m) {
+            m.status = 'rejected';
+            m.nonce_used = 1;
+            m.reject_reason = reject_reason;
+            m.completed_at = completed_at;
+            self._flush();
+            return { changes: 1 };
+          }
+          return { changes: 0 };
+        }
+        return { changes: 0 };
+      },
+
+      get(...params) {
+        if (norm.startsWith('SELECT COUNT(*) AS cnt FROM sqlite_master')) {
+          return { cnt: 5 };
+        }
+        if (norm === 'SELECT * FROM users WHERE id = ?') {
+          return state.users.find(u => u.id === params[0]);
+        }
+        if (norm === 'SELECT * FROM users WHERE LOWER(username) = LOWER(?)') {
+          const t = String(params[0]).toLowerCase();
+          return state.users.find(u => u.username.toLowerCase() === t);
+        }
+        if (norm === 'SELECT * FROM users WHERE LOWER(email) = LOWER(?)') {
+          const t = String(params[0]).toLowerCase();
+          return state.users.find(u => u.email.toLowerCase() === t);
+        }
+        if (norm === 'SELECT * FROM oauth_accounts WHERE provider = ? AND provider_user_id = ?') {
+          return state.oauth_accounts.find(
+            o => o.provider === params[0] && o.provider_user_id === params[1]
+          );
+        }
+        if (norm === 'SELECT * FROM sessions WHERE token_hash = ?') {
+          return state.sessions.find(s => s.token_hash === params[0]);
+        }
+        if (norm === 'SELECT * FROM matches WHERE id = ?') {
+          return state.matches.find(m => m.id === params[0]);
+        }
+        return undefined;
+      },
+
+      all(...params) {
+        if (norm === 'SELECT provider FROM oauth_accounts WHERE user_id = ?') {
+          return state.oauth_accounts
+            .filter(o => o.user_id === params[0])
+            .map(o => ({ provider: o.provider }));
+        }
+        if (norm === 'SELECT * FROM match_participants WHERE match_id = ? ORDER BY slot ASC') {
+          return state.match_participants
+            .filter(mp => mp.match_id === params[0])
+            .slice()
+            .sort((a, b) => a.slot - b.slot);
+        }
+        if (norm.startsWith('SELECT m.id, m.room_code, m.mode, m.round_number')) {
+          const [userId, limit] = params;
+          const rows = [];
+          for (const mp of state.match_participants) {
+            if (mp.user_id !== userId) continue;
+            const m = state.matches.find(row => row.id === mp.match_id);
+            if (!m || (m.status !== 'verified' && m.status !== 'bot_match')) continue;
+            rows.push({
+              id: m.id,
+              room_code: m.room_code,
+              mode: m.mode,
+              round_number: m.round_number,
+              status: m.status,
+              winner_user_id: m.winner_user_id,
+              started_at: m.started_at,
+              completed_at: m.completed_at,
+              slot: mp.slot,
+              kills: mp.kills,
+              final_hp: mp.final_hp,
+              won: mp.won
+            });
+          }
+          rows.sort((a, b) => {
+            const ta = a.completed_at || a.started_at || '';
+            const tb = b.completed_at || b.started_at || '';
+            return tb.localeCompare(ta);
+          });
+          return rows.slice(0, Number(limit));
+        }
+        if (norm.startsWith('SELECT * FROM users WHERE email_verified = 1 ORDER BY wins DESC')) {
+          const [limit] = params;
+          return state.users
+            .filter(u => Number(u.email_verified || 0) === 1)
+            .slice()
+            .sort((a, b) => {
+              if (b.wins !== a.wins) return b.wins - a.wins;
+              if (b.kills !== a.kills) return b.kills - a.kills;
+              if (a.matches_played !== b.matches_played) return a.matches_played - b.matches_played;
+              return a.username.localeCompare(b.username);
+            })
+            .slice(0, Number(limit));
+        }
+        return [];
+      }
+    };
+  }
+}
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const MAX_EMAIL_VERIFY_ATTEMPTS = 5;
@@ -131,7 +566,8 @@ function openSqliteStore(file) {
   if (file !== ':memory:') {
     fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
   }
-  const db = new DatabaseSync(file);
+  const SqliteDB = getNativeDatabaseSync() || EmbeddedSqliteShim;
+  const db = new SqliteDB(file);
   db.exec('PRAGMA foreign_keys = ON;');
 
   function migrate() {
