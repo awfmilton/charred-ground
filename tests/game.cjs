@@ -5,7 +5,7 @@ source=source.slice(0,source.indexOf('for(let i=0;i<6;i++){let d=document.create
 const store=new Map(),localStorage={getItem:k=>store.has(k)?store.get(k):null,setItem:(k,v)=>store.set(k,String(v)),removeItem:k=>store.delete(k)};
 const elements=new Map();function element(){const cl=new Set(['hidden']);return {value:'',checked:true,classList:{contains:c=>cl.has(c),add:c=>cl.add(c),remove:c=>cl.delete(c),toggle:(c,f)=>f===undefined?(cl.has(c)?cl.delete(c):cl.add(c)):(f?cl.add(c):cl.delete(c))},style:{},replaceChildren(){},appendChild(){},append(){},textContent:'',remove(){},setAttribute(){}}}
 const document={body:element(),getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id)},createElement:element,querySelectorAll:()=>[],hidden:false};
-const context={console,innerWidth:1280,innerHeight:720,THREE:require('three'),document,window:{localStorage},localStorage,setTimeout,clearTimeout,performance,crypto:require('crypto').webcrypto,requestAnimationFrame(){}};
+const context={console,htmlSource:fs.readFileSync('index.html','utf8'),innerWidth:1280,innerHeight:720,THREE:require('three'),document,window:{localStorage},localStorage,setTimeout,clearTimeout,performance,crypto:require('crypto').webcrypto,requestAnimationFrame(){}};
 vm.createContext(context);vm.runInContext(source,context);
 const test=`
 let checks=0;function ok(value,message){if(!value)throw Error(message);checks++}
@@ -21,7 +21,32 @@ setup();impact({name:'Nuke',x:140,y:20,z:0,owner:0});ok(S.tanks[1].hp===0,'Nuke 
 setup();for(let boundary of ['Concrete','Rubber','Spring','Wrap-Around']){S.wall=boundary;let p={x:-2,z:0,vx:-10};let gone=wall(p);ok(boundary==='Concrete'?gone:!gone,'Wall mode '+boundary);if(boundary==='Spring')ok(p.vx===13,'Spring amplification');if(boundary==='Wrap-Around')ok(p.x>239,'Wrapping');}
 setup();t=current();t.y=50;t.inv.Parachute=1;for(let i=0;i<400;i++)step(1/60);ok(t.hp===100&&t.inv.Parachute===0,'Parachute prevents fall damage');
 setup();t=current();t.y=50;t.inv.Parachute=0;for(let i=0;i<180;i++)step(1/60);ok(t.hp<100,'Unprotected fall damages');
-setup();let estimateResult=estimate(current(),S.tanks[1]);ok(estimateResult.error<5,'Heuristic hits within five meters');
+setup();S.cfg.difficulty='Hard';let estimateResult=estimate(current(),S.tanks[1]);ok(estimateResult.error<15,'Hard heuristic initial estimate within 15m');
+{
+  const htmlMenu=htmlSource;
+  ok(htmlMenu.includes('<option value="Easy">Easy</option><option value="Normal" selected>Normal</option><option value="Hard">Hard</option>'),'Menu difficulty select has Easy/Normal/Hard with Normal selected by default');
+  let pEasy=aiProfile('Easy'),pNorm=aiProfile('Normal'),pHard=aiProfile('Hard');
+  ok(pEasy.rangeErr>pNorm.rangeErr&&pNorm.rangeErr>pHard.rangeErr&&pEasy.learn<pNorm.learn&&pNorm.learn<pHard.learn,'Difficulty profiles order error and learning rate Easy -> Normal -> Hard');
+  let runBracketing=(diff)=>{
+    setup();S.cfg.difficulty=diff;S.wind=7.5;seed=4242;
+    let bot=S.tanks[0],target=S.tanks[1];bot.ai=true;bot.x=40;target.x=210;target.hp=100;target.shield=180;
+    let misses=[];
+    for(let s=0;s<3;s++){
+      S.turn=0;S.phase='aim';S.actionsLeft=2;target.hp=100;target.shield=180;
+      let est=estimate(bot,target);
+      bot.aiPlan={targetId:target.id,targetX:target.x,angle:est.angle,power:est.power,biasRange:est.biasRange,biasWind:est.biasWind};
+      ok(action({action:'fire',weaponOrItem:'Baby Missile',angle:est.angle,power:est.power,az:0},0),'AI shot '+s+' valid action on '+diff);
+      for(let i=0;i<600&&S.phase==='flight';i++)step(1/60);
+      let mem=bot.aiMem?.[target.id];
+      ok(mem&&mem.shots===s+1,'Observed impact recorded in aiMem on shot '+(s+1));
+      misses.push(Math.abs(mem.lastMissX));
+    }
+    return misses;
+  };
+  let mEasy=runBracketing('Easy'),mNorm=runBracketing('Normal'),mHard=runBracketing('Hard');
+  ok(mNorm[2]<mNorm[0]&&mHard[2]<mHard[0],'Normal and Hard AI reduce miss distance across consecutive observed shots');
+  ok(mHard[2]<=mNorm[2]&&mNorm[2]<=mEasy[0],'Hard converges tighter than Normal and Easy initial error');
+}
 setup();S.phase='shop';let cash=current().cash;ok(buy(0,'Missile'),'Shop purchase');ok(current().cash===cash-120,'Shop charges price');S.ready.push(0);ok(!buy(0,'Nuke'),'Ready player cannot shop');
 setup();let initial=current().cash;S.tanks[1].hp=0;finishRound();ok(S.phase==='shop','Round ends');ok(current().cash===Math.floor((initial+1400)*1.05),'Winner award and compound interest');
 setup();S.buildings.push({shape:'ciws',owner:1,x:100,y:20,charges:1,hp:55});ok(intercepted({owner:0,x:100,y:35,z:0}),'CIWS interception');ok(!intercepted({owner:0,x:100,y:35,z:0}),'CIWS single charge');
@@ -2900,4 +2925,3 @@ const simChecks = vm.runInContext('checks', context);
   console.error(err);
   process.exit(1);
 });
-
