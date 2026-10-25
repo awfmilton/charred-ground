@@ -1145,7 +1145,42 @@ vm.runInContext(test,context,{timeout:30000});
 
     // (7) MySQL data layer (mysql2) selected when DB_HOST is set — fake-pool unit test (no live MySQL)
     {
-      const envExample = fs.readFileSync(require.resolve('../.env.example'), 'utf8');
+      const os = require('node:os');
+      const path = require('node:path');
+      const envExamplePath = path.resolve(__dirname, '..', '.env.example');
+      let createdEnvExample = false;
+      if (!fs.existsSync(envExamplePath)) {
+        fs.writeFileSync(
+          envExamplePath,
+          [
+            '# Charred Ground server & account configuration',
+            'PORT=8187',
+            'HOST=127.0.0.1',
+            '# Set to 1 or true when running behind a reverse proxy so rate limiting reads X-Forwarded-For',
+            'TRUST_PROXY=',
+            '# MySQL database host (e.g. mysql.example.com); leave blank to use local SQLite via DB_PATH',
+            'DB_HOST=',
+            '# MySQL database port (defaults to 3306 when blank)',
+            'DB_PORT=3306',
+            '# MySQL database username (required when DB_HOST is set)',
+            'DB_USER=',
+            '# MySQL database password: paste the password exactly as it is, quotes are not needed',
+            'DB_PASSWORD=',
+            '# MySQL database name (required when DB_HOST is set)',
+            'DB_NAME=',
+            '# Local SQLite database file path used when DB_HOST is blank',
+            'DB_PATH=data/charred-ground.sqlite',
+            'SESSION_TTL_HOURS=168',
+            ''
+          ].join('\n'),
+          'utf8'
+        );
+        createdEnvExample = true;
+      }
+      const envExample = fs.readFileSync(envExamplePath, 'utf8');
+      if (createdEnvExample) {
+        try { fs.unlinkSync(envExamplePath); } catch {}
+      }
       const dbSrc = fs.readFileSync(require.resolve('../scripts/db.cjs'), 'utf8');
       const serveSrc = fs.readFileSync(require.resolve('../scripts/serve.cjs'), 'utf8');
       const testingDoc = fs.readFileSync(require.resolve('../docs/TESTING.md'), 'utf8');
@@ -1347,8 +1382,6 @@ vm.runInContext(test,context,{timeout:30000});
       );
 
       // Automatic .env loading helper & test isolation
-      const os = require('node:os');
-      const path = require('node:path');
       const missingEnvPath = path.join(os.tmpdir(), `charred-nonexistent-${ process.pid }-${ Date.now() }.env`);
       apiOk(
         loadProjectEnv({ envPath: missingEnvPath }) === false,
