@@ -87,12 +87,43 @@ function extractSessionToken(req) {
   return cookies[SESSION_COOKIE] || null;
 }
 
-function makeSessionCookie(token, maxAgeSeconds) {
-  return `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}`;
+function isLocalhostRequest(req) {
+  const rawHost = String(req?.headers?.host || '').trim().toLowerCase();
+  if (!rawHost) return false;
+  let host = rawHost;
+  if (rawHost.startsWith('[')) {
+    const endIdx = rawHost.indexOf(']');
+    host = endIdx !== -1 ? rawHost.slice(0, endIdx + 1) : rawHost;
+  } else {
+    host = rawHost.split(':')[0];
+  }
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
 }
 
-function clearSessionCookie() {
-  return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+function makeSessionCookie(token, maxAgeSeconds, req) {
+  const secureAttr = isLocalhostRequest(req) ? '' : '; Secure';
+  return `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${secureAttr}`;
+}
+
+function clearSessionCookie(req) {
+  const secureAttr = isLocalhostRequest(req) ? '' : '; Secure';
+  return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureAttr}`;
+}
+
+function isTrustProxyEnabled(env) {
+  const val = String(env?.TRUST_PROXY ?? '').trim().toLowerCase();
+  return Boolean(val) && val !== '0' && val !== 'false' && val !== 'no' && val !== 'off';
+}
+
+function getClientIp(req, env) {
+  if (isTrustProxyEnabled(env)) {
+    const xff = req?.headers?.['x-forwarded-for'];
+    if (typeof xff === 'string' && xff.trim()) {
+      const first = xff.split(',')[0].trim();
+      if (first) return first;
+    }
+  }
+  return req?.socket?.remoteAddress || '127.0.0.1';
 }
 
 function sanitizeUsername(raw) {
@@ -272,13 +303,23 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
   if (!store) throw new Error('createApi requires a store instance');
 
   const rateLimitMap = new Map();
+  const totpAttemptMap = new Map();
   const oauthStateMap = new Map();
-  const maxPerWindow = Number(env.AUTH_RATE_LIMIT_MAX || 60);
-  const windowMs = Number(env.AUTH_RATE_LIMIT_WINDOW_MS || 60000);
+
+  function pruneRateLimitMap(now = Date.now()) {
+    for (const [k, rec] of rateLimitMap.entries()) {
+      if (rec.resetAt <= now) {
+        rateLimitMap.delete(k);
+      }
+    }
+  }
 
   function checkRateLimit(req) {
-    const ip = req.socket?.remoteAddress || '127.0.0.1';
     const now = Date.now();
+    pruneRateLimitMap(now);
+    const maxPerWindow = Number(env.AUTH_RATE_LIMIT_MAX || 60);
+    const windowMs = Number(env.AUTH_RATE_LIMIT_WINDOW_MS || 60000);
+    const ip = getClientIp(req, env);
     let rec = rateLimitMap.get(ip);
     if (!rec || rec.resetAt <= now) {
       rec = { count: 0, resetAt: now + windowMs };
@@ -288,33 +329,65 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
     return rec.count <= maxPerWindow;
   }
 
-  function getAuthSession(req) {
+  function pruneTotpAttemptMap(now = Date.now()) {
+    for (const [k, rec] of totpAttemptMap.entries()) {
+      if (rec.resetAt <= now) {
+        totpAttemptMap.delete(k);
+      }
+    }
+  }
+
+  function isTotpRateLimited(userId, now = Date.now()) {
+    pruneTotpAttemptMap(now);
+    const maxAttempts = Number(env.TOTP_RATE_LIMIT_MAX || 5);
+    const rec = totpAttemptMap.get(userId);
+    if (!rec || rec.resetAt <= now) return false;
+    return rec.count >= maxAttempts;
+  }
+
+  function recordFailedTotpAttempt(userId, now = Date.now()) {
+    pruneTotpAttemptMap(now);
+    const windowMs = Number(env.TOTP_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000);
+    let rec = totpAttemptMap.get(userId);
+    if (!rec || rec.resetAt <= now) {
+      rec = { count: 0, resetAt: now + windowMs };
+      totpAttemptMap.set(userId, rec);
+    }
+    rec.count++;
+    return rec.count;
+  }
+
+  function clearTotpAttempts(userId) {
+    totpAttemptMap.delete(userId);
+  }
+
+  async function getAuthSession(req) {
     const token = extractSessionToken(req);
     if (!token) return null;
     const tokenHash = auth.sha256Hex(token);
-    return store.getSession(tokenHash);
+    return await store.getSession(tokenHash);
   }
 
-  function issueSessionForUser(userId) {
+  async function issueSessionForUser(userId, req) {
     const ttlHours = Number(env.SESSION_TTL_HOURS || 168);
     const { token, tokenHash, expiresAt } = auth.mintSessionToken(ttlHours);
-    store.createSession({ tokenHash, userId, expiresAt });
-    const cookie = makeSessionCookie(token, ttlHours * 3600);
+    await store.createSession({ tokenHash, userId, expiresAt });
+    const cookie = makeSessionCookie(token, ttlHours * 3600, req);
     return { token, expiresAt, cookie };
   }
 
-  function formatSelfUser(user) {
+  async function formatSelfUser(user) {
     const pub = publicProfile(user);
     return {
       ...pub,
       email: user.email,
       emailVerified: user.emailVerified,
       totpEnabled: user.totpEnabled,
-      oauthProviders: store.getOAuthProvidersForUser(user.id)
+      oauthProviders: await store.getOAuthProvidersForUser(user.id)
     };
   }
 
-  return async function handleApi(req, res) {
+  async function handleApi(req, res) {
     const url = new URL(req.url, 'http://localhost');
     const pathname = url.pathname;
     const method = req.method.toUpperCase();
@@ -324,6 +397,10 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
     }
 
     try {
+      if (store.ready) {
+        await store.ready;
+      }
+
       // Rate limit auth endpoints
       if (pathname.startsWith('/api/auth/') && method === 'POST') {
         if (!checkRateLimit(req)) {
@@ -352,17 +429,17 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
           json(res, 400, { error: 'Password must be between 8 and 128 characters.' });
           return true;
         }
-        if (store.getUserByUsername(username)) {
+        if (await store.getUserByUsername(username)) {
           json(res, 409, { error: 'Username is already taken.' });
           return true;
         }
-        if (store.getUserByEmail(email)) {
+        if (await store.getUserByEmail(email)) {
           json(res, 409, { error: 'Email is already registered.' });
           return true;
         }
 
-        const passwordHash = auth.hashPassword(password);
-        const user = store.createUser({
+        const passwordHash = await auth.hashPassword(password);
+        const user = await store.createUser({
           username,
           email,
           passwordHash,
@@ -371,7 +448,7 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
         });
 
         const { code, codeHash, expiresAt } = auth.generateEmailCode();
-        store.setEmailVerificationCode(user.id, codeHash, expiresAt);
+        await store.setEmailVerificationCode(user.id, codeHash, expiresAt);
         const mail = await auth.sendEmail({
           to: email,
           subject: 'Verify your Charred Ground account',
@@ -380,14 +457,17 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
           fetchImpl
         });
 
+        const sess = await issueSessionForUser(user.id, req);
         const payload = {
           ok: true,
           requiresEmailVerification: true,
           username: user.username,
-          email: user.email
+          email: user.email,
+          token: sess.token,
+          user: await formatSelfUser(user)
         };
         if (mail.devCode) payload.devVerificationCode = mail.devCode;
-        json(res, 201, payload);
+        json(res, 201, payload, { 'Set-Cookie': sess.cookie });
         return true;
       }
 
@@ -396,32 +476,47 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
         const body = await readJsonBody(req);
         const identifier = String(body.username || body.email || '').trim();
         const code = String(body.code || '').trim();
-        const user = store.getUserByUsername(identifier) || store.getUserByEmail(identifier);
+        const user = (await store.getUserByUsername(identifier)) || (await store.getUserByEmail(identifier));
         if (!user) {
           json(res, 404, { error: 'Account not found.' });
           return true;
         }
         if (user.emailVerified) {
-          const sess = issueSessionForUser(user.id);
+          const sess = await issueSessionForUser(user.id, req);
           json(
             res,
             200,
-            { ok: true, token: sess.token, user: formatSelfUser(user) },
+            { ok: true, token: sess.token, user: await formatSelfUser(user) },
             { 'Set-Cookie': sess.cookie }
           );
           return true;
         }
-        const check = auth.verifyEmailCodeHash(code, user.emailVerifyHash, user.emailVerifyExpiresAt);
-        if (!check.ok) {
-          json(res, 400, { error: check.reason });
+        if (!user.emailVerifyHash || !user.emailVerifyExpiresAt) {
+          json(res, 400, {
+            code: 'email_verify_invalidated',
+            error: 'Verification code invalidated after too many wrong attempts. Please request a new code.'
+          });
           return true;
         }
-        const updated = store.verifyEmailCode(user.id);
-        const sess = issueSessionForUser(updated.id);
+        const check = auth.verifyEmailCodeHash(code, user.emailVerifyHash, user.emailVerifyExpiresAt);
+        if (!check.ok) {
+          const attempt = await store.recordFailedEmailVerifyAttempt(user.id);
+          if (attempt.invalidated) {
+            json(res, 400, {
+              code: 'email_verify_invalidated',
+              error: 'Too many wrong attempts. Your verification code has been invalidated; request a new code.'
+            });
+            return true;
+          }
+          json(res, 400, { error: check.reason, attemptsRemaining: Math.max(0, 5 - attempt.attempts) });
+          return true;
+        }
+        const updated = await store.verifyEmailCode(user.id);
+        const sess = await issueSessionForUser(updated.id, req);
         json(
           res,
           200,
-          { ok: true, token: sess.token, user: formatSelfUser(updated) },
+          { ok: true, token: sess.token, user: await formatSelfUser(updated) },
           { 'Set-Cookie': sess.cookie }
         );
         return true;
@@ -431,7 +526,7 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
       if (method === 'POST' && pathname === '/api/auth/resend-code') {
         const body = await readJsonBody(req);
         const identifier = String(body.username || body.email || '').trim();
-        const user = store.getUserByUsername(identifier) || store.getUserByEmail(identifier);
+        const user = (await store.getUserByUsername(identifier)) || (await store.getUserByEmail(identifier));
         if (!user) {
           json(res, 404, { error: 'Account not found.' });
           return true;
@@ -441,7 +536,7 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
           return true;
         }
         const { code, codeHash, expiresAt } = auth.generateEmailCode();
-        store.setEmailVerificationCode(user.id, codeHash, expiresAt);
+        await store.setEmailVerificationCode(user.id, codeHash, expiresAt);
         const mail = await auth.sendEmail({
           to: user.email,
           subject: 'Your Charred Ground verification code',
@@ -462,13 +557,14 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
         const password = String(body.password || '');
         const totpCode = body.totpCode !== undefined ? String(body.totpCode).trim() : '';
 
-        const user = store.getUserByUsername(identifier) || store.getUserByEmail(identifier);
-        if (!user || !user.passwordHash || !auth.verifyPassword(password, user.passwordHash)) {
+        const user = (await store.getUserByUsername(identifier)) || (await store.getUserByEmail(identifier));
+        if (!user || !user.passwordHash || !(await auth.verifyPassword(password, user.passwordHash))) {
           json(res, 401, { error: 'Invalid username or password.' });
           return true;
         }
         if (!user.emailVerified) {
           json(res, 403, {
+            code: 'email_unverified',
             error: 'Email verification required before signing in.',
             requiresEmailVerification: true,
             username: user.username
@@ -483,20 +579,30 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
             });
             return true;
           }
+          if (isTotpRateLimited(user.id)) {
+            json(res, 429, {
+              code: 'totp_rate_limited',
+              error: 'Too many two-factor authentication attempts for this account. Try again later.',
+              requiresTotp: true
+            });
+            return true;
+          }
           if (!auth.verifyTotpCode(user.totpSecret, totpCode)) {
+            recordFailedTotpAttempt(user.id);
             json(res, 401, {
               error: 'Invalid two-factor authentication code.',
               requiresTotp: true
             });
             return true;
           }
+          clearTotpAttempts(user.id);
         }
 
-        const sess = issueSessionForUser(user.id);
+        const sess = await issueSessionForUser(user.id, req);
         json(
           res,
           200,
-          { ok: true, token: sess.token, user: formatSelfUser(user) },
+          { ok: true, token: sess.token, user: await formatSelfUser(user) },
           { 'Set-Cookie': sess.cookie }
         );
         return true;
@@ -506,32 +612,32 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
       if (method === 'POST' && pathname === '/api/auth/logout') {
         const token = extractSessionToken(req);
         if (token) {
-          store.deleteSession(auth.sha256Hex(token));
+          await store.deleteSession(auth.sha256Hex(token));
         }
-        json(res, 200, { ok: true }, { 'Set-Cookie': clearSessionCookie() });
+        json(res, 200, { ok: true }, { 'Set-Cookie': clearSessionCookie(req) });
         return true;
       }
 
       // GET /api/auth/me
       if (method === 'GET' && pathname === '/api/auth/me') {
-        const sess = getAuthSession(req);
+        const sess = await getAuthSession(req);
         if (!sess) {
           json(res, 401, { authenticated: false, user: null });
           return true;
         }
-        json(res, 200, { authenticated: true, user: formatSelfUser(sess.user) });
+        json(res, 200, { authenticated: true, user: await formatSelfUser(sess.user) });
         return true;
       }
 
       // POST /api/auth/totp/setup
       if (method === 'POST' && pathname === '/api/auth/totp/setup') {
-        const sess = getAuthSession(req);
+        const sess = await getAuthSession(req);
         if (!sess) {
           json(res, 401, { error: 'Authentication required.' });
           return true;
         }
         const secret = auth.generateTotpSecret();
-        store.setTotpSecret(sess.user.id, secret);
+        await store.setTotpSecret(sess.user.id, secret);
         const otpauthUri = auth.buildOtpAuthUri({
           secret,
           accountName: sess.user.username,
@@ -543,43 +649,63 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
 
       // POST /api/auth/totp/enable
       if (method === 'POST' && pathname === '/api/auth/totp/enable') {
-        const sess = getAuthSession(req);
+        const sess = await getAuthSession(req);
         if (!sess) {
           json(res, 401, { error: 'Authentication required.' });
           return true;
         }
         const body = await readJsonBody(req);
         const code = String(body.code || '').trim();
-        const user = store.getUserById(sess.user.id);
+        const user = await store.getUserById(sess.user.id);
         if (!user.totpSecret) {
           json(res, 400, { error: 'Run TOTP setup before enabling 2FA.' });
           return true;
         }
+        if (isTotpRateLimited(user.id)) {
+          json(res, 429, {
+            code: 'totp_rate_limited',
+            error: 'Too many two-factor authentication attempts for this account. Try again later.'
+          });
+          return true;
+        }
         if (!auth.verifyTotpCode(user.totpSecret, code)) {
+          recordFailedTotpAttempt(user.id);
           json(res, 400, { error: 'Invalid TOTP code.' });
           return true;
         }
-        const updated = store.enableTotp(user.id);
-        json(res, 200, { ok: true, totpEnabled: updated.totpEnabled, user: formatSelfUser(updated) });
+        clearTotpAttempts(user.id);
+        const updated = await store.enableTotp(user.id);
+        json(res, 200, { ok: true, totpEnabled: updated.totpEnabled, user: await formatSelfUser(updated) });
         return true;
       }
 
       // POST /api/auth/totp/disable
       if (method === 'POST' && pathname === '/api/auth/totp/disable') {
-        const sess = getAuthSession(req);
+        const sess = await getAuthSession(req);
         if (!sess) {
           json(res, 401, { error: 'Authentication required.' });
           return true;
         }
         const body = await readJsonBody(req);
         const code = String(body.code || '').trim();
-        const user = store.getUserById(sess.user.id);
-        if (user.totpEnabled && !auth.verifyTotpCode(user.totpSecret, code)) {
-          json(res, 400, { error: 'Valid TOTP code required to disable 2FA.' });
-          return true;
+        const user = await store.getUserById(sess.user.id);
+        if (user.totpEnabled) {
+          if (isTotpRateLimited(user.id)) {
+            json(res, 429, {
+              code: 'totp_rate_limited',
+              error: 'Too many two-factor authentication attempts for this account. Try again later.'
+            });
+            return true;
+          }
+          if (!auth.verifyTotpCode(user.totpSecret, code)) {
+            recordFailedTotpAttempt(user.id);
+            json(res, 400, { error: 'Valid TOTP code required to disable 2FA.' });
+            return true;
+          }
+          clearTotpAttempts(user.id);
         }
-        const updated = store.disableTotp(user.id);
-        json(res, 200, { ok: true, totpEnabled: updated.totpEnabled, user: formatSelfUser(updated) });
+        const updated = await store.disableTotp(user.id);
+        json(res, 200, { ok: true, totpEnabled: updated.totpEnabled, user: await formatSelfUser(updated) });
         return true;
       }
 
@@ -651,23 +777,23 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
         oauthStateMap.delete(state);
 
         const oauthProfile = await auth.exchangeOAuthCode(cfg, code, fetchImpl);
-        let user = store.getUserByOAuth(cfg.id, oauthProfile.providerUserId);
+        let user = await store.getUserByOAuth(cfg.id, oauthProfile.providerUserId);
         if (!user) {
-          user = store.getUserByEmail(oauthProfile.email);
+          user = await store.getUserByEmail(oauthProfile.email);
         }
         if (!user) {
           let baseUsername = sanitizeUsername(oauthProfile.usernameHint);
           if (baseUsername.length < 3) baseUsername = `${cfg.id}_user`;
           let candidate = baseUsername;
           let suffix = 1;
-          while (store.getUserByUsername(candidate)) {
+          while (await store.getUserByUsername(candidate)) {
             candidate = `${baseUsername.slice(0, 18)}_${suffix++}`;
           }
           let emailCandidate = oauthProfile.email;
-          if (store.getUserByEmail(emailCandidate)) {
+          if (await store.getUserByEmail(emailCandidate)) {
             emailCandidate = `${cfg.id}_${oauthProfile.providerUserId}@oauth.local`;
           }
-          user = store.createUser({
+          user = await store.createUser({
             username: candidate,
             email: emailCandidate,
             passwordHash: null,
@@ -676,20 +802,20 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
             avatar: oauthProfile.avatar || ''
           });
         } else if (!user.emailVerified) {
-          user = store.verifyEmailCode(user.id);
+          user = await store.verifyEmailCode(user.id);
         }
-        store.linkOAuthAccount({
+        await store.linkOAuthAccount({
           userId: user.id,
           provider: cfg.id,
           providerUserId: oauthProfile.providerUserId,
           email: oauthProfile.email
         });
 
-        const sess = issueSessionForUser(user.id);
+        const sess = await issueSessionForUser(user.id, req);
         json(
           res,
           200,
-          { ok: true, provider: cfg.id, token: sess.token, user: formatSelfUser(user) },
+          { ok: true, provider: cfg.id, token: sess.token, user: await formatSelfUser(user) },
           { 'Set-Cookie': sess.cookie }
         );
         return true;
@@ -697,7 +823,7 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
 
       // PUT /api/profile
       if (method === 'PUT' && pathname === '/api/profile') {
-        const sess = getAuthSession(req);
+        const sess = await getAuthSession(req);
         if (!sess) {
           json(res, 401, { error: 'Authentication required.' });
           return true;
@@ -738,8 +864,8 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
           updates.customFields = cfCheck.value;
         }
 
-        const updated = store.updateProfile(sess.user.id, updates);
-        json(res, 200, { ok: true, profile: publicProfile(updated), user: formatSelfUser(updated) });
+        const updated = await store.updateProfile(sess.user.id, updates);
+        json(res, 200, { ok: true, profile: publicProfile(updated), user: await formatSelfUser(updated) });
         return true;
       }
 
@@ -747,12 +873,12 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
       const profileMatch = pathname.match(/^\/api\/profile\/([^/]+)$/);
       if (method === 'GET' && profileMatch) {
         const username = decodeURIComponent(profileMatch[1]);
-        const user = store.getUserByUsername(username);
+        const user = await store.getUserByUsername(username);
         if (!user) {
           json(res, 404, { error: 'Commander profile not found.' });
           return true;
         }
-        const history = store.getMatchHistoryByUser(user.id, 25);
+        const history = await store.getMatchHistoryByUser(user.id, 25);
         json(res, 200, {
           profile: publicProfile(user),
           matchHistory: history
@@ -762,9 +888,17 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
 
       // POST /api/matches/start
       if (method === 'POST' && pathname === '/api/matches/start') {
-        const sess = getAuthSession(req);
+        const sess = await getAuthSession(req);
         if (!sess) {
           json(res, 401, { error: 'Authentication required to start an attested match.' });
+          return true;
+        }
+        if (!sess.user.emailVerified) {
+          json(res, 403, {
+            code: 'email_unverified',
+            requiresEmailVerification: true,
+            error: 'Ranked play requires a verified email address. Verify your email to record ranked matches and appear on the leaderboard; unranked play remains available.'
+          });
           return true;
         }
         const body = await readJsonBody(req);
@@ -781,9 +915,17 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
           const isAi = Boolean(p.ai);
           let userId = isAi ? null : (p.userId ? String(p.userId) : null);
           if (!isAi && userId) {
-            const u = store.getUserById(userId);
+            const u = await store.getUserById(userId);
             if (!u) {
               json(res, 400, { error: `Participant user not found for slot ${i}` });
+              return true;
+            }
+            if (!u.emailVerified) {
+              json(res, 403, {
+                code: 'email_unverified',
+                requiresEmailVerification: true,
+                error: `Participant ${u.username} must verify their email before playing a ranked match.`
+              });
               return true;
             }
             if (u.id === sess.user.id) hostIncluded = true;
@@ -810,14 +952,14 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
         }
 
         const nonce = crypto.randomBytes(24).toString('hex');
-        const match = store.createMatch({
+        const match = await store.createMatch({
           hostUserId: sess.user.id,
           nonce,
           roomCode: String(body.roomCode || '').slice(0, 40),
           mode: String(body.mode || 'online').slice(0, 20),
           roundNumber: Number(body.round || 1)
         });
-        const fullMatch = store.addParticipants(match.id, normalizedParticipants);
+        const fullMatch = await store.addParticipants(match.id, normalizedParticipants);
         json(res, 201, {
           ok: true,
           matchId: fullMatch.id,
@@ -836,13 +978,21 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
       // POST /api/matches/:id/attest
       const attestMatch = pathname.match(/^\/api\/matches\/([^/]+)\/attest$/);
       if (method === 'POST' && attestMatch) {
-        const sess = getAuthSession(req);
+        const sess = await getAuthSession(req);
         if (!sess) {
           json(res, 401, { error: 'Authentication required to attest match results.' });
           return true;
         }
+        if (!sess.user.emailVerified) {
+          json(res, 403, {
+            code: 'email_unverified',
+            requiresEmailVerification: true,
+            error: 'Ranked play requires a verified email address. Verify your email to record ranked match results.'
+          });
+          return true;
+        }
         const matchId = decodeURIComponent(attestMatch[1]);
-        const match = store.getMatch(matchId);
+        const match = await store.getMatch(matchId);
         if (!match) {
           json(res, 404, { error: 'Match ticket not found.' });
           return true;
@@ -861,13 +1011,13 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
         const body = await readJsonBody(req);
         const validation = validateAndCanonicalizeAttestation(match, body);
         if (!validation.ok) {
-          store.rejectMatch(match.id, validation.reason);
+          await store.rejectMatch(match.id, validation.reason);
           json(res, 400, { error: validation.reason, status: 'rejected' });
           return true;
         }
 
         const mySlotOutcome = validation.outcomes.find(o => o.slot === participant.slot);
-        const updatedMatch = store.submitAttestation({
+        const updatedMatch = await store.submitAttestation({
           matchId: match.id,
           userId: sess.user.id,
           attestationHash: validation.canonicalHash,
@@ -881,7 +1031,7 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
         // Check for conflicting hashes among already-submitted attestations
         const hashes = new Set(attestedHumans.map(p => p.attestationHash));
         if (hashes.size > 1) {
-          const rejected = store.rejectMatch(match.id, 'Conflicting participant outcome attestations');
+          const rejected = await store.rejectMatch(match.id, 'Conflicting participant outcome attestations');
           json(res, 409, {
             error: 'Participant attestations disagreed on match outcome; match rejected.',
             status: rejected.status
@@ -899,6 +1049,19 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
           return true;
         }
 
+        // Verify every human participant has a verified email before recording ranked stats
+        for (const hp of humanParticipants) {
+          const hu = await store.getUserById(hp.userId);
+          if (!hu || !hu.emailVerified) {
+            json(res, 403, {
+              code: 'email_unverified',
+              requiresEmailVerification: true,
+              error: 'All human participants must have a verified email to record ranked results.'
+            });
+            return true;
+          }
+        }
+
         // Every human participant has attested with identical canonical hash
         const isBotMatch = humanParticipants.length < 2;
         const winnerPart =
@@ -907,7 +1070,7 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
             : null;
         const winnerUserId = winnerPart && !winnerPart.ai ? winnerPart.userId : null;
 
-        const finalized = store.finalizeMatch({
+        const finalized = await store.finalizeMatch({
           matchId: match.id,
           winnerUserId,
           canonicalHash: validation.canonicalHash,
@@ -927,7 +1090,7 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
       // GET /api/leaderboard
       if (method === 'GET' && pathname === '/api/leaderboard') {
         const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') || 50)));
-        const entries = store.getLeaderboard(limit);
+        const entries = await store.getLeaderboard(limit);
         json(res, 200, { leaderboard: entries });
         return true;
       }
@@ -939,11 +1102,24 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
       json(res, status, { error: err.message || 'Internal server error' });
       return true;
     }
-  };
+  }
+
+  Object.defineProperty(handleApi, 'rateLimitMapSize', {
+    get: () => rateLimitMap.size
+  });
+  handleApi.pruneRateLimitMap = pruneRateLimitMap;
+  handleApi.rateLimitMap = rateLimitMap;
+  handleApi.totpAttemptMap = totpAttemptMap;
+
+  return handleApi;
 }
 
 module.exports = {
   createApi,
+  getClientIp,
+  isLocalhostRequest,
+  makeSessionCookie,
+  clearSessionCookie,
   ALLOWED_WEAPONS,
   validateCustomFields,
   validateAndCanonicalizeAttestation

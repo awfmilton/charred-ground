@@ -485,7 +485,617 @@ vm.runInContext(test,context,{timeout:30000});
     const meAfterLogout = await req('/api/auth/me', { token: alphaToken });
     apiOk(meAfterLogout.status === 401, 'Session invalid after logout');
 
-    console.log(`${apiChecks} API & account checks passed (154 simulation + ${apiChecks} API = ${154 + apiChecks} total checks).`);
+    // =========================================================================
+    // Follow-up approved items (1)-(7) verification
+    // =========================================================================
+
+    // (1) Rate limiting behind a proxy + bounded map pruning
+    {
+      const { createApi } = require('../scripts/api.cjs');
+      const { openStore } = require('../scripts/db.cjs');
+      const rlStore = openStore({ file: ':memory:' });
+      const rlEnv = {
+        NODE_ENV: 'test',
+        AUTH_RATE_LIMIT_MAX: '2',
+        AUTH_RATE_LIMIT_WINDOW_MS: '40'
+      };
+      const rlApi = createApi({ store: rlStore, env: rlEnv });
+
+      async function callAuth(xff, remoteAddress = '10.0.0.1') {
+        let status = 0;
+        const fakeReq = {
+          url: '/api/auth/login',
+          method: 'POST',
+          headers: xff ? { 'x-forwarded-for': xff, host: '127.0.0.1:8187' } : { host: '127.0.0.1:8187' },
+          socket: { remoteAddress },
+          on(ev, cb) {
+            if (ev === 'end') cb();
+          }
+        };
+        const fakeRes = {
+          writeHead(s) { status = s; },
+          end() {}
+        };
+        await rlApi(fakeReq, fakeRes);
+        return status;
+      }
+
+      // TRUST_PROXY unset: spoofed X-Forwarded-For headers share the socket IP bucket
+      const s1 = await callAuth('203.0.113.1');
+      const s2 = await callAuth('203.0.113.2');
+      const s3 = await callAuth('203.0.113.3');
+      apiOk(s1 === 401 && s2 === 401 && s3 === 429, 'Without TRUST_PROXY, X-Forwarded-For is ignored and socket IP shares rate-limit bucket');
+
+      // Wait for window expiry, then enable TRUST_PROXY=1
+      await new Promise(r => setTimeout(r, 60));
+      rlEnv.TRUST_PROXY = '1';
+      const p1 = await callAuth('198.51.100.10, 10.0.0.1');
+      const p2 = await callAuth('198.51.100.20, 10.0.0.1');
+      const p3 = await callAuth('198.51.100.30, 10.0.0.1');
+      apiOk(p1 === 401 && p2 === 401 && p3 === 401, 'With TRUST_PROXY=1, distinct X-Forwarded-For client IPs have independent buckets');
+      const pRepeat1 = await callAuth('198.51.100.10');
+      const pRepeat2 = await callAuth('198.51.100.10');
+      apiOk(pRepeat1 === 401 && pRepeat2 === 429, 'With TRUST_PROXY=1, repeating a single forwarded IP hits 429 at the cap');
+      apiOk(rlApi.rateLimitMapSize >= 3, 'Rate-limit map tracks active client IPs');
+
+      // Wait for window expiry and trigger a check to prune expired entries
+      await new Promise(r => setTimeout(r, 60));
+      await callAuth('198.51.100.99');
+      apiOk(rlApi.rateLimitMapSize === 1, 'Expired rate-limit entries are pruned on subsequent checks');
+      rlStore.close();
+    }
+
+    // (2) Brute-force caps: email verification code invalidated after 5 wrong attempts; per-account TOTP limit
+    {
+      const regCap = await req('/api/auth/register', {
+        method: 'POST',
+        body: { username: 'capuser', email: 'capuser@example.com', password: 'Password123!' }
+      });
+      const originalCode = regCap.data.devVerificationCode;
+      apiOk(regCap.status === 201 && originalCode, 'Register capuser for brute-force cap test');
+
+      for (let i = 1; i <= 5; i++) {
+        const wrong = await req('/api/auth/verify-email', {
+          method: 'POST',
+          body: { username: 'capuser', code: '000000' }
+        });
+        apiOk(wrong.status === 400, `Email verify wrong attempt ${i}/5 rejected with 400`);
+        if (i === 5) {
+          apiOk(wrong.data.code === 'email_verify_invalidated', '5th wrong email verification attempt returns email_verify_invalidated');
+        }
+      }
+
+      // 6th attempt using the originally-valid code must fail because the code was invalidated
+      const sixthWithValidCode = await req('/api/auth/verify-email', {
+        method: 'POST',
+        body: { username: 'capuser', code: originalCode }
+      });
+      apiOk(
+        sixthWithValidCode.status === 400 && sixthWithValidCode.data.code === 'email_verify_invalidated',
+        'Originally-issued verification code is rejected on 6th attempt after 5 wrong attempts'
+      );
+
+      // Requesting a new code resets the counter and allows verification
+      const resent = await req('/api/auth/resend-code', {
+        method: 'POST',
+        body: { username: 'capuser' }
+      });
+      const verifiedAfterResend = await req('/api/auth/verify-email', {
+        method: 'POST',
+        body: { username: 'capuser', code: resent.data.devVerificationCode }
+      });
+      apiOk(verifiedAfterResend.status === 200 && verifiedAfterResend.data.user.emailVerified, 'Resending code after invalidation allows verification');
+      const capToken = verifiedAfterResend.data.token;
+
+      // Setup and enable TOTP on capuser, then test per-account TOTP brute-force limit across distinct IPs
+      const setupCapTotp = await req('/api/auth/totp/setup', { method: 'POST', token: capToken });
+      const enableCapTotp = await req('/api/auth/totp/enable', {
+        method: 'POST',
+        token: capToken,
+        body: { code: generateTotpCode(setupCapTotp.data.secret) }
+      });
+      apiOk(enableCapTotp.status === 200 && enableCapTotp.data.totpEnabled, 'TOTP enabled for capuser');
+
+      env.TRUST_PROXY = '1';
+      for (let i = 1; i <= 5; i++) {
+        const resTotp = await fetch(`${base}/api/auth/login`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Forwarded-For': `192.0.2.${i}`
+          },
+          body: JSON.stringify({ username: 'capuser', password: 'Password123!', totpCode: '000000' })
+        });
+        apiOk(resTotp.status === 401, `Wrong TOTP attempt ${i}/5 from IP 192.0.2.${i} returns 401`);
+      }
+
+      // 6th attempt from a brand-new IP with a VALID TOTP code must be blocked by per-account cap
+      const sixthTotpRes = await fetch(`${base}/api/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Forwarded-For': '192.0.2.250'
+        },
+        body: JSON.stringify({
+          username: 'capuser',
+          password: 'Password123!',
+          totpCode: generateTotpCode(setupCapTotp.data.secret)
+        })
+      });
+      const sixthTotpData = await sixthTotpRes.json();
+      apiOk(
+        sixthTotpRes.status === 429 && sixthTotpData.code === 'totp_rate_limited',
+        '6th TOTP login attempt for same account from new IP is blocked with 429 totp_rate_limited even with valid code'
+      );
+      delete env.TRUST_PROXY;
+    }
+
+    // (3) Session cookie Secure flag: omitted on localhost / 127.0.0.1, set on non-localhost hosts
+    {
+      const { makeSessionCookie, clearSessionCookie } = require('../scripts/api.cjs');
+      const localCookie1 = makeSessionCookie('tok', 3600, { headers: { host: 'localhost:8187' } });
+      const localCookie2 = makeSessionCookie('tok', 3600, { headers: { host: '127.0.0.1:8187' } });
+      const prodCookie = makeSessionCookie('tok', 3600, { headers: { host: 'charred.example.com' } });
+      const prodClear = clearSessionCookie({ headers: { host: 'charred.example.com:8443' } });
+      apiOk(!localCookie1.includes('Secure'), 'Session cookie on localhost does not set Secure');
+      apiOk(!localCookie2.includes('Secure'), 'Session cookie on 127.0.0.1 does not set Secure');
+      apiOk(prodCookie.includes('; Secure'), 'Session cookie on non-localhost host includes Secure');
+      apiOk(prodClear.includes('; Secure'), 'Cleared session cookie on non-localhost host includes Secure');
+
+      // Also verify over live HTTP request with custom Host header
+      const http = require('node:http');
+      const prodLoginCookie = await new Promise((resolve, reject) => {
+        const payload = JSON.stringify({ username: 'bravo', password: 'Password123!' });
+        const r = http.request(
+          {
+            hostname: '127.0.0.1',
+            port,
+            path: '/api/auth/login',
+            method: 'POST',
+            headers: {
+              Host: 'charred.example.com',
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(payload)
+            }
+          },
+          res => {
+            res.resume();
+            res.on('end', () => resolve(String(res.headers['set-cookie'] || '')));
+          }
+        );
+        r.on('error', reject);
+        r.write(payload);
+        r.end();
+      });
+      apiOk(prodLoginCookie.includes('Secure'), 'HTTP login with Host: charred.example.com sets Secure on Set-Cookie');
+    }
+
+    // (4) Async bcrypt: hashPassword and verifyPassword return Promises; no hashSync/compareSync in scripts/auth.cjs
+    {
+      const authMod = require('../scripts/auth.cjs');
+      const authSrc = fs.readFileSync(require.resolve('../scripts/auth.cjs'), 'utf8');
+      apiOk(!authSrc.includes('hashSync') && !authSrc.includes('compareSync'), 'scripts/auth.cjs contains no hashSync or compareSync');
+      const hashPromise = authMod.hashPassword('AsyncPass123!');
+      apiOk(hashPromise && typeof hashPromise.then === 'function', 'hashPassword returns a Promise');
+      const hashed = await hashPromise;
+      const verifyPromise = authMod.verifyPassword('AsyncPass123!', hashed);
+      apiOk(verifyPromise && typeof verifyPromise.then === 'function', 'verifyPassword returns a Promise');
+      apiOk((await verifyPromise) === true, 'Async verifyPassword resolves true for matching password');
+      apiOk((await authMod.verifyPassword('WrongPass', hashed)) === false, 'Async verifyPassword resolves false for wrong password');
+    }
+
+    // (5) Drop Node 20 JSON fallback; require Node >=22.5; node:sqlite is the dev/test store
+    {
+      const pkg = JSON.parse(fs.readFileSync(require.resolve('../package.json'), 'utf8'));
+      apiOk(pkg.engines && pkg.engines.node === '>=22.5.0', 'package.json engines.node requires >=22.5.0');
+      const workflowSrc = fs.readFileSync(require.resolve('../.github/workflows/test.yml'), 'utf8');
+      apiOk(/node-version:\s*['"]?22['"]?/.test(workflowSrc), 'CI workflow runs on Node 22');
+      const dbSrc = fs.readFileSync(require.resolve('../scripts/db.cjs'), 'utf8');
+      apiOk(!dbSrc.includes('openFileStore') && !dbSrc.includes('FORCE_FILE_STORE'), 'scripts/db.cjs has no JSON-file fallback');
+      const { openStore } = require('../scripts/db.cjs');
+      const s = openStore({ file: ':memory:', forceFallback: true });
+      apiOk(s.backend === 'sqlite' && s.db && typeof s.db.prepare === 'function', 'openStore uses node:sqlite even if forceFallback is passed');
+      s.close();
+    }
+
+    // (6) Ranked play requires a verified email; unverified account can play unranked; clear email_unverified code & UI handling
+    {
+      const regUnv = await req('/api/auth/register', {
+        method: 'POST',
+        body: { username: 'unverified_cmd', email: 'unv@example.com', password: 'Password123!', displayName: 'Unverified Cmd' }
+      });
+      apiOk(
+        regUnv.status === 201 && regUnv.data.token && regUnv.data.user && regUnv.data.user.emailVerified === false,
+        'Registering an account issues an unverified session for unranked play'
+      );
+      const unvToken = regUnv.data.token;
+      const unvId = regUnv.data.user.id;
+
+      // Unverified login returns email_unverified code
+      const loginUnv = await req('/api/auth/login', {
+        method: 'POST',
+        body: { username: 'unverified_cmd', password: 'Password123!' }
+      });
+      apiOk(loginUnv.status === 403 && loginUnv.data.code === 'email_unverified', 'Login with unverified account returns code email_unverified');
+
+      // Starting a ranked/attested match as an unverified host is rejected with 403 email_unverified
+      const startUnvHost = await req('/api/matches/start', {
+        method: 'POST',
+        token: unvToken,
+        body: {
+          roomCode: 'local',
+          mode: 'online',
+          round: 1,
+          participants: [
+            { slot: 0, userId: unvId, name: 'Unverified Cmd', ai: false },
+            { slot: 1, userId: bravoId, name: 'Commander Bravo', ai: false }
+          ]
+        }
+      });
+      apiOk(
+        startUnvHost.status === 403 && startUnvHost.data.code === 'email_unverified',
+        'POST /api/matches/start rejects unverified host with 403 email_unverified'
+      );
+
+      // Starting a match where a verified host includes an unverified human participant is also rejected with 403 email_unverified
+      const startUnvPart = await req('/api/matches/start', {
+        method: 'POST',
+        token: bravoToken,
+        body: {
+          roomCode: 'CHARRED-UNV',
+          mode: 'online',
+          round: 1,
+          participants: [
+            { slot: 0, userId: bravoId, name: 'Commander Bravo', ai: false },
+            { slot: 1, userId: unvId, name: 'Unverified Cmd', ai: false }
+          ]
+        }
+      });
+      apiOk(
+        startUnvPart.status === 403 && startUnvPart.data.code === 'email_unverified',
+        'POST /api/matches/start rejects unverified participant with 403 email_unverified'
+      );
+
+      // Attesting a match with an unverified account is rejected with 403 email_unverified
+      const validMatchForAttestCheck = await req('/api/matches/start', {
+        method: 'POST',
+        token: bravoToken,
+        body: {
+          roomCode: 'local',
+          mode: 'local',
+          round: 1,
+          participants: [
+            { slot: 0, userId: bravoId, name: 'Commander Bravo', ai: false },
+            { slot: 1, userId: null, name: 'Cyborg', ai: true }
+          ]
+        }
+      });
+      const attestUnv = await req(`/api/matches/${validMatchForAttestCheck.data.matchId}/attest`, {
+        method: 'POST',
+        token: unvToken,
+        body: {
+          nonce: validMatchForAttestCheck.data.nonce,
+          winnerSlot: 0,
+          durationMs: 5000,
+          actionLog: validActionLog,
+          outcomes: alphaWinsOutcomes
+        }
+      });
+      apiOk(
+        attestUnv.status === 403 && attestUnv.data.code === 'email_unverified',
+        'POST /api/matches/:id/attest rejects unverified account with 403 email_unverified'
+      );
+
+      // Unverified account never appears on the leaderboard
+      const lbCheck = await req('/api/leaderboard');
+      apiOk(
+        !lbCheck.data.leaderboard.some(e => e.username === 'unverified_cmd'),
+        'Unverified account does not appear on GET /api/leaderboard'
+      );
+
+      // UI source check for email_unverified handling
+      const htmlSrc = fs.readFileSync(require.resolve('../index.html'), 'utf8');
+      apiOk(
+        htmlSrc.includes('email_unverified') && htmlSrc.includes('unranked'),
+        'index.html surfaces email_unverified and explains unranked vs ranked play'
+      );
+    }
+
+    // (7) MySQL data layer (mysql2) selected when DATABASE_URL is set — fake-pool unit test (no live MySQL)
+    {
+      const envExample = fs.readFileSync(require.resolve('../.env.example'), 'utf8');
+      apiOk(/^DATABASE_URL=\s*$/m.test(envExample), '.env.example documents DATABASE_URL= with an empty placeholder');
+      apiOk(/^TRUST_PROXY=\s*$/m.test(envExample), '.env.example documents TRUST_PROXY= with an empty placeholder');
+
+      const { openStore } = require('../scripts/db.cjs');
+      const executedQueries = [];
+      const tables = {
+        users: [],
+        oauth_accounts: [],
+        sessions: [],
+        matches: [],
+        match_participants: []
+      };
+      let poolClosed = false;
+
+      const fakeMysqlPool = {
+        async execute(sql, params = []) {
+          const norm = sql.replace(/\s+/g, ' ').trim();
+          executedQueries.push({ sql: norm, params });
+          const qCount = (norm.match(/\?/g) || []).length;
+          if (qCount !== params.length) {
+            throw new Error(`Placeholder count mismatch (${qCount} vs ${params.length}) in SQL: ${norm}`);
+          }
+
+          if (norm.startsWith('CREATE TABLE IF NOT EXISTS')) {
+            return [{ affectedRows: 0 }, []];
+          }
+          if (norm.startsWith('INSERT INTO users')) {
+            const [id, username, email, password_hash, email_verified, display_name, avatar, bio, custom_fields_json, created_at, updated_at] = params;
+            tables.users.push({
+              id, username, email, password_hash, email_verified,
+              email_verify_hash: null, email_verify_expires_at: null, email_verify_attempts: 0,
+              totp_secret: null, totp_enabled: 0,
+              display_name, avatar, bio, custom_fields_json,
+              wins: 0, losses: 0, kills: 0, matches_played: 0,
+              created_at, updated_at
+            });
+            return [{ affectedRows: 1 }, []];
+          }
+          if (norm === 'SELECT * FROM users WHERE id = ?') {
+            return [tables.users.filter(u => u.id === params[0]), []];
+          }
+          if (norm === 'SELECT * FROM users WHERE LOWER(username) = LOWER(?)') {
+            const t = String(params[0]).toLowerCase();
+            return [tables.users.filter(u => u.username.toLowerCase() === t), []];
+          }
+          if (norm === 'SELECT * FROM users WHERE LOWER(email) = LOWER(?)') {
+            const t = String(params[0]).toLowerCase();
+            return [tables.users.filter(u => u.email.toLowerCase() === t), []];
+          }
+          if (norm.startsWith('UPDATE users SET email_verify_hash = ?, email_verify_expires_at = ?, email_verify_attempts = 0')) {
+            const [hash, exp, now, id] = params;
+            const u = tables.users.find(r => r.id === id);
+            if (u) {
+              u.email_verify_hash = hash;
+              u.email_verify_expires_at = exp;
+              u.email_verify_attempts = 0;
+              u.updated_at = now;
+            }
+            return [{ affectedRows: u ? 1 : 0 }, []];
+          }
+          if (norm.startsWith('UPDATE users SET email_verify_attempts = ?, email_verify_hash = NULL')) {
+            const [attempts, now, id] = params;
+            const u = tables.users.find(r => r.id === id);
+            if (u) {
+              u.email_verify_attempts = attempts;
+              u.email_verify_hash = null;
+              u.email_verify_expires_at = null;
+              u.updated_at = now;
+            }
+            return [{ affectedRows: u ? 1 : 0 }, []];
+          }
+          if (norm.startsWith('UPDATE users SET email_verify_attempts = ?, updated_at = ?')) {
+            const [attempts, now, id] = params;
+            const u = tables.users.find(r => r.id === id);
+            if (u) {
+              u.email_verify_attempts = attempts;
+              u.updated_at = now;
+            }
+            return [{ affectedRows: u ? 1 : 0 }, []];
+          }
+          if (norm.startsWith('UPDATE users SET email_verified = 1')) {
+            const [now, id] = params;
+            const u = tables.users.find(r => r.id === id);
+            if (u) {
+              u.email_verified = 1;
+              u.email_verify_hash = null;
+              u.email_verify_expires_at = null;
+              u.email_verify_attempts = 0;
+              u.updated_at = now;
+            }
+            return [{ affectedRows: u ? 1 : 0 }, []];
+          }
+          if (norm.startsWith('UPDATE users SET totp_secret = ?')) {
+            const [secret, now, id] = params;
+            const u = tables.users.find(r => r.id === id);
+            if (u) { u.totp_secret = secret; u.totp_enabled = 0; u.updated_at = now; }
+            return [{ affectedRows: u ? 1 : 0 }, []];
+          }
+          if (norm.startsWith('UPDATE users SET totp_enabled = 1')) {
+            const [now, id] = params;
+            const u = tables.users.find(r => r.id === id);
+            if (u) { u.totp_enabled = 1; u.updated_at = now; }
+            return [{ affectedRows: u ? 1 : 0 }, []];
+          }
+          if (norm.startsWith('UPDATE users SET totp_enabled = 0, totp_secret = NULL')) {
+            const [now, id] = params;
+            const u = tables.users.find(r => r.id === id);
+            if (u) { u.totp_enabled = 0; u.totp_secret = null; u.updated_at = now; }
+            return [{ affectedRows: u ? 1 : 0 }, []];
+          }
+          if (norm.startsWith('INSERT INTO sessions')) {
+            const [token_hash, user_id, expires_at, created_at] = params;
+            tables.sessions.push({ token_hash, user_id, expires_at, created_at });
+            return [{ affectedRows: 1 }, []];
+          }
+          if (norm === 'SELECT * FROM sessions WHERE token_hash = ?') {
+            return [tables.sessions.filter(s => s.token_hash === params[0]), []];
+          }
+          if (norm === 'DELETE FROM sessions WHERE token_hash = ?') {
+            tables.sessions = tables.sessions.filter(s => s.token_hash !== params[0]);
+            return [{ affectedRows: 1 }, []];
+          }
+          if (norm.startsWith('INSERT INTO matches')) {
+            const [id, nonce, host_user_id, room_code, mode, round_number, started_at] = params;
+            tables.matches.push({
+              id, nonce, nonce_used: 0, host_user_id, room_code, mode, round_number,
+              status: 'pending', winner_user_id: null, canonical_hash: null, reject_reason: null,
+              started_at, completed_at: null
+            });
+            return [{ affectedRows: 1 }, []];
+          }
+          if (norm.startsWith('INSERT INTO match_participants')) {
+            const [match_id, slot, user_id, name, is_ai] = params;
+            tables.match_participants.push({
+              match_id, slot, user_id, name, is_ai,
+              kills: 0, final_hp: 0, won: 0, attested: 0, attestation_hash: null, payload_json: null, attested_at: null
+            });
+            return [{ affectedRows: 1 }, []];
+          }
+          if (norm === 'SELECT * FROM matches WHERE id = ?') {
+            return [tables.matches.filter(m => m.id === params[0]), []];
+          }
+          if (norm === 'SELECT * FROM match_participants WHERE match_id = ? ORDER BY slot ASC') {
+            return [
+              tables.match_participants
+                .filter(mp => mp.match_id === params[0])
+                .sort((a, b) => a.slot - b.slot),
+              []
+            ];
+          }
+          if (norm.startsWith('UPDATE match_participants SET attested = 1')) {
+            const [attestation_hash, payload_json, kills, final_hp, won, attested_at, match_id, user_id] = params;
+            for (const mp of tables.match_participants) {
+              if (mp.match_id === match_id && mp.user_id === user_id && !mp.is_ai) {
+                mp.attested = 1;
+                mp.attestation_hash = attestation_hash;
+                mp.payload_json = payload_json;
+                mp.kills = kills;
+                mp.final_hp = final_hp;
+                mp.won = won;
+                mp.attested_at = attested_at;
+              }
+            }
+            return [{ affectedRows: 1 }, []];
+          }
+          if (norm.startsWith('UPDATE matches SET status = ?, nonce_used = 1, winner_user_id = ?')) {
+            const [status, winner_user_id, canonical_hash, completed_at, id] = params;
+            const m = tables.matches.find(r => r.id === id);
+            if (m) {
+              m.status = status;
+              m.nonce_used = 1;
+              m.winner_user_id = winner_user_id;
+              m.canonical_hash = canonical_hash;
+              m.completed_at = completed_at;
+            }
+            return [{ affectedRows: m ? 1 : 0 }, []];
+          }
+          if (norm.startsWith('UPDATE match_participants SET kills = ?, final_hp = ?, won = ?')) {
+            const [kills, final_hp, won, match_id, slot] = params;
+            const mp = tables.match_participants.find(r => r.match_id === match_id && r.slot === slot);
+            if (mp) { mp.kills = kills; mp.final_hp = final_hp; mp.won = won; }
+            return [{ affectedRows: mp ? 1 : 0 }, []];
+          }
+          if (norm.startsWith('UPDATE users SET wins = wins + ?')) {
+            const [w, l, k, now, id] = params;
+            const u = tables.users.find(r => r.id === id && r.email_verified === 1);
+            if (u) {
+              u.wins += w;
+              u.losses += l;
+              u.kills += k;
+              u.matches_played += 1;
+              u.updated_at = now;
+            }
+            return [{ affectedRows: u ? 1 : 0 }, []];
+          }
+          if (norm.startsWith('SELECT * FROM users WHERE email_verified = 1 ORDER BY wins DESC')) {
+            const limit = params[0];
+            const rows = tables.users
+              .filter(u => u.email_verified === 1)
+              .sort((a, b) => b.wins - a.wins || b.kills - a.kills)
+              .slice(0, limit);
+            return [rows, []];
+          }
+          return [[], []];
+        },
+        async end() {
+          poolClosed = true;
+        }
+      };
+
+      const mysqlStore = openStore({
+        databaseUrl: 'mysql://placeholder:placeholder@localhost:3306/charred_test',
+        mysqlPool: fakeMysqlPool
+      });
+      await mysqlStore.ready;
+      apiOk(mysqlStore.backend === 'mysql', 'openStore selects mysql backend when DATABASE_URL is mysql://...');
+      apiOk(executedQueries.filter(q => q.sql.startsWith('CREATE TABLE IF NOT EXISTS')).length === 5, 'MySQL adapter creates all 5 schema tables on start-up');
+
+      const u1 = await mysqlStore.createUser({
+        username: 'mysql_cmd',
+        email: 'mysql@example.com',
+        passwordHash: 'hash1',
+        emailVerified: false,
+        displayName: 'MySQL Commander'
+      });
+      apiOk(u1 && u1.username === 'mysql_cmd' && !u1.emailVerified, 'MySQL adapter createUser + getUserById works');
+      apiOk((await mysqlStore.getUserByUsername('MYSQL_CMD')).id === u1.id, 'MySQL adapter case-insensitive getUserByUsername works');
+      apiOk((await mysqlStore.getUserByEmail('MYSQL@EXAMPLE.COM')).id === u1.id, 'MySQL adapter case-insensitive getUserByEmail works');
+
+      await mysqlStore.setEmailVerificationCode(u1.id, 'codehash123', new Date(Date.now() + 60000).toISOString());
+      for (let i = 1; i <= 5; i++) {
+        const resAttempt = await mysqlStore.recordFailedEmailVerifyAttempt(u1.id);
+        if (i === 5) apiOk(resAttempt.invalidated === true && !resAttempt.user.emailVerifyHash, 'MySQL adapter invalidates email code on 5th failed attempt');
+      }
+      await mysqlStore.setEmailVerificationCode(u1.id, 'codehash456', new Date(Date.now() + 60000).toISOString());
+      const verifiedU1 = await mysqlStore.verifyEmailCode(u1.id);
+      apiOk(verifiedU1.emailVerified === true, 'MySQL adapter verifyEmailCode marks user verified');
+
+      await mysqlStore.setTotpSecret(u1.id, 'SECRETBASE32');
+      apiOk((await mysqlStore.enableTotp(u1.id)).totpEnabled === true, 'MySQL adapter enableTotp works');
+      apiOk((await mysqlStore.disableTotp(u1.id)).totpEnabled === false, 'MySQL adapter disableTotp works');
+
+      await mysqlStore.createSession({ tokenHash: 'th1', userId: u1.id, expiresAt: new Date(Date.now() + 60000).toISOString() });
+      const sess = await mysqlStore.getSession('th1');
+      apiOk(sess && sess.user.id === u1.id, 'MySQL adapter createSession + getSession works');
+      await mysqlStore.deleteSession('th1');
+      apiOk((await mysqlStore.getSession('th1')) === null, 'MySQL adapter deleteSession works');
+
+      const u2 = await mysqlStore.createUser({
+        username: 'mysql_rival',
+        email: 'rival@example.com',
+        passwordHash: 'hash2',
+        emailVerified: true
+      });
+      const m = await mysqlStore.createMatch({ hostUserId: u1.id, nonce: 'nonce-mysql-1', roomCode: 'RM1', mode: 'online', roundNumber: 1 });
+      await mysqlStore.addParticipants(m.id, [
+        { slot: 0, userId: u1.id, name: 'MySQL Commander', ai: false },
+        { slot: 1, userId: u2.id, name: 'Rival', ai: false }
+      ]);
+      await mysqlStore.submitAttestation({
+        matchId: m.id,
+        userId: u1.id,
+        attestationHash: 'chash',
+        payload: { ok: true },
+        slotOutcome: { slot: 0, kills: 1, finalHp: 90, won: true }
+      });
+      await mysqlStore.finalizeMatch({
+        matchId: m.id,
+        winnerUserId: u1.id,
+        canonicalHash: 'chash',
+        participantOutcomes: [
+          { slot: 0, kills: 1, finalHp: 90, won: true },
+          { slot: 1, kills: 0, finalHp: 0, won: false }
+        ],
+        isBotMatch: false
+      });
+
+      const lb = await mysqlStore.getLeaderboard(10);
+      apiOk(lb.length === 2 && lb[0].username === 'mysql_cmd' && lb[0].wins === 1, 'MySQL adapter finalizeMatch updates stats and getLeaderboard returns ranked verified users');
+
+      // Verify every non-DDL query uses parameterized '?' placeholders and never interpolates values
+      const dmlQueries = executedQueries.filter(q => !q.sql.startsWith('CREATE TABLE'));
+      apiOk(
+        dmlQueries.length > 15 && dmlQueries.every(q => q.params.length > 0 && q.sql.includes('?') && !q.sql.includes('mysql_cmd') && !q.sql.includes('mysql@example.com')),
+        'Every MySQL DML/SELECT query uses ? placeholders and never interpolates user values'
+      );
+
+      await mysqlStore.close();
+      apiOk(poolClosed === true, 'MySQL adapter close() ends the pool (unit-tested with fake mysql2 pool; no live MySQL server required)');
+    }
+
+    console.log(`${apiChecks} API & account checks passed (154 simulation + ${apiChecks} API = ${154 + apiChecks} total checks; MySQL adapter verified via fake-pool unit tests, main suite runs on SQLite).`);
   } finally {
     await new Promise(resolve => server.close(resolve));
   }
