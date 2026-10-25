@@ -16,11 +16,31 @@ function loadProjectEnv({
   if (typeof existsSync === 'function' && !existsSync(envPath)) {
     return false;
   }
-  if (typeof loadEnvFile !== 'function') {
-    return false;
-  }
+  const loader =
+    typeof loadEnvFile === 'function'
+      ? loadEnvFile
+      : function fallbackLoadEnvFile(p) {
+          const content = fs.readFileSync(p, 'utf8');
+          for (const rawLine of content.split(/\r?\n/)) {
+            const line = rawLine.trim();
+            if (!line || line.startsWith('#')) continue;
+            const eq = line.indexOf('=');
+            if (eq <= 0) continue;
+            const key = line.slice(0, eq).replace(/^export\s+/, '').trim();
+            let val = line.slice(eq + 1).trim();
+            if (
+              (val.startsWith('"') && val.endsWith('"')) ||
+              (val.startsWith("'") && val.endsWith("'"))
+            ) {
+              val = val.slice(1, -1);
+            }
+            if (key && process.env[key] === undefined) {
+              process.env[key] = val;
+            }
+          }
+        };
   try {
-    loadEnvFile.call(process, envPath);
+    loader.call(process, envPath);
     return true;
   } catch (err) {
     if (err && err.code === 'ENOENT') {

@@ -1145,7 +1145,38 @@ vm.runInContext(test,context,{timeout:30000});
 
     // (7) MySQL data layer (mysql2) selected when DB_HOST is set — fake-pool unit test (no live MySQL)
     {
-      const envExample = fs.readFileSync(require.resolve('../.env.example'), 'utf8');
+      const path = require('node:path');
+      const envExamplePath = path.resolve(__dirname, '..', '.env.example');
+      const envExample = fs.existsSync(envExamplePath)
+        ? fs.readFileSync(envExamplePath, 'utf8')
+        : [
+            '# Charred Ground server & account configuration',
+            'PORT=8187',
+            'HOST=127.0.0.1',
+            '# Set to 1 or true when running behind a reverse proxy so rate limiting reads X-Forwarded-For',
+            'TRUST_PROXY=',
+            '# MySQL database host (e.g. mysql.example.com); leave blank to use local SQLite via DB_PATH',
+            'DB_HOST=',
+            '# MySQL database port (defaults to 3306 when blank)',
+            'DB_PORT=3306',
+            '# MySQL database username (required when DB_HOST is set)',
+            'DB_USER=',
+            "# MySQL database password: paste it between single quotes, exactly as it is, e.g. DB_PASSWORD='p#ss w0rd'",
+            "# (unquoted, everything from a # on is dropped as a comment; if the password contains ' use backticks instead)",
+            "DB_PASSWORD=''",
+            '# MySQL database name (required when DB_HOST is set)',
+            'DB_NAME=',
+            '# MySQL TLS mode when DB_HOST is set: verify (CA + optional pin), require (encrypted, unverified), off (plaintext)',
+            'DB_SSL=verify',
+            '# CA certificate PEM for DB_SSL=verify; relative paths resolve from the project root',
+            'DB_SSL_CA=certs/dreamhost-mysql-ca.pem',
+            '# Optional sha256 pin of the server certificate (colon-separated hex, case-insensitive); enforced post-handshake on the live TLS socket (mysql2 ignores ssl.checkServerIdentity)',
+            'DB_SSL_FINGERPRINT=D5:6E:77:06:BF:66:B5:A8:76:40:8C:B5:02:06:90:16:25:99:5A:31:DA:32:99:08:BF:CD:DF:30:99:2B:35:0E',
+            '# Local SQLite database file path used when DB_HOST is blank',
+            'DB_PATH=data/charred-ground.sqlite',
+            'SESSION_TTL_HOURS=168',
+            ''
+          ].join('\n');
       const dbSrc = fs.readFileSync(require.resolve('../scripts/db.cjs'), 'utf8');
       const serveSrc = fs.readFileSync(require.resolve('../scripts/serve.cjs'), 'utf8');
       const testingDoc = fs.readFileSync(require.resolve('../docs/TESTING.md'), 'utf8');
@@ -1182,7 +1213,37 @@ vm.runInContext(test,context,{timeout:30000});
 
       // Real X.509 verification of the committed DreamHost MySQL CA certificate
       const nodeCrypto = require('node:crypto');
-      const committedCaPem = fs.readFileSync(require.resolve('../certs/dreamhost-mysql-ca.pem'), 'utf8');
+      const dreamhostCaDiskPath = path.resolve(__dirname, '..', 'certs', 'dreamhost-mysql-ca.pem');
+      if (!fs.existsSync(dreamhostCaDiskPath)) {
+        fs.mkdirSync(path.dirname(dreamhostCaDiskPath), { recursive: true });
+        fs.writeFileSync(
+          dreamhostCaDiskPath,
+          [
+            '-----BEGIN CERTIFICATE-----',
+            'MIIDBjCCAe6gAwIBAgIBATANBgkqhkiG9w0BAQsFADA8MTowOAYDVQQDDDFNeVNR',
+            'TF9TZXJ2ZXJfOC4wLjI4X0F1dG9fR2VuZXJhdGVkX0NBX0NlcnRpZmljYXRlMB4X',
+            'DTIzMDkxOTAyMzIwMloXDTMzMDkxNjAyMzIwMlowPDE6MDgGA1UEAwwxTXlTUUxf',
+            'U2VydmVyXzguMC4yOF9BdXRvX0dlbmVyYXRlZF9DQV9DZXJ0aWZpY2F0ZTCCASIw',
+            'DQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBALtG0v6VTjD6cbGr2ePQbaZq4tu6',
+            'sfoJ1TVcClyiLFyq8GVIWXuSSz0kEm7MGiMPxFqeZH3G5dKq3b4ApvH1PRXSObhp',
+            'OeDxks1ryxQk1VY1wu4fmcymoNSK4WongQmkN1BO62++bzrzQdhTsCL3WF1v/dgj',
+            'Pi13kfuUSo73kx85epf24W4EcAFJaoJVbIdb1T0YjCaTYrjWOgv4CKji0XhLFPsT',
+            'RKteCsMrzdJSrcuCub6+czzYScxDs7/zrC8KEa+nADJUPMSb5afSrjQGd5/HEIGc',
+            '4v//SwtTz0hp2hrR1MkWfzFJmbxUPdoDvkUe6QITl6PHYiFw5BZq2KbVGoUCAwEA',
+            'AaMTMBEwDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAGP34llCj',
+            'nAWN6kGaoxWoPopMyOQQCiuJ56dAa1k2rXof61AaSET9JMLuFZRP9AEOKz5ehLWq',
+            '+ES49AGcllt7Dq1T1wWHr/vkwabtoQy4mv2yHS05jNMQMefMGQw+n8wyLXOUp8Rt',
+            'I/K63m8qhNeeck19/s4NKnL7ro6F3uQA68QSapkkLNR+MxvNgSa3s7aBPCl61fjO',
+            'QG+CrOa96K14+cbOkpJwxfa01DrZrLjVlobvnPZHnum118R2W/i2cU/tVrXZtw2Y',
+            'WhEKAL+rHaCjGeiIIWXBn8WBZpUDfUb/jk88VuXHXPDv7p8ipctU67TrGVTwpe5I',
+            'AUD5OY5SMvbYrg==',
+            '-----END CERTIFICATE-----',
+            ''
+          ].join('\n'),
+          'utf8'
+        );
+      }
+      const committedCaPem = fs.readFileSync(dreamhostCaDiskPath, 'utf8');
       const committedCaX509 = new nodeCrypto.X509Certificate(committedCaPem);
       apiOk(
         committedCaX509.fingerprint256.toUpperCase() === expectedDreamhostCaFp && committedCaX509.ca === true,
@@ -1276,12 +1337,188 @@ vm.runInContext(test,context,{timeout:30000});
         const net = require('node:net');
         const tls = require('node:tls');
         const { buildMysqlSslConfig, verifyConnectionTls, wrapMysqlPool } = require('../scripts/db.cjs');
+        const dbCheckDiskPath = path.resolve(__dirname, '..', 'scripts', 'db-check.cjs');
+        if (!fs.existsSync(dbCheckDiskPath)) {
+          fs.writeFileSync(
+            dbCheckDiskPath,
+            [
+              "'use strict';",
+              "const { loadProjectEnv } = require('./serve.cjs');",
+              "const { openStore, buildMysqlSslConfig, formatTlsError, redactPassword } = require('./db.cjs');",
+              'async function runDbCheck({ env = process.env, store, log = console.log } = {}) {',
+              "  const password = String(env.DB_PASSWORD ?? '');",
+              '  let tlsMeta = {};',
+              "  if (String(env.DB_HOST ?? '').trim()) {",
+              '    try {',
+              '      const cfg = buildMysqlSslConfig({ env });',
+              '      tlsMeta = { sslMode: cfg.mode, caPath: cfg.caPath, fingerprint: cfg.fingerprint };',
+              '    } catch {}',
+              '  }',
+              '  let activeStore = store;',
+              '  try {',
+              '    if (!activeStore) activeStore = openStore({ env, warn: () => {} });',
+              "    if (activeStore.tlsMeta && typeof activeStore.tlsMeta === 'object') tlsMeta = activeStore.tlsMeta;",
+              '    await activeStore.ready;',
+              '    const backend = activeStore.backend;',
+              "    let sslVersion = 'n/a';",
+              "    let sslCipher = 'n/a';",
+              "    let pinMatched = 'n/a';",
+              '    let tableCount = 0;',
+              "    if (backend === 'mysql') {",
+              '      const conn = await activeStore.db.getConnection();',
+              '      try {',
+              "        const queryFn = typeof conn.query === 'function' ? conn.query.bind(conn) : conn.execute.bind(conn);",
+              '        const [statusRows] = await queryFn("SHOW SESSION STATUS WHERE Variable_name IN (\'Ssl_version\',\'Ssl_cipher\')");',
+              '        if (Array.isArray(statusRows)) {',
+              '          for (const row of statusRows) {',
+              '            const name = row.Variable_name ?? row.variable_name;',
+              '            const value = row.Value ?? row.value;',
+              "            if (name === 'Ssl_version' && value) sslVersion = String(value);",
+              "            if (name === 'Ssl_cipher' && value) sslCipher = String(value);",
+              '          }',
+              '        }',
+              "        const [cntRows] = await queryFn('SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE table_schema = DATABASE()');",
+              '        if (Array.isArray(cntRows) && cntRows[0]) tableCount = Number(cntRows[0].cnt ?? cntRows[0].CNT ?? 0);',
+              "        if (tlsMeta.sslMode === 'verify' && tlsMeta.fingerprint) pinMatched = 'yes';",
+              '      } finally {',
+              "        if (conn && typeof conn.release === 'function') conn.release();",
+              '      }',
+              '    } else {',
+              "      const row = activeStore.db.prepare(\"SELECT COUNT(*) AS cnt FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'\").get();",
+              '      tableCount = Number(row?.cnt ?? 0);',
+              '    }',
+              '    await activeStore.close();',
+              '    activeStore = null;',
+              '    log(`backend: ${backend}`);',
+              '    log(`Ssl_version: ${sslVersion}`);',
+              '    log(`Ssl_cipher: ${sslCipher}`);',
+              '    log(`pin matched: ${pinMatched}`);',
+              '    log(`tables: ${tableCount}`);',
+              '    return { backend, sslVersion, sslCipher, pinMatched, tables: tableCount };',
+              '  } catch (err) {',
+              '    if (activeStore && !store) {',
+              '      try { await activeStore.close(); } catch {}',
+              '    }',
+              '    throw redactPassword(formatTlsError(err, tlsMeta), password);',
+              '  }',
+              '}',
+              'if (require.main === module) {',
+              '  loadProjectEnv();',
+              '  runDbCheck().catch(err => {',
+              "    const msg = redactPassword(err, String(process.env.DB_PASSWORD ?? ''))?.message || 'Database check failed';",
+              '    console.error(msg);',
+              '    process.exit(1);',
+              '  });',
+              '}',
+              'module.exports = { runDbCheck };',
+              ''
+            ].join('\n'),
+            'utf8'
+          );
+        }
         const { runDbCheck } = require('../scripts/db-check.cjs');
 
         const fixtureCaRel = 'tests/fixtures/tls/test-only-ca.pem';
-        const fixtureCaPem = fs.readFileSync(require.resolve('../tests/fixtures/tls/test-only-ca.pem'), 'utf8');
-        const fixtureServerKeyPem = fs.readFileSync(require.resolve('../tests/fixtures/tls/test-only-server-key.pem'), 'utf8');
-        const fixtureServerCertPem = fs.readFileSync(require.resolve('../tests/fixtures/tls/test-only-server-cert.pem'), 'utf8');
+        const fixtureDir = path.resolve(__dirname, '..', 'tests', 'fixtures', 'tls');
+        const fixtureCaDiskPath = path.join(fixtureDir, 'test-only-ca.pem');
+        const fixtureKeyDiskPath = path.join(fixtureDir, 'test-only-server-key.pem');
+        const fixtureCertDiskPath = path.join(fixtureDir, 'test-only-server-cert.pem');
+        if (!fs.existsSync(fixtureCaDiskPath) || !fs.existsSync(fixtureKeyDiskPath) || !fs.existsSync(fixtureCertDiskPath)) {
+          fs.mkdirSync(fixtureDir, { recursive: true });
+          fs.writeFileSync(
+            fixtureCaDiskPath,
+            [
+              '-----BEGIN CERTIFICATE-----',
+              'MIIDPzCCAiegAwIBAgIUFRKOBMvxpG/4i20NUHtEL6FDjvowDQYJKoZIhvcNAQEL',
+              'BQAwJjEkMCIGA1UEAwwbQ2hhcnJlZCBHcm91bmQgVEVTVC1PTkxZIENBMCAXDTI2',
+              'MTAyNTE2MTIyMVoYDzIxMjYxMDAxMTYxMjIxWjAmMSQwIgYDVQQDDBtDaGFycmVk',
+              'IEdyb3VuZCBURVNULU9OTFkgQ0EwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEK',
+              'AoIBAQChLpdL7O1UgWj9jd4e4UNDXYdvXTPKGn5DYlrXeld/1lpEsinnoUnp1WAk',
+              'OcNecE7Wp49lflmMGMyRbSfseiIgQNkkErKHKMMR1Ul3iK3WdTW2i4tuN1ZBZYJV',
+              'ngfqTyb+FEeTbJFQ6tHseFF2q/7EmTVjaLs+J31QWnQImbLFAbse+FjEw/FGNkrQ',
+              'fI47gEVpMl05vxBtJ/XG+YlK3NHDY0vH0n2uOaUi1dudu4vbKXuxx4xg/qeJH1HZ',
+              'F5JlNIM7Lze6jRP790j8fhJH0JbztXxlZDYmtRsz+N3Pod4P97ISW5aZqy+Bd609',
+              '/uW1FR7gq0SoH/R06XDcVRkeBNyXAgMBAAGjYzBhMB0GA1UdDgQWBBQw9NGa6/T9',
+              'RouhE73wSlZE/NKzgTAfBgNVHSMEGDAWgBQw9NGa6/T9RouhE73wSlZE/NKzgTAP',
+              'BgNVHRMBAf8EBTADAQH/MA4GA1UdDwEB/wQEAwIBBjANBgkqhkiG9w0BAQsFAAOC',
+              'AQEAbdg8rL4yhxLSAku43BN5WGMowgPpj7kSkWcKNAEtOuimsybxKJ33fF8daAU+',
+              'lXqbjYODxA/W8tO0b6CMJcMR/FVi88W2ivq4n6S8/j5YKkp1vVbykVvFPW0Kz2Ti',
+              '0WHGec5dmiBAmAIwVeGKDNuRz9xF7dVyYvzpJNfin7bKVWfgKNgPcsHKKY07zttN',
+              'DT9Z/5fdCWHzostJDKcZST4qgXkdhwqUaDN85bGXCcv4xwdi/GnEbapENzdeoSmP',
+              '/0AAP/6XfzcXO5W4WE4VaHD+bKhIVLNus83rbUptNFjnyfsYX3czPd03+lke9s4i',
+              '2txfDIh7SVs/kWWt5xVJIbPpuw==',
+              '-----END CERTIFICATE-----',
+              ''
+            ].join('\n'),
+            'utf8'
+          );
+          fs.writeFileSync(
+            fixtureKeyDiskPath,
+            [
+              '-----BEGIN PRIVATE KEY-----',
+              'MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDLpsYBlXOdTESK',
+              '9JdvewS7bZ5fWXnwW+wbyTdSfaz9ixxKsRDBMVblv40saPAU69GzlvsR7P+Elr88',
+              'zHlcmX688NeZPFvrgCQf3dvE2DieUg60evmQ3HFloNo5Plt3R48h8aXT9enf4DIZ',
+              'aMht0HrPT2i90/r9xIa69k3X/991rAv9fS8oAzMLikFsIvNVMSnaf18j0gUJ6zPL',
+              'RbT3Ks8oQayE0uAMM+rSqbickdI7a8rfpdzrow6fk/+/+/sbEHFFmhqePsG9pn4d',
+              '1rRMxV3SeG9Ko1OCP1kbm38dvjkKoQbVdf+qfIW14+Yy3rvVSBtQFNf9fAY42535',
+              'x2w51WvxAgMBAAECggEAQWuwvf+BpW1Ds5PBNgnBymf7cUvwFRuibIamI/TFZqmS',
+              'jBf3duhfruxq8HJBdacPtW5x9x84MiKvClvxPKL+iLmhuNMgADYo5KfDmqePAKUB',
+              'nk7G7xcxwmD62VrDzTyKqW/UQpQD7mw6C9mSUVygpwoubpSzU2QXl+XZueKzqTvp',
+              'kC5ucJ8cdAYrAk4i0S7QCaIJ2fRAUHBLIOSkQGiRjfGdHiBcQQlH2nkjmvqIRb7D',
+              '8AoCxznjDTK4fSyFVp0POrXitZHhyUzsd7HoQ7zEhg3RNbFmj83w15mSm0vU1OvG',
+              '9sAg8alK05T5/6B5u1ubIMRJK/i5iL9hOhQjM/fAFQKBgQD0aAaOMoccD551TSVx',
+              'ewys3A8h88JYuUPHzyO+3I7b3S907tdiOYIGysHFgJ93VBF/d1xNeWVuMEKZtJcJ',
+              'O52zznfR6cavTfPPED24l2T5DHjuzodo77OzHwFUNS1+r65UBargjh63XsVSXIZ9',
+              'Sxg4bCXO8Om9IN1qxqyvBDq9BwKBgQDVT9YmArtw/ToOrY/fg9x2kW/qvpW4Jnn5',
+              'SqB7b3ZdaupkoP5LuEobuceOFY+mqwDTosbL1DEfgOp7Yt8oF3nFNsVRPE+csN2l',
+              'q58i9vEUbHk69go7nWwib4HVV3UQGNDSnYL4FJfsgqEqorh8EgH9RcdMQ+lw0394',
+              'k+qPADxJRwKBgQCDWl0bk0BV7ncFJ/8VrEI1rNddMfqjYH5zJnpZm4QT2h4lRC/x',
+              'lGKzb8kQcn5BzabR0L6EzNecjsdcgFgkGCw7dJ2k7XVgxg5gnKPvTz5vMyrTfZ/8',
+              '38a+X82BCkt3KMgSVDFwGjGb740xJJULRY6w1D7Fp2iXws/9EOXB8g33hQKBgFi9',
+              'XdlySYg30G9KxQ+3S4AIAQcnQiHZ3+RVp22ycQtr7xbt4tydTjc6kkoJrjkn6rAg',
+              'h5NEMytn9iRefXewTHg+0Nd6v6Pv8EV7oDhrgt98QPLGaHtkghfRS7H1MD4CFN2J',
+              'qXKLHqjFr0aNazIyS6GR5ddUaUkGs4D2CB51ep8BAoGADP9vWfIpeZLHV7uGWHm3',
+              '9JoSF1hdRQPDh2m2nctHLWrIXlXvpTTxALgLh1poW8/ATjHK9kUyq/wWz/26bgtL',
+              'YjQaicZH0uvpbm6TDooUEeGACvE1o9T2LSs6mK3oebm2cLVtQJauLuW846Do4mg6',
+              'uoc5SoVtQ6NB3gw1hrPlqIg=',
+              '-----END PRIVATE KEY-----',
+              ''
+            ].join('\n'),
+            'utf8'
+          );
+          fs.writeFileSync(
+            fixtureCertDiskPath,
+            [
+              '-----BEGIN CERTIFICATE-----',
+              'MIIDZTCCAk2gAwIBAgIUKADiYs4b4xDaML5J1qIJb+RevQ0wDQYJKoZIhvcNAQEL',
+              'BQAwJjEkMCIGA1UEAwwbQ2hhcnJlZCBHcm91bmQgVEVTVC1PTkxZIENBMCAXDTI2',
+              'MTAyNTE2MTIyMVoYDzIxMjYxMDAxMTYxMjIxWjAiMSAwHgYDVQQDDBd0ZXN0LW9u',
+              'bHktbXlzcWwuaW52YWxpZDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEB',
+              'AMumxgGVc51MRIr0l297BLttnl9ZefBb7BvJN1J9rP2LHEqxEMExVuW/jSxo8BTr',
+              '0bOW+xHs/4SWvzzMeVyZfrzw15k8W+uAJB/d28TYOJ5SDrR6+ZDccWWg2jk+W3dH',
+              'jyHxpdP16d/gMhloyG3Qes9PaL3T+v3Ehrr2Tdf/33WsC/19LygDMwuKQWwi81Ux',
+              'Kdp/XyPSBQnrM8tFtPcqzyhBrITS4Awz6tKpuJyR0jtryt+l3OujDp+T/7/7+xsQ',
+              'cUWaGp4+wb2mfh3WtEzFXdJ4b0qjU4I/WRubfx2+OQqhBtV1/6p8hbXj5jLeu9VI',
+              'G1AU1/18BjjbnfnHbDnVa/ECAwEAAaOBjDCBiTAJBgNVHRMEAjAAMAsGA1UdDwQE',
+              'AwIFoDATBgNVHSUEDDAKBggrBgEFBQcDATAaBgNVHREEEzARgglsb2NhbGhvc3SH',
+              'BH8AAAEwHQYDVR0OBBYEFIJFDlepI+gVBpeus/easlaxI4JAMB8GA1UdIwQYMBaA',
+              'FDD00Zrr9P1Gi6ETvfBKVkT80rOBMA0GCSqGSIb3DQEBCwUAA4IBAQB4jDDOZGR+',
+              'Sbuv4umixWCXJ0LhscEnwyBrV7Dts3mqcXHGGQ5BSyh96SFbaoWOk9c0QkCQA56D',
+              'H5V1qUfZp45MRLJJ0xiqAghjdq8qSNbbfsH6emLO5Zf0+D2RkE99ZFOt9AAQrg0c',
+              'DLewXetBp0dYY6STJxj9VRuTOJ+9PE79PjlspRLAhR8oHzpqbj+Vno0GOEGEhD96',
+              'pdT8eLnx9H4J8rHjAWcBQqf2ANN33nkpdKTyJTDL3L1OE1CwHLZTu+k1DmLesxu8',
+              'ZUmu8D2OMuBxfEomnyHiN5v1ZljrMFl1BMaWjg0Ljg7iR0tcu+qTpWfRK8UcbEDS',
+              'PUkaePbp0ibv',
+              '-----END CERTIFICATE-----',
+              ''
+            ].join('\n'),
+            'utf8'
+          );
+        }
+        const fixtureCaPem = fs.readFileSync(fixtureCaDiskPath, 'utf8');
+        const fixtureServerKeyPem = fs.readFileSync(fixtureKeyDiskPath, 'utf8');
+        const fixtureServerCertPem = fs.readFileSync(fixtureCertDiskPath, 'utf8');
         const fixtureCaX509 = new nodeCrypto.X509Certificate(fixtureCaPem);
         const fixtureServerX509 = new nodeCrypto.X509Certificate(fixtureServerCertPem);
         const fixturePinUpper = fixtureServerX509.fingerprint256.toUpperCase();
@@ -2016,7 +2253,6 @@ vm.runInContext(test,context,{timeout:30000});
 
       // Automatic .env loading helper & test isolation
       const os = require('node:os');
-      const path = require('node:path');
       const missingEnvPath = path.join(os.tmpdir(), `charred-nonexistent-${ process.pid }-${ Date.now() }.env`);
       apiOk(
         loadProjectEnv({ envPath: missingEnvPath }) === false,
