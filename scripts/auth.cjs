@@ -7,13 +7,13 @@ const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 const BCRYPT_ROUNDS = 10;
 const EMAIL_CODE_TTL_MS = 15 * 60 * 1000;
 
-function hashPassword(password) {
-  return bcrypt.hashSync(String(password), BCRYPT_ROUNDS);
+async function hashPassword(password) {
+  return bcrypt.hash(String(password), BCRYPT_ROUNDS);
 }
 
-function verifyPassword(password, hash) {
+async function verifyPassword(password, hash) {
   if (!hash || typeof password !== 'string') return false;
-  return bcrypt.compareSync(password, hash);
+  return bcrypt.compare(password, hash);
 }
 
 function sha256Hex(value) {

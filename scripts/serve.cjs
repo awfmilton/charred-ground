@@ -8,10 +8,15 @@ const { createApi } = require('./api.cjs');
 
 const root = path.resolve(__dirname, '..');
 
-function createServer({ dbPath, env = process.env, fetchImpl = globalThis.fetch } = {}) {
+function createServer({ dbPath, databaseUrl, mysqlPool, env = process.env, fetchImpl = globalThis.fetch } = {}) {
   const resolvedDbPath =
     dbPath || env.DB_PATH || path.join(root, 'data', 'charred-ground.sqlite');
-  const store = openStore({ file: resolvedDbPath });
+  const store = openStore({
+    file: resolvedDbPath,
+    databaseUrl: databaseUrl ?? env.DATABASE_URL,
+    mysqlPool,
+    env
+  });
   const handleApi = createApi({ store, env, fetchImpl });
 
   const server = http.createServer(async (req, res) => {
