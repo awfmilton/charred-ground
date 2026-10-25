@@ -3,6 +3,7 @@
 const crypto = require('node:crypto');
 const auth = require('./auth.cjs');
 const { publicProfile } = require('./db.cjs');
+const { createAiDecisionService } = require('./ai.cjs');
 
 const MAX_BODY_BYTES = 64 * 1024;
 const SESSION_COOKIE = 'cg_session';
@@ -457,6 +458,7 @@ function validateAndCanonicalizeAttestation(match, body) {
 }
 
 function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = {}) {
+  const decideAi = createAiDecisionService({ env, fetchImpl, allowedWeapons: ALLOWED_WEAPONS });
   if (!store) throw new Error('createApi requires a store instance');
 
   const rateLimitMap = new Map();
@@ -581,6 +583,23 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
     try {
       if (store.ready) {
         await store.ready;
+      }
+
+      // A bearer-authenticated, verified player may request bounded game decisions.
+      // Requiring the explicit header prevents cookie-only cross-site requests.
+      if (method === 'POST' && pathname === '/api/ai/decision') {
+        if (!/^Bearer /i.test(req.headers.authorization || '')) {
+          json(res, 401, { error: 'Authentication required.' });
+          return true;
+        }
+        const sess = await getAuthSession(req);
+        if (!sess) {
+          json(res, 401, { error: 'Authentication required.' });
+          return true;
+        }
+        const result = await decideAi(sess.user, await readJsonBody(req));
+        json(res, 200, result);
+        return true;
       }
 
       // Rate limit auth endpoints
