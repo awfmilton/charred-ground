@@ -12,9 +12,15 @@ pinned: false
 
 [Play the hosted game](https://charred-ground.niftybuddy25.chatgpt.site) (currently owner-private).
 
-For local development: `npm install`, then `npm start` and open http://127.0.0.1:8187. Run `npm test` for the simulation and camera regression suite. The application itself needs no build step.
+For local development: `npm install`, copy `.env.example` to `.env` (`cp .env.example .env`), then `npm start` and open http://127.0.0.1:8187. Run `npm test` for the simulation, camera, and player-account API regression suite. The application itself needs no build step.
 
-Open `index.html` in a modern browser, or serve it from a static web host. The application is one HTML file; it fetches Three.js, PeerJS, and optional display fonts from CDNs, so the first load needs an internet connection. No build step, asset folder, or application backend is required. This README also supplies metadata for a Hugging Face Static Space.
+Open `index.html` through `npm start` (which serves both the single-file client and the `/api/*` player-account backend on the same origin). The application fetches Three.js, PeerJS, and optional display fonts from CDNs, so the first load needs an internet connection. This README also supplies metadata for a Hugging Face Static Space.
+
+## Player accounts, profiles & leaderboard
+
+- **Authentication:** Register with a username, email, and password (salted bcrypt), verify your account with a 6-digit email code, and optionally enable RFC 6238 TOTP two-factor authentication from the **Account** modal. OAuth sign-in buttons for Google, Discord, Facebook, and Twitter/X are built in behind environment variable placeholders (`OAUTH_<PROVIDER>_CLIENT_ID`, `_CLIENT_SECRET`, `_REDIRECT_URI`). Until real OAuth app credentials and an email sender (`EMAIL_SMTP_URL` / `EMAIL_FROM`) are configured in `.env`, OAuth endpoints report their placeholder status (`503`) and verification codes are logged to the server console (and returned in non-production responses for local testing).
+- **Commander profiles:** Customize your display name, avatar URL, bio, and up to two custom fields with player-chosen field names (max 80 characters) and values (max 175 characters), plus view your personal combat stats and match history.
+- **Tamper-proof match results & public leaderboard:** Online matches request a single-use server match ticket (`POST /api/matches/start`) and require every human participant to co-attest the canonical round outcome and action log (`POST /api/matches/:id/attest`). Sanity checks reject impossible weapons, angles, powers, kill counts, nonce replays, or conflicting participant reports. The **Leaderboard** modal is publicly visible and ranks verified commanders by total attested multiplayer wins.
 
 ## New in Charred Ground
 
