@@ -134,7 +134,13 @@ vm.runInContext(test,context,{timeout:30000});
       method: 'POST',
       body: { username: 'alpha', password: 'Password123!' }
     });
-    apiOk(unverifiedLogin.status === 403 && unverifiedLogin.data.requiresEmailVerification, 'Unverified user cannot login');
+    apiOk(
+      unverifiedLogin.status === 200 &&
+        unverifiedLogin.data.token &&
+        unverifiedLogin.data.emailVerified === false &&
+        unverifiedLogin.data.user.emailVerified === false,
+      'Unverified user can login for unranked play and receives emailVerified:false'
+    );
 
     const badVerify = await req('/api/auth/verify-email', {
       method: 'POST',
@@ -444,6 +450,88 @@ vm.runInContext(test,context,{timeout:30000});
     });
     apiOk(replayRes.status === 409, 'Nonce replay on finalized match rejected with 409');
 
+    // 5e-bis. Concurrent parallel final attestations (CAS prevents double-counted wins/kills/matchesPlayed)
+    {
+      const beforeLb = await req('/api/leaderboard');
+      const alphaBefore = beforeLb.data.leaderboard.find(e => e.username === 'alpha');
+      const bravoBefore = beforeLb.data.leaderboard.find(e => e.username === 'bravo');
+
+      const startConcurrent = await req('/api/matches/start', {
+        method: 'POST',
+        token: alphaToken,
+        body: {
+          roomCode: 'CHARRED-CAS001',
+          mode: 'online',
+          round: 1,
+          participants: [
+            { slot: 0, userId: alphaId, name: 'Alpha Prime', ai: false },
+            { slot: 1, userId: bravoId, name: 'Commander Bravo', ai: false }
+          ]
+        }
+      });
+      const firstAttest = await req(`/api/matches/${startConcurrent.data.matchId}/attest`, {
+        method: 'POST',
+        token: alphaToken,
+        body: {
+          nonce: startConcurrent.data.nonce,
+          winnerSlot: 0,
+          durationMs: 14000,
+          actionLog: validActionLog,
+          outcomes: alphaWinsOutcomes
+        }
+      });
+      apiOk(firstAttest.status === 202, 'CAS test: first participant attestation accepted as pending');
+
+      // Duplicate attestation by the same participant before opponent attests must be rejected
+      const dupParticipantAttest = await req(`/api/matches/${startConcurrent.data.matchId}/attest`, {
+        method: 'POST',
+        token: alphaToken,
+        body: {
+          nonce: startConcurrent.data.nonce,
+          winnerSlot: 0,
+          durationMs: 14000,
+          actionLog: validActionLog,
+          outcomes: alphaWinsOutcomes
+        }
+      });
+      apiOk(dupParticipantAttest.status === 409, 'Duplicate attestation from already-attested participant rejected with 409');
+
+      // Fire 6 parallel final attestations (Bravo x4 + Alpha replay x2) with Promise.all
+      const parallelAttests = await Promise.all(
+        [bravoToken, bravoToken, bravoToken, bravoToken, alphaToken, alphaToken].map(tok =>
+          req(`/api/matches/${startConcurrent.data.matchId}/attest`, {
+            method: 'POST',
+            token: tok,
+            body: {
+              nonce: startConcurrent.data.nonce,
+              winnerSlot: 0,
+              durationMs: 14200,
+              actionLog: validActionLog,
+              outcomes: alphaWinsOutcomes
+            }
+          })
+        )
+      );
+      const ok200 = parallelAttests.filter(r => r.status === 200 && r.data.status === 'verified');
+      const rejected409 = parallelAttests.filter(r => r.status === 409);
+      apiOk(
+        ok200.length === 1 && rejected409.length === parallelAttests.length - 1,
+        'Parallel final attestations finalize match exactly once (1x 200 verified, rest 409)'
+      );
+
+      const afterLb = await req('/api/leaderboard');
+      const alphaAfter = afterLb.data.leaderboard.find(e => e.username === 'alpha');
+      const bravoAfter = afterLb.data.leaderboard.find(e => e.username === 'bravo');
+      apiOk(
+        alphaAfter.wins === alphaBefore.wins + 1 &&
+          alphaAfter.kills === alphaBefore.kills + 1 &&
+          alphaAfter.matchesPlayed === alphaBefore.matchesPlayed + 1 &&
+          bravoAfter.losses === bravoBefore.losses + 1 &&
+          bravoAfter.matchesPlayed === bravoBefore.matchesPlayed + 1,
+        'Parallel final attestations increment wins, kills, losses, and matchesPlayed by exactly 1'
+      );
+    }
+
     // 5f. Single-human vs AI bot match records as bot_match and does not increment leaderboard wins
     const startBotMatch = await req('/api/matches/start', {
       method: 'POST',
@@ -476,8 +564,8 @@ vm.runInContext(test,context,{timeout:30000});
     apiOk(lbRes.status === 200 && Array.isArray(lbRes.data.leaderboard), 'Unauthenticated GET /api/leaderboard succeeds');
     const top = lbRes.data.leaderboard[0];
     const bravoEntry = lbRes.data.leaderboard.find(e => e.username === 'bravo');
-    apiOk(top.username === 'alpha' && top.wins === 1 && top.kills === 1 && top.rank === 1, 'Leaderboard ranks Alpha #1 with 1 verified win');
-    apiOk(bravoEntry && bravoEntry.wins === 0 && bravoEntry.losses === 1, 'Bravo has 0 multiplayer wins (bot match excluded from leaderboard wins)');
+    apiOk(top.username === 'alpha' && top.wins === 2 && top.kills === 2 && top.rank === 1, 'Leaderboard ranks Alpha #1 with 2 verified wins');
+    apiOk(bravoEntry && bravoEntry.wins === 0 && bravoEntry.losses === 2, 'Bravo has 0 multiplayer wins (bot match excluded from leaderboard wins)');
 
     // Logout check
     const logoutRes = await req('/api/auth/logout', { method: 'POST', token: alphaToken });
@@ -526,17 +614,39 @@ vm.runInContext(test,context,{timeout:30000});
       const s3 = await callAuth('203.0.113.3');
       apiOk(s1 === 401 && s2 === 401 && s3 === 429, 'Without TRUST_PROXY, X-Forwarded-For is ignored and socket IP shares rate-limit bucket');
 
-      // Wait for window expiry, then enable TRUST_PROXY=1
+      // Wait for window expiry, then enable TRUST_PROXY=1 (1 trusted hop from the right end)
       await new Promise(r => setTimeout(r, 60));
       rlEnv.TRUST_PROXY = '1';
-      const p1 = await callAuth('198.51.100.10, 10.0.0.1');
-      const p2 = await callAuth('198.51.100.20, 10.0.0.1');
-      const p3 = await callAuth('198.51.100.30, 10.0.0.1');
-      apiOk(p1 === 401 && p2 === 401 && p3 === 401, 'With TRUST_PROXY=1, distinct X-Forwarded-For client IPs have independent buckets');
-      const pRepeat1 = await callAuth('198.51.100.10');
-      const pRepeat2 = await callAuth('198.51.100.10');
-      apiOk(pRepeat1 === 401 && pRepeat2 === 429, 'With TRUST_PROXY=1, repeating a single forwarded IP hits 429 at the cap');
+      // Rotating fake left-most XFF entries with the same right-most proxy-appended IP (198.51.100.10) must NOT change the key
+      const spoof1 = await callAuth('203.0.113.1, 198.51.100.10');
+      const spoof2 = await callAuth('203.0.113.2, 198.51.100.10');
+      const spoof3 = await callAuth('203.0.113.3, 198.51.100.10');
+      apiOk(
+        spoof1 === 401 && spoof2 === 401 && spoof3 === 429,
+        'With TRUST_PROXY=1, client-supplied left-most X-Forwarded-For values cannot change the rate-limit key'
+      );
+
+      const p1 = await callAuth('198.51.100.20');
+      const p2 = await callAuth('198.51.100.30');
+      apiOk(p1 === 401 && p2 === 401, 'With TRUST_PROXY=1, distinct right-most forwarded client IPs have independent buckets');
       apiOk(rlApi.rateLimitMapSize >= 3, 'Rate-limit map tracks active client IPs');
+
+      // TRUST_PROXY=2: takes 2nd entry from the right end; falls back to socket IP if list is shorter than 2 hops
+      const { getClientIp } = require('../scripts/api.cjs');
+      apiOk(
+        getClientIp(
+          { headers: { 'x-forwarded-for': '203.0.113.99, 198.51.100.77, 10.0.0.1' }, socket: { remoteAddress: '10.0.0.2' } },
+          { TRUST_PROXY: '2' }
+        ) === '198.51.100.77',
+        'With TRUST_PROXY=2, getClientIp selects the entry 2 places from the right end'
+      );
+      apiOk(
+        getClientIp(
+          { headers: { 'x-forwarded-for': '198.51.100.77' }, socket: { remoteAddress: '10.0.0.2' } },
+          { TRUST_PROXY: '2' }
+        ) === '10.0.0.2',
+        'When X-Forwarded-For has fewer entries than TRUST_PROXY hops, getClientIp falls back to socket address'
+      );
 
       // Wait for window expiry and trigger a check to prune expired entries
       await new Promise(r => setTimeout(r, 60));
@@ -586,6 +696,44 @@ vm.runInContext(test,context,{timeout:30000});
       });
       apiOk(verifiedAfterResend.status === 200 && verifiedAfterResend.data.user.emailVerified, 'Resending code after invalidation allows verification');
       const capToken = verifiedAfterResend.data.token;
+
+      // Parallel wrong-guess race: 20 parallel wrong guesses followed by the real code must be refused
+      const regRace = await req('/api/auth/register', {
+        method: 'POST',
+        body: { username: 'racecapuser', email: 'racecap@example.com', password: 'Password123!' }
+      });
+      const raceValidCode = regRace.data.devVerificationCode;
+      const parallelWrong = await Promise.all(
+        Array.from({ length: 20 }, (_, idx) =>
+          req('/api/auth/verify-email', {
+            method: 'POST',
+            body: { username: 'racecapuser', code: String(100000 + idx) }
+          })
+        )
+      );
+      apiOk(
+        parallelWrong.every(r => r.status === 400),
+        'All 20 parallel wrong email verification guesses are rejected with 400'
+      );
+      const afterRaceValid = await req('/api/auth/verify-email', {
+        method: 'POST',
+        body: { username: 'racecapuser', code: raceValidCode }
+      });
+      apiOk(
+        afterRaceValid.status === 400 && afterRaceValid.data.code === 'email_verify_invalidated',
+        'After 20 parallel wrong guesses, the correct verification code is refused with email_verify_invalidated'
+      );
+
+      // Resend-code per-account rate limit (max 3 per window)
+      const resend1 = await req('/api/auth/resend-code', { method: 'POST', body: { username: 'racecapuser' } });
+      const resend2 = await req('/api/auth/resend-code', { method: 'POST', body: { username: 'racecapuser' } });
+      const resend3 = await req('/api/auth/resend-code', { method: 'POST', body: { username: 'racecapuser' } });
+      const resend4 = await req('/api/auth/resend-code', { method: 'POST', body: { username: 'racecapuser' } });
+      apiOk(
+        resend1.status === 200 && resend2.status === 200 && resend3.status === 200 &&
+          resend4.status === 429 && resend4.data.code === 'resend_rate_limited',
+        'POST /api/auth/resend-code is rate-limited per account to 3 requests per window (4th returns 429 resend_rate_limited)'
+      );
 
       // Setup and enable TOTP on capuser, then test per-account TOTP brute-force limit across distinct IPs
       const setupCapTotp = await req('/api/auth/totp/setup', { method: 'POST', token: capToken });
@@ -711,12 +859,52 @@ vm.runInContext(test,context,{timeout:30000});
       const unvToken = regUnv.data.token;
       const unvId = regUnv.data.user.id;
 
-      // Unverified login returns email_unverified code
+      // Unverified login succeeds for unranked play and returns emailVerified:false
       const loginUnv = await req('/api/auth/login', {
         method: 'POST',
         body: { username: 'unverified_cmd', password: 'Password123!' }
       });
-      apiOk(loginUnv.status === 403 && loginUnv.data.code === 'email_unverified', 'Login with unverified account returns code email_unverified');
+      apiOk(
+        loginUnv.status === 200 &&
+          loginUnv.data.token &&
+          loginUnv.data.emailVerified === false &&
+          loginUnv.data.user &&
+          loginUnv.data.user.emailVerified === false,
+        'Login with unverified account succeeds (200) and returns emailVerified:false'
+      );
+
+      // Unverified account with TOTP enabled still enforces TOTP on login and returns emailVerified:false
+      const unvTotpSetup = await req('/api/auth/totp/setup', { method: 'POST', token: unvToken });
+      const unvTotpEnable = await req('/api/auth/totp/enable', {
+        method: 'POST',
+        token: unvToken,
+        body: { code: generateTotpCode(unvTotpSetup.data.secret) }
+      });
+      apiOk(unvTotpEnable.status === 200 && unvTotpEnable.data.totpEnabled, 'Unverified account can enable TOTP');
+
+      const loginUnvNoTotp = await req('/api/auth/login', {
+        method: 'POST',
+        body: { username: 'unverified_cmd', password: 'Password123!' }
+      });
+      apiOk(
+        loginUnvNoTotp.status === 401 && loginUnvNoTotp.data.requiresTotp === true,
+        'Unverified account with TOTP enabled requires TOTP code on login'
+      );
+
+      const loginUnvWithTotp = await req('/api/auth/login', {
+        method: 'POST',
+        body: {
+          username: 'unverified_cmd',
+          password: 'Password123!',
+          totpCode: generateTotpCode(unvTotpSetup.data.secret)
+        }
+      });
+      apiOk(
+        loginUnvWithTotp.status === 200 &&
+          loginUnvWithTotp.data.token &&
+          loginUnvWithTotp.data.emailVerified === false,
+        'Unverified account with valid TOTP logs in (200) with emailVerified:false'
+      );
 
       // Starting a ranked/attested match as an unverified host is rejected with 403 email_unverified
       const startUnvHost = await req('/api/matches/start', {
@@ -819,9 +1007,21 @@ vm.runInContext(test,context,{timeout:30000});
       let poolClosed = false;
 
       const fakeMysqlPool = {
+        async getConnection() {
+          return {
+            execute: (sql, params) => fakeMysqlPool.execute(sql, params),
+            beginTransaction: async () => {},
+            commit: async () => {},
+            rollback: async () => {},
+            release: () => {}
+          };
+        },
         async execute(sql, params = []) {
           const norm = sql.replace(/\s+/g, ' ').trim();
           executedQueries.push({ sql: norm, params });
+          if (/\bLIMIT\s+\?/i.test(norm)) {
+            throw new Error('Incorrect arguments to mysqld_stmt_execute');
+          }
           const qCount = (norm.match(/\?/g) || []).length;
           if (qCount !== params.length) {
             throw new Error(`Placeholder count mismatch (${qCount} vs ${params.length}) in SQL: ${norm}`);
@@ -864,22 +1064,21 @@ vm.runInContext(test,context,{timeout:30000});
             }
             return [{ affectedRows: u ? 1 : 0 }, []];
           }
-          if (norm.startsWith('UPDATE users SET email_verify_attempts = ?, email_verify_hash = NULL')) {
-            const [attempts, now, id] = params;
-            const u = tables.users.find(r => r.id === id);
+          if (norm.startsWith('UPDATE users SET email_verify_attempts = email_verify_attempts + 1')) {
+            const [now, id] = params;
+            const u = tables.users.find(r => r.id === id && r.email_verify_hash !== null);
             if (u) {
-              u.email_verify_attempts = attempts;
-              u.email_verify_hash = null;
-              u.email_verify_expires_at = null;
+              u.email_verify_attempts = Number(u.email_verify_attempts || 0) + 1;
               u.updated_at = now;
             }
             return [{ affectedRows: u ? 1 : 0 }, []];
           }
-          if (norm.startsWith('UPDATE users SET email_verify_attempts = ?, updated_at = ?')) {
-            const [attempts, now, id] = params;
+          if (norm.startsWith('UPDATE users SET email_verify_hash = NULL, email_verify_expires_at = NULL')) {
+            const [now, id] = params;
             const u = tables.users.find(r => r.id === id);
             if (u) {
-              u.email_verify_attempts = attempts;
+              u.email_verify_hash = null;
+              u.email_verify_expires_at = null;
               u.updated_at = now;
             }
             return [{ affectedRows: u ? 1 : 0 }, []];
@@ -956,8 +1155,9 @@ vm.runInContext(test,context,{timeout:30000});
           }
           if (norm.startsWith('UPDATE match_participants SET attested = 1')) {
             const [attestation_hash, payload_json, kills, final_hp, won, attested_at, match_id, user_id] = params;
+            let affected = 0;
             for (const mp of tables.match_participants) {
-              if (mp.match_id === match_id && mp.user_id === user_id && !mp.is_ai) {
+              if (mp.match_id === match_id && mp.user_id === user_id && !mp.is_ai && mp.attested === 0) {
                 mp.attested = 1;
                 mp.attestation_hash = attestation_hash;
                 mp.payload_json = payload_json;
@@ -965,13 +1165,14 @@ vm.runInContext(test,context,{timeout:30000});
                 mp.final_hp = final_hp;
                 mp.won = won;
                 mp.attested_at = attested_at;
+                affected = 1;
               }
             }
-            return [{ affectedRows: 1 }, []];
+            return [{ affectedRows: affected }, []];
           }
           if (norm.startsWith('UPDATE matches SET status = ?, nonce_used = 1, winner_user_id = ?')) {
             const [status, winner_user_id, canonical_hash, completed_at, id] = params;
-            const m = tables.matches.find(r => r.id === id);
+            const m = tables.matches.find(r => r.id === id && r.status === 'pending' && r.nonce_used === 0);
             if (m) {
               m.status = status;
               m.nonce_used = 1;
@@ -999,8 +1200,37 @@ vm.runInContext(test,context,{timeout:30000});
             }
             return [{ affectedRows: u ? 1 : 0 }, []];
           }
+          if (norm.startsWith('SELECT m.id, m.room_code, m.mode, m.round_number')) {
+            const limitMatch = norm.match(/\bLIMIT\s+(\d+)$/i);
+            const limit = limitMatch ? Number(limitMatch[1]) : 20;
+            const userId = params[0];
+            const rows = tables.match_participants
+              .filter(mp => mp.user_id === userId)
+              .map(mp => {
+                const m = tables.matches.find(r => r.id === mp.match_id);
+                if (!m || !['verified', 'bot_match'].includes(m.status)) return null;
+                return {
+                  id: m.id,
+                  room_code: m.room_code,
+                  mode: m.mode,
+                  round_number: m.round_number,
+                  status: m.status,
+                  winner_user_id: m.winner_user_id,
+                  started_at: m.started_at,
+                  completed_at: m.completed_at,
+                  slot: mp.slot,
+                  kills: mp.kills,
+                  final_hp: mp.final_hp,
+                  won: mp.won
+                };
+              })
+              .filter(Boolean)
+              .slice(0, limit);
+            return [rows, []];
+          }
           if (norm.startsWith('SELECT * FROM users WHERE email_verified = 1 ORDER BY wins DESC')) {
-            const limit = params[0];
+            const limitMatch = norm.match(/\bLIMIT\s+(\d+)$/i);
+            const limit = limitMatch ? Number(limitMatch[1]) : 50;
             const rows = tables.users
               .filter(u => u.email_verified === 1)
               .sort((a, b) => b.wins - a.wins || b.kills - a.kills)
@@ -1063,14 +1293,26 @@ vm.runInContext(test,context,{timeout:30000});
         { slot: 0, userId: u1.id, name: 'MySQL Commander', ai: false },
         { slot: 1, userId: u2.id, name: 'Rival', ai: false }
       ]);
-      await mysqlStore.submitAttestation({
+      const firstSub = await mysqlStore.submitAttestation({
         matchId: m.id,
         userId: u1.id,
         attestationHash: 'chash',
         payload: { ok: true },
         slotOutcome: { slot: 0, kills: 1, finalHp: 90, won: true }
       });
-      await mysqlStore.finalizeMatch({
+      const dupSub = await mysqlStore.submitAttestation({
+        matchId: m.id,
+        userId: u1.id,
+        attestationHash: 'chash',
+        payload: { ok: true },
+        slotOutcome: { slot: 0, kills: 1, finalHp: 90, won: true }
+      });
+      apiOk(
+        firstSub.attestedUpdated === true && dupSub.attestedUpdated === false,
+        'MySQL adapter submitAttestation only sets attested when attested=0 and rejects duplicate'
+      );
+
+      const firstFin = await mysqlStore.finalizeMatch({
         matchId: m.id,
         winnerUserId: u1.id,
         canonicalHash: 'chash',
@@ -1080,15 +1322,52 @@ vm.runInContext(test,context,{timeout:30000});
         ],
         isBotMatch: false
       });
+      const secondFin = await mysqlStore.finalizeMatch({
+        matchId: m.id,
+        winnerUserId: u1.id,
+        canonicalHash: 'chash',
+        participantOutcomes: [
+          { slot: 0, kills: 1, finalHp: 90, won: true },
+          { slot: 1, kills: 0, finalHp: 0, won: false }
+        ],
+        isBotMatch: false
+      });
+      apiOk(
+        firstFin.finalized === true && secondFin.finalized === false,
+        'MySQL adapter finalizeMatch CAS returns finalized:true once and finalized:false on replay without double-counting stats'
+      );
 
-      const lb = await mysqlStore.getLeaderboard(10);
-      apiOk(lb.length === 2 && lb[0].username === 'mysql_cmd' && lb[0].wins === 1, 'MySQL adapter finalizeMatch updates stats and getLeaderboard returns ranked verified users');
+      const lb = await mysqlStore.getLeaderboard(250);
+      apiOk(lb.length === 2 && lb[0].username === 'mysql_cmd' && lb[0].wins === 1, 'MySQL adapter finalizeMatch updates stats once and getLeaderboard returns ranked verified users');
 
-      // Verify every non-DDL query uses parameterized '?' placeholders and never interpolates values
+      const hist = await mysqlStore.getMatchHistoryByUser(u1.id, 0);
+      apiOk(hist.length === 1 && hist[0].matchId === m.id && hist[0].won === true, 'MySQL adapter getMatchHistoryByUser clamps limit and returns match history');
+
+      const lbQueries = executedQueries.filter(q => q.sql.startsWith('SELECT * FROM users WHERE email_verified = 1 ORDER BY wins DESC'));
+      const histQueries = executedQueries.filter(q => q.sql.startsWith('SELECT m.id, m.room_code, m.mode, m.round_number'));
+      apiOk(
+        lbQueries.length === 1 &&
+          /\bLIMIT 100$/.test(lbQueries[0].sql) &&
+          !/\bLIMIT\s+\?/i.test(lbQueries[0].sql) &&
+          lbQueries[0].params.length === 0 &&
+          histQueries.length === 1 &&
+          /\bLIMIT 1$/.test(histQueries[0].sql) &&
+          !/\bLIMIT\s+\?/i.test(histQueries[0].sql) &&
+          histQueries[0].params.length === 1,
+        'MySQL getLeaderboard and getMatchHistoryByUser clamp limit to 1..100 and send no bound LIMIT ? placeholder'
+      );
+
+      // Verify every non-DDL query uses parameterized '?' placeholders for values and never interpolates user strings
       const dmlQueries = executedQueries.filter(q => !q.sql.startsWith('CREATE TABLE'));
       apiOk(
-        dmlQueries.length > 15 && dmlQueries.every(q => q.params.length > 0 && q.sql.includes('?') && !q.sql.includes('mysql_cmd') && !q.sql.includes('mysql@example.com')),
-        'Every MySQL DML/SELECT query uses ? placeholders and never interpolates user values'
+        dmlQueries.length > 15 &&
+          dmlQueries.every(
+            q =>
+              ((q.params.length > 0 && q.sql.includes('?')) || (q.params.length === 0 && !q.sql.includes('?'))) &&
+              !q.sql.includes('mysql_cmd') &&
+              !q.sql.includes('mysql@example.com')
+          ),
+        'Every MySQL DML/SELECT query uses ? placeholders for bound parameters and never interpolates user values'
       );
 
       await mysqlStore.close();

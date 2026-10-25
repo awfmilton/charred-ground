@@ -110,17 +110,29 @@ function clearSessionCookie(req) {
   return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureAttr}`;
 }
 
-function isTrustProxyEnabled(env) {
-  const val = String(env?.TRUST_PROXY ?? '').trim().toLowerCase();
-  return Boolean(val) && val !== '0' && val !== 'false' && val !== 'no' && val !== 'off';
+function getTrustedProxyHops(env) {
+  const raw = env?.TRUST_PROXY;
+  if (raw === true) return 1;
+  const val = String(raw ?? '').trim().toLowerCase();
+  if (!val || val === '0' || val === 'false' || val === 'no' || val === 'off') return 0;
+  if (val === 'true' || val === 'yes' || val === 'on') return 1;
+  const n = Number(val);
+  if (Number.isInteger(n) && n > 0) return n;
+  return 0;
 }
 
 function getClientIp(req, env) {
-  if (isTrustProxyEnabled(env)) {
+  const hops = getTrustedProxyHops(env);
+  if (hops > 0) {
     const xff = req?.headers?.['x-forwarded-for'];
     if (typeof xff === 'string' && xff.trim()) {
-      const first = xff.split(',')[0].trim();
-      if (first) return first;
+      const parts = xff
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+      if (parts.length >= hops) {
+        return parts[parts.length - hops];
+      }
     }
   }
   return req?.socket?.remoteAddress || '127.0.0.1';
@@ -304,6 +316,7 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
 
   const rateLimitMap = new Map();
   const totpAttemptMap = new Map();
+  const resendCodeMap = new Map();
   const oauthStateMap = new Map();
 
   function pruneRateLimitMap(now = Date.now()) {
@@ -359,6 +372,30 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
 
   function clearTotpAttempts(userId) {
     totpAttemptMap.delete(userId);
+  }
+
+  function pruneResendCodeMap(now = Date.now()) {
+    for (const [k, rec] of resendCodeMap.entries()) {
+      if (rec.resetAt <= now) {
+        resendCodeMap.delete(k);
+      }
+    }
+  }
+
+  function checkResendCodeLimit(userId, now = Date.now()) {
+    pruneResendCodeMap(now);
+    const maxPerWindow = Number(env.RESEND_CODE_RATE_LIMIT_MAX || 3);
+    const windowMs = Number(env.RESEND_CODE_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000);
+    let rec = resendCodeMap.get(userId);
+    if (!rec || rec.resetAt <= now) {
+      rec = { count: 0, resetAt: now + windowMs };
+      resendCodeMap.set(userId, rec);
+    }
+    if (rec.count >= maxPerWindow) {
+      return false;
+    }
+    rec.count++;
+    return true;
   }
 
   async function getAuthSession(req) {
@@ -498,10 +535,18 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
           });
           return true;
         }
+        // Count the attempt atomically FIRST before comparing the code
+        const attempt = await store.recordFailedEmailVerifyAttempt(user.id);
+        if (attempt.attempts > 5 || (attempt.invalidated && attempt.attempts !== 5)) {
+          json(res, 400, {
+            code: 'email_verify_invalidated',
+            error: 'Too many wrong attempts. Your verification code has been invalidated; request a new code.'
+          });
+          return true;
+        }
         const check = auth.verifyEmailCodeHash(code, user.emailVerifyHash, user.emailVerifyExpiresAt);
         if (!check.ok) {
-          const attempt = await store.recordFailedEmailVerifyAttempt(user.id);
-          if (attempt.invalidated) {
+          if (attempt.invalidated || attempt.attempts >= 5) {
             json(res, 400, {
               code: 'email_verify_invalidated',
               error: 'Too many wrong attempts. Your verification code has been invalidated; request a new code.'
@@ -535,6 +580,13 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
           json(res, 400, { error: 'Email is already verified.' });
           return true;
         }
+        if (!checkResendCodeLimit(user.id)) {
+          json(res, 429, {
+            code: 'resend_rate_limited',
+            error: 'Too many verification code requests for this account. Please try again later.'
+          });
+          return true;
+        }
         const { code, codeHash, expiresAt } = auth.generateEmailCode();
         await store.setEmailVerificationCode(user.id, codeHash, expiresAt);
         const mail = await auth.sendEmail({
@@ -560,15 +612,6 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
         const user = (await store.getUserByUsername(identifier)) || (await store.getUserByEmail(identifier));
         if (!user || !user.passwordHash || !(await auth.verifyPassword(password, user.passwordHash))) {
           json(res, 401, { error: 'Invalid username or password.' });
-          return true;
-        }
-        if (!user.emailVerified) {
-          json(res, 403, {
-            code: 'email_unverified',
-            error: 'Email verification required before signing in.',
-            requiresEmailVerification: true,
-            username: user.username
-          });
           return true;
         }
         if (user.totpEnabled) {
@@ -599,10 +642,17 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
         }
 
         const sess = await issueSessionForUser(user.id, req);
+        const emailVerified = Boolean(user.emailVerified);
         json(
           res,
           200,
-          { ok: true, token: sess.token, user: await formatSelfUser(user) },
+          {
+            ok: true,
+            token: sess.token,
+            emailVerified,
+            requiresEmailVerification: !emailVerified,
+            user: await formatSelfUser(user)
+          },
           { 'Set-Cookie': sess.cookie }
         );
         return true;
@@ -1007,6 +1057,13 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
           json(res, 403, { error: 'You are not a registered human participant in this match.' });
           return true;
         }
+        if (participant.attested) {
+          json(res, 409, {
+            error: 'Participant has already submitted an attestation for this match.',
+            status: match.status
+          });
+          return true;
+        }
 
         const body = await readJsonBody(req);
         const validation = validateAndCanonicalizeAttestation(match, body);
@@ -1024,6 +1081,13 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
           payload: body,
           slotOutcome: mySlotOutcome
         });
+        if (!updatedMatch || updatedMatch.attestedUpdated === false) {
+          json(res, 409, {
+            error: 'Participant has already submitted an attestation for this match.',
+            status: updatedMatch?.status || match.status
+          });
+          return true;
+        }
 
         const humanParticipants = updatedMatch.participants.filter(p => !p.ai && p.userId);
         const attestedHumans = humanParticipants.filter(p => p.attested);
@@ -1077,6 +1141,14 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
           participantOutcomes: validation.outcomes,
           isBotMatch
         });
+
+        if (!finalized || finalized.finalized === false) {
+          json(res, 409, {
+            error: 'Match ticket has already been finalized or rejected.',
+            status: finalized?.status || 'verified'
+          });
+          return true;
+        }
 
         json(res, 200, {
           ok: true,

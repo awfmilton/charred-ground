@@ -7,6 +7,12 @@ const { DatabaseSync } = require('node:sqlite');
 
 const MAX_EMAIL_VERIFY_ATTEMPTS = 5;
 
+function clampLimit(limit, fallback = 50) {
+  const n = Number(limit);
+  if (!Number.isFinite(n)) return Math.min(100, Math.max(1, Math.trunc(Number(fallback) || 50)));
+  return Math.min(100, Math.max(1, Math.trunc(n)));
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -298,23 +304,22 @@ function openSqliteStore(file) {
     },
 
     recordFailedEmailVerifyAttempt(userId) {
+      const now = nowIso();
+      const inc = db.prepare(`
+        UPDATE users
+        SET email_verify_attempts = email_verify_attempts + 1, updated_at = ?
+        WHERE id = ? AND email_verify_hash IS NOT NULL
+      `).run(now, userId);
       const user = this.getUserById(userId);
       if (!user) return { attempts: 0, invalidated: true, user: null };
-      const attempts = Number(user.emailVerifyAttempts || 0) + 1;
-      const invalidated = attempts >= MAX_EMAIL_VERIFY_ATTEMPTS || !user.emailVerifyHash;
-      const now = nowIso();
+      const attempts = Number(user.emailVerifyAttempts || 0);
+      const invalidated = Number(inc.changes || 0) === 0 || attempts >= MAX_EMAIL_VERIFY_ATTEMPTS || !user.emailVerifyHash;
       if (invalidated) {
         db.prepare(`
           UPDATE users
-          SET email_verify_attempts = ?, email_verify_hash = NULL, email_verify_expires_at = NULL, updated_at = ?
+          SET email_verify_hash = NULL, email_verify_expires_at = NULL, updated_at = ?
           WHERE id = ?
-        `).run(attempts, now, userId);
-      } else {
-        db.prepare(`
-          UPDATE users
-          SET email_verify_attempts = ?, updated_at = ?
-          WHERE id = ?
-        `).run(attempts, now, userId);
+        `).run(now, userId);
       }
       return { attempts, invalidated, user: this.getUserById(userId) };
     },
@@ -441,7 +446,7 @@ function openSqliteStore(file) {
 
     submitAttestation({ matchId, userId, attestationHash, payload, slotOutcome }) {
       const now = nowIso();
-      db.prepare(`
+      const info = db.prepare(`
         UPDATE match_participants
         SET attested = 1,
             attestation_hash = ?,
@@ -450,7 +455,7 @@ function openSqliteStore(file) {
             final_hp = ?,
             won = ?,
             attested_at = ?
-        WHERE match_id = ? AND user_id = ? AND is_ai = 0
+        WHERE match_id = ? AND user_id = ? AND is_ai = 0 AND attested = 0
       `).run(
         attestationHash,
         JSON.stringify(payload),
@@ -461,52 +466,65 @@ function openSqliteStore(file) {
         matchId,
         userId
       );
-      return this.getMatch(matchId);
+      const match = this.getMatch(matchId);
+      return match ? { ...match, attestedUpdated: Number(info.changes || 0) === 1 } : null;
     },
 
     finalizeMatch({ matchId, winnerUserId, canonicalHash, participantOutcomes, isBotMatch = false }) {
       const now = nowIso();
       const status = isBotMatch ? 'bot_match' : 'verified';
-      db.prepare(`
-        UPDATE matches
-        SET status = ?, nonce_used = 1, winner_user_id = ?, canonical_hash = ?, completed_at = ?
-        WHERE id = ?
-      `).run(status, winnerUserId || null, canonicalHash, now, matchId);
+      db.exec('BEGIN IMMEDIATE');
+      let wonCas = false;
+      try {
+        const cas = db.prepare(`
+          UPDATE matches
+          SET status = ?, nonce_used = 1, winner_user_id = ?, canonical_hash = ?, completed_at = ?
+          WHERE id = ? AND status = 'pending' AND nonce_used = 0
+        `).run(status, winnerUserId || null, canonicalHash, now, matchId);
+        wonCas = Number(cas.changes || 0) === 1;
 
-      const updatePart = db.prepare(`
-        UPDATE match_participants
-        SET kills = ?, final_hp = ?, won = ?
-        WHERE match_id = ? AND slot = ?
-      `);
-      for (const o of participantOutcomes) {
-        updatePart.run(
-          Number(o.kills || 0),
-          Number(o.finalHp || 0),
-          o.won ? 1 : 0,
-          matchId,
-          Number(o.slot)
-        );
-      }
+        if (wonCas) {
+          const updatePart = db.prepare(`
+            UPDATE match_participants
+            SET kills = ?, final_hp = ?, won = ?
+            WHERE match_id = ? AND slot = ?
+          `);
+          for (const o of participantOutcomes) {
+            updatePart.run(
+              Number(o.kills || 0),
+              Number(o.finalHp || 0),
+              o.won ? 1 : 0,
+              matchId,
+              Number(o.slot)
+            );
+          }
 
-      if (!isBotMatch) {
-        const match = this.getMatch(matchId);
-        for (const p of match.participants) {
-          if (!p.userId || p.ai) continue;
-          const won = p.userId === winnerUserId && Boolean(winnerUserId);
-          const lost = !won;
-          db.prepare(`
-            UPDATE users
-            SET wins = wins + ?,
-                losses = losses + ?,
-                kills = kills + ?,
-                matches_played = matches_played + 1,
-                updated_at = ?
-            WHERE id = ? AND email_verified = 1
-          `).run(won ? 1 : 0, lost ? 1 : 0, Number(p.kills || 0), now, p.userId);
+          if (!isBotMatch) {
+            const match = this.getMatch(matchId);
+            for (const p of match.participants) {
+              if (!p.userId || p.ai) continue;
+              const won = p.userId === winnerUserId && Boolean(winnerUserId);
+              const lost = !won;
+              db.prepare(`
+                UPDATE users
+                SET wins = wins + ?,
+                    losses = losses + ?,
+                    kills = kills + ?,
+                    matches_played = matches_played + 1,
+                    updated_at = ?
+                WHERE id = ? AND email_verified = 1
+              `).run(won ? 1 : 0, lost ? 1 : 0, Number(p.kills || 0), now, p.userId);
+            }
+          }
         }
+        db.exec('COMMIT');
+      } catch (err) {
+        try { db.exec('ROLLBACK'); } catch {}
+        throw err;
       }
 
-      return this.getMatch(matchId);
+      const match = this.getMatch(matchId);
+      return match ? { ...match, finalized: wonCas } : null;
     },
 
     rejectMatch(matchId, reason) {
@@ -520,6 +538,7 @@ function openSqliteStore(file) {
     },
 
     getMatchHistoryByUser(userId, limit = 20) {
+      const safeLimit = clampLimit(limit, 20);
       const rows = db.prepare(`
         SELECT m.id, m.room_code, m.mode, m.round_number, m.status, m.winner_user_id,
                m.started_at, m.completed_at,
@@ -529,7 +548,7 @@ function openSqliteStore(file) {
         WHERE mp.user_id = ? AND m.status IN ('verified', 'bot_match')
         ORDER BY COALESCE(m.completed_at, m.started_at) DESC
         LIMIT ?
-      `).all(userId, Number(limit));
+      `).all(userId, safeLimit);
       return rows.map(r => ({
         matchId: r.id,
         roomCode: r.room_code,
@@ -547,12 +566,13 @@ function openSqliteStore(file) {
     },
 
     getLeaderboard(limit = 50) {
+      const safeLimit = clampLimit(limit, 50);
       const rows = db.prepare(`
         SELECT * FROM users
         WHERE email_verified = 1
         ORDER BY wins DESC, kills DESC, matches_played ASC, username ASC
         LIMIT ?
-      `).all(Number(limit));
+      `).all(safeLimit);
       return formatLeaderboardRows(rows);
     },
 
@@ -749,24 +769,26 @@ function openMysqlStore({ databaseUrl, pool: injectedPool } = {}) {
     },
 
     async recordFailedEmailVerifyAttempt(userId) {
+      const now = nowIso();
+      const [incResult] = await pool.execute(
+        `UPDATE users
+         SET email_verify_attempts = email_verify_attempts + 1, updated_at = ?
+         WHERE id = ? AND email_verify_hash IS NOT NULL`,
+        [now, userId]
+      );
       const user = await this.getUserById(userId);
       if (!user) return { attempts: 0, invalidated: true, user: null };
-      const attempts = Number(user.emailVerifyAttempts || 0) + 1;
-      const invalidated = attempts >= MAX_EMAIL_VERIFY_ATTEMPTS || !user.emailVerifyHash;
-      const now = nowIso();
+      const attempts = Number(user.emailVerifyAttempts || 0);
+      const invalidated =
+        Number(incResult?.affectedRows || 0) === 0 ||
+        attempts >= MAX_EMAIL_VERIFY_ATTEMPTS ||
+        !user.emailVerifyHash;
       if (invalidated) {
         await pool.execute(
           `UPDATE users
-           SET email_verify_attempts = ?, email_verify_hash = NULL, email_verify_expires_at = NULL, updated_at = ?
+           SET email_verify_hash = NULL, email_verify_expires_at = NULL, updated_at = ?
            WHERE id = ?`,
-          [attempts, now, userId]
-        );
-      } else {
-        await pool.execute(
-          `UPDATE users
-           SET email_verify_attempts = ?, updated_at = ?
-           WHERE id = ?`,
-          [attempts, now, userId]
+          [now, userId]
         );
       }
       const updated = await this.getUserById(userId);
@@ -905,7 +927,7 @@ function openMysqlStore({ databaseUrl, pool: injectedPool } = {}) {
 
     async submitAttestation({ matchId, userId, attestationHash, payload, slotOutcome }) {
       const now = nowIso();
-      await pool.execute(
+      const [result] = await pool.execute(
         `UPDATE match_participants
          SET attested = 1,
              attestation_hash = ?,
@@ -914,7 +936,7 @@ function openMysqlStore({ databaseUrl, pool: injectedPool } = {}) {
              final_hp = ?,
              won = ?,
              attested_at = ?
-         WHERE match_id = ? AND user_id = ? AND is_ai = 0`,
+         WHERE match_id = ? AND user_id = ? AND is_ai = 0 AND attested = 0`,
         [
           attestationHash,
           JSON.stringify(payload),
@@ -926,48 +948,78 @@ function openMysqlStore({ databaseUrl, pool: injectedPool } = {}) {
           userId
         ]
       );
-      return this.getMatch(matchId);
+      const match = await this.getMatch(matchId);
+      return match ? { ...match, attestedUpdated: Number(result?.affectedRows || 0) === 1 } : null;
     },
 
     async finalizeMatch({ matchId, winnerUserId, canonicalHash, participantOutcomes, isBotMatch = false }) {
       const now = nowIso();
       const status = isBotMatch ? 'bot_match' : 'verified';
-      await pool.execute(
-        `UPDATE matches
-         SET status = ?, nonce_used = 1, winner_user_id = ?, canonical_hash = ?, completed_at = ?
-         WHERE id = ?`,
-        [status, winnerUserId || null, canonicalHash, now, matchId]
-      );
-
-      for (const o of participantOutcomes) {
-        await pool.execute(
-          `UPDATE match_participants
-           SET kills = ?, final_hp = ?, won = ?
-           WHERE match_id = ? AND slot = ?`,
-          [Number(o.kills || 0), Number(o.finalHp || 0), o.won ? 1 : 0, matchId, Number(o.slot)]
+      const conn = typeof pool.getConnection === 'function' ? await pool.getConnection() : pool;
+      let wonCas = false;
+      try {
+        if (typeof conn.beginTransaction === 'function') {
+          await conn.beginTransaction();
+        }
+        const [casResult] = await conn.execute(
+          `UPDATE matches
+           SET status = ?, nonce_used = 1, winner_user_id = ?, canonical_hash = ?, completed_at = ?
+           WHERE id = ? AND status = 'pending' AND nonce_used = 0`,
+          [status, winnerUserId || null, canonicalHash, now, matchId]
         );
-      }
+        wonCas = Number(casResult?.affectedRows || 0) === 1;
 
-      if (!isBotMatch) {
-        const match = await this.getMatch(matchId);
-        for (const p of match.participants) {
-          if (!p.userId || p.ai) continue;
-          const won = p.userId === winnerUserId && Boolean(winnerUserId);
-          const lost = !won;
-          await pool.execute(
-            `UPDATE users
-             SET wins = wins + ?,
-                 losses = losses + ?,
-                 kills = kills + ?,
-                 matches_played = matches_played + 1,
-                 updated_at = ?
-             WHERE id = ? AND email_verified = 1`,
-            [won ? 1 : 0, lost ? 1 : 0, Number(p.kills || 0), now, p.userId]
-          );
+        if (wonCas) {
+          for (const o of participantOutcomes) {
+            await conn.execute(
+              `UPDATE match_participants
+               SET kills = ?, final_hp = ?, won = ?
+               WHERE match_id = ? AND slot = ?`,
+              [Number(o.kills || 0), Number(o.finalHp || 0), o.won ? 1 : 0, matchId, Number(o.slot)]
+            );
+          }
+
+          if (!isBotMatch) {
+            const [partRows] = await conn.execute(
+              'SELECT * FROM match_participants WHERE match_id = ? ORDER BY slot ASC',
+              [matchId]
+            );
+            for (const p of partRows) {
+              const userId = p.user_id || null;
+              const isAi = Boolean(p.is_ai);
+              if (!userId || isAi) continue;
+              const won = userId === winnerUserId && Boolean(winnerUserId);
+              const lost = !won;
+              await conn.execute(
+                `UPDATE users
+                 SET wins = wins + ?,
+                     losses = losses + ?,
+                     kills = kills + ?,
+                     matches_played = matches_played + 1,
+                     updated_at = ?
+                 WHERE id = ? AND email_verified = 1`,
+                [won ? 1 : 0, lost ? 1 : 0, Number(p.kills || 0), now, userId]
+              );
+            }
+          }
+        }
+
+        if (typeof conn.commit === 'function') {
+          await conn.commit();
+        }
+      } catch (err) {
+        if (typeof conn.rollback === 'function') {
+          try { await conn.rollback(); } catch {}
+        }
+        throw err;
+      } finally {
+        if (typeof conn.release === 'function') {
+          conn.release();
         }
       }
 
-      return this.getMatch(matchId);
+      const match = await this.getMatch(matchId);
+      return match ? { ...match, finalized: wonCas } : null;
     },
 
     async rejectMatch(matchId, reason) {
@@ -982,6 +1034,7 @@ function openMysqlStore({ databaseUrl, pool: injectedPool } = {}) {
     },
 
     async getMatchHistoryByUser(userId, limit = 20) {
+      const safeLimit = clampLimit(limit, 20);
       const [rows] = await pool.execute(
         `SELECT m.id, m.room_code, m.mode, m.round_number, m.status, m.winner_user_id,
                 m.started_at, m.completed_at,
@@ -990,8 +1043,8 @@ function openMysqlStore({ databaseUrl, pool: injectedPool } = {}) {
          JOIN matches m ON m.id = mp.match_id
          WHERE mp.user_id = ? AND m.status IN ('verified', 'bot_match')
          ORDER BY COALESCE(m.completed_at, m.started_at) DESC
-         LIMIT ?`,
-        [userId, Number(limit)]
+         LIMIT ${safeLimit}`,
+        [userId]
       );
       return rows.map(r => ({
         matchId: r.id,
@@ -1010,12 +1063,13 @@ function openMysqlStore({ databaseUrl, pool: injectedPool } = {}) {
     },
 
     async getLeaderboard(limit = 50) {
+      const safeLimit = clampLimit(limit, 50);
       const [rows] = await pool.execute(
         `SELECT * FROM users
          WHERE email_verified = 1
          ORDER BY wins DESC, kills DESC, matches_played ASC, username ASC
-         LIMIT ?`,
-        [Number(limit)]
+         LIMIT ${safeLimit}`,
+        []
       );
       return formatLeaderboardRows(rows);
     },
