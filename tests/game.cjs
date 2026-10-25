@@ -180,9 +180,180 @@ setup();let exposed=S.tanks[1];explosion(140,38,0,{r:28,dmg:60},0,true);let expo
 setup();S.buildings.push({id:1,owner:1,shape:'canopy',hp:100,x:140,y:20});explosion(140,38,0,{r:28,dmg:60},0,true);ok(100-S.tanks[1].hp<exposedLoss*.3,'Canopy attenuates overhead blast damage');
 setup();S.platforms.push({id:1,x:57,y:30,width:24,hp:100,maxHp:100});action({weaponOrItem:'Anti-Satellite Silo'},0);step(.05);ok(S.buildings[0].y===30,'Structures remain supported on raised floating decks');
 setup();S.tanks.forEach(t=>t.turnsTaken=9);S.satellites=[{id:1,owner:0,hp:60}];newRound();ok(current().turnsTaken===1&&S.actionsLeft===2&&S.satellites.length===0,'Round reset grants fresh setup phase and clears satellites');
+// --- Client actionLog hook recording for all action kinds & items ---
+setup();S.actionLog=[];
+for(let[name,w]of Object.entries(WEAPONS_CONFIG)){
+  if(w.kind==='chute')continue;
+  S.turn=0;S.phase='aim';S.actionsLeft=2;S.satellites=[];S.buildings=[];S.drones=[];S.shots=[];
+  S.tanks[0].inv[name]=5;
+  let beforeLen=S.actionLog.length;
+  let callArg={action:'fire',weaponOrItem:name};
+  if(w.kind!=='building'&&w.kind!=='shield'&&w.kind!=='mag'&&w.kind!=='battery'&&w.kind!=='fuel'){callArg.angle=50;callArg.power=620;callArg.az=5}
+  if(w.kind==='drone'||w.kind==='satellite')callArg.targetX=140;
+  ok(action(callArg,0),'Client hook test action succeeds for '+name);
+  ok(S.actionLog.length===beforeLen+1,'Client hook pushes 1 entry per call for '+name);
+  let rec=S.actionLog[S.actionLog.length-1];
+  ok(rec.actor===0&&rec.action==='fire'&&rec.weaponOrItem===name,'Client hook records actor/action/weaponOrItem for '+name);
+  ok(Number.isFinite(rec.angle)&&rec.angle>0&&Number.isFinite(rec.power)&&rec.power>0,'Client hook records effective non-zero angle/power for '+name);
+}
+S.turn=0;S.phase='aim';S.actionsLeft=2;S.tanks[0].x=40;S.tanks[0].fuel=100;
+ok(action({action:'move',dx:4},0),'Client hook move action succeeds');
+let moveRec=S.actionLog[S.actionLog.length-1];
+ok(moveRec.action==='move'&&moveRec.dx===4&&moveRec.weaponOrItem===undefined,'Client hook records move entry with clamped dx');
+S.turn=0;S.phase='aim';S.actionsLeft=2;S.satellites=[{id:7,owner:0,x:140,y:190,z:0,hp:60,maxHp:60,cooldown:0}];
+ok(action({action:'sat_strike',weaponOrItem:'Satellite Laser Strike',targetX:140},0),'Client hook sat_strike succeeds');
+let strikeRec=S.actionLog[S.actionLog.length-1];
+ok(strikeRec.action==='sat_strike'&&strikeRec.weaponOrItem==='Satellite Laser Strike'&&strikeRec.targetX===140,'Client hook records sat_strike with targetX and Satellite Laser Strike');
+S.turn=0;S.phase='aim';S.actionsLeft=2;S.buildings=[{id:8,owner:0,x:52,y:20,shape:'silo',hp:85,charges:1}];S.satellites=[{id:9,owner:1,x:160,y:190,z:0,hp:60,maxHp:60,cooldown:0}];
+ok(action({action:'silo_launch',weaponOrItem:'ASAT Silo Launch',targetSatId:9},0),'Client hook silo_launch succeeds');
+let siloRec=S.actionLog[S.actionLog.length-1];
+ok(siloRec.action==='silo_launch'&&siloRec.weaponOrItem==='ASAT Silo Launch'&&siloRec.targetSatId===9,'Client hook records silo_launch with ASAT Silo Launch and targetSatId');
+globalThis.__vmClientRecordedLog=JSON.parse(JSON.stringify(S.actionLog));
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
 `;
 vm.runInContext(test,context,{timeout:30000});
+const simChecks = vm.runInContext('checks', context);
+
+// --- Catalog Drift & Client<->Server Validator Round-Trip Verification ---
+{
+  const {
+    SHOT_WEAPONS,
+    DRONE_WEAPONS,
+    SATELLITE_WEAPONS,
+    STRUCTURE_WEAPONS,
+    EQUIPMENT_WEAPONS,
+    SPECIAL_ACTION_WEAPONS,
+    ALLOWED_WEAPONS,
+    validateAndCanonicalizeAttestation
+  } = require('../scripts/api.cjs');
+
+  const htmlText = fs.readFileSync('index.html', 'utf8');
+  const weaponsCfgMatch = htmlText.match(/const WEAPONS_CONFIG=\{([\s\S]*?)\r?\n\};/);
+  assert(weaponsCfgMatch, 'Could not locate WEAPONS_CONFIG in index.html');
+  const parsedConfigNames = [];
+  const keyRe = /^\s*(?:'([^']+)'|"([^"]+)")\s*:\s*\{/gm;
+  let m;
+  while ((m = keyRe.exec(weaponsCfgMatch[1])) !== null) {
+    parsedConfigNames.push(m[1] ?? m[2]);
+  }
+  assert.strictEqual(parsedConfigNames.length, 39, `Expected 39 items in WEAPONS_CONFIG, found ${parsedConfigNames.length}`);
+
+  const refreshMatch = htmlText.match(/function refreshWeapons\(\)\{[^\r\n]*\}/);
+  assert(refreshMatch, 'Could not locate refreshWeapons() in index.html');
+  const specialOptionNames = [];
+  const optRe = /o\.value='([^']+)'/g;
+  while ((m = optRe.exec(refreshMatch[0])) !== null) {
+    specialOptionNames.push(m[1]);
+  }
+  assert(
+    specialOptionNames.includes('Satellite Laser Strike') && specialOptionNames.includes('ASAT Silo Launch'),
+    'Expected refreshWeapons() to offer Satellite Laser Strike and ASAT Silo Launch'
+  );
+
+  const allClientNames = [...parsedConfigNames, ...specialOptionNames];
+  const categorySets = [
+    SHOT_WEAPONS,
+    DRONE_WEAPONS,
+    SATELLITE_WEAPONS,
+    STRUCTURE_WEAPONS,
+    EQUIPMENT_WEAPONS,
+    SPECIAL_ACTION_WEAPONS
+  ];
+
+  const missingFromAllowed = allClientNames.filter(n => !ALLOWED_WEAPONS.has(n));
+  assert.strictEqual(
+    missingFromAllowed.length,
+    0,
+    `Catalog drift: client weapons/items missing from ALLOWED_WEAPONS: ${missingFromAllowed.join(', ')}`
+  );
+
+  for (const name of allClientNames) {
+    const memberships = categorySets.filter(s => s.has(name)).length;
+    assert.strictEqual(memberships, 1, `Expected "${name}" to belong to exactly 1 category set, found ${memberships}`);
+  }
+
+  const syntheticMatch = {
+    id: 'drift-match',
+    nonce: 'drift-nonce',
+    nonceUsed: false,
+    status: 'pending',
+    roundNumber: 1,
+    participants: [
+      { slot: 0, userId: 'u0', name: 'P0', ai: false },
+      { slot: 1, userId: 'u1', name: 'P1', ai: false }
+    ]
+  };
+  const syntheticOutcomes = [
+    { slot: 0, kills: 1, finalHp: 90 },
+    { slot: 1, kills: 0, finalHp: 0 }
+  ];
+
+  const rejectedByValidator = [];
+  for (const name of allClientNames) {
+    let entry;
+    if (name === 'Satellite Laser Strike') {
+      entry = { actor: 0, action: 'sat_strike', weaponOrItem: name, targetX: 200 };
+    } else if (name === 'ASAT Silo Launch') {
+      entry = { actor: 0, action: 'silo_launch', weaponOrItem: name, targetSatId: 2 };
+    } else if (DRONE_WEAPONS.has(name) || SATELLITE_WEAPONS.has(name)) {
+      entry = { actor: 0, action: 'fire', weaponOrItem: name, targetX: 180 };
+    } else if (STRUCTURE_WEAPONS.has(name) || EQUIPMENT_WEAPONS.has(name)) {
+      entry = { actor: 0, action: 'fire', weaponOrItem: name };
+    } else {
+      entry = { actor: 0, action: 'fire', weaponOrItem: name, angle: 45, power: 650, az: 0, targetX: 140 };
+    }
+    const res = validateAndCanonicalizeAttestation(syntheticMatch, {
+      nonce: 'drift-nonce',
+      winnerSlot: 0,
+      durationMs: 5000,
+      actionLog: [entry],
+      outcomes: syntheticOutcomes
+    });
+    if (!res.ok) rejectedByValidator.push(`${name} (${res.reason})`);
+  }
+  assert.strictEqual(
+    rejectedByValidator.length,
+    0,
+    `Validator rejected client catalog items: ${rejectedByValidator.join('; ')}`
+  );
+
+  // Verify the entire client-recorded log from the VM round-trips cleanly through the server validator
+  const clientLog = context.__vmClientRecordedLog;
+  assert(Array.isArray(clientLog) && clientLog.length >= 41, 'Expected VM client actionLog to contain all actionable items + move/sat_strike/silo_launch');
+  const rtRes = validateAndCanonicalizeAttestation(syntheticMatch, {
+    nonce: 'drift-nonce',
+    winnerSlot: 0,
+    durationMs: 12000,
+    actionLog: clientLog,
+    outcomes: syntheticOutcomes
+  });
+  assert(rtRes.ok, `Client-recorded actionLog failed server validation: ${rtRes.reason}`);
+
+  // Negative checks: unknown weapons and out-of-range fields must still be rejected
+  const badEntries = [
+    [{ actor: 0, action: 'fire', weaponOrItem: 'Quantum Singularity Cannon', angle: 45, power: 500, az: 0 }],
+    [{ actor: 0, action: 'sat_strike', weaponOrItem: 'Satellite Laser Strike', targetX: -1 }],
+    [{ actor: 0, action: 'sat_strike', weaponOrItem: 'Satellite Laser Strike', targetX: 481 }],
+    [{ actor: 0, action: 'sat_strike', weaponOrItem: 'Satellite Laser Strike' }],
+    [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 181, power: 500, az: 0 }],
+    [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 1001, az: 0 }],
+    [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 500, az: 25 }],
+    [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 500, az: 0, targetX: 500 }],
+    [{ actor: 0, action: 'move', dx: 0 }],
+    [{ actor: 0, action: 'move', dx: 5 }],
+    [{ actor: 0, action: 'silo_launch', weaponOrItem: 'ASAT Silo Launch', targetSatId: -2 }]
+  ];
+  for (const badLog of badEntries) {
+    const neg = validateAndCanonicalizeAttestation(syntheticMatch, {
+      nonce: 'drift-nonce',
+      winnerSlot: 0,
+      durationMs: 5000,
+      actionLog: badLog,
+      outcomes: syntheticOutcomes
+    });
+    assert(!neg.ok, `Expected validator to reject invalid log entry: ${JSON.stringify(badLog[0])}`);
+  }
+}
 
 (async () => {
   const { createServer } = require('../scripts/serve.cjs');
@@ -2608,7 +2779,120 @@ vm.runInContext(test,context,{timeout:30000});
       apiOk(poolClosed === true, 'MySQL adapter close() ends the pool (unit-tested with fake mysql2 pool; no live MySQL server required)');
     }
 
-    console.log(`${apiChecks} API & account checks passed (154 simulation + ${apiChecks} API = ${154 + apiChecks} total checks; MySQL adapter verified via fake-pool unit tests, main suite runs on SQLite).`);
+    // End-to-end ranked 2-human match using combat expansion actions:
+    // Turn 1 (Alpha, 2 setup actions): Orbital Laser Satellite deploy + Satellite Laser Strike
+    // Turn 1 (Bravo, 2 setup actions): Anti-Satellite Silo deploy + ASAT Silo Launch
+    // Turn 2 (Alpha, 2 setup actions): Anti-Drone Net Launcher structure deploy + Strike Attack Drone sortie
+    {
+      const reLoginAlpha = await req('/api/auth/login', {
+        method: 'POST',
+        body: { username: 'alpha', password: 'Password123!' }
+      });
+      apiOk(reLoginAlpha.status === 200 && reLoginAlpha.data.token, 'Re-login Alpha for combat-expansion E2E ranked match');
+      const e2eAlphaToken = reLoginAlpha.data.token;
+
+      const lbBefore = await req('/api/leaderboard');
+      const alphaBefore = lbBefore.data.leaderboard.find(e => e.username === 'alpha');
+      const bravoBefore = lbBefore.data.leaderboard.find(e => e.username === 'bravo');
+
+      const startExpansionMatch = await req('/api/matches/start', {
+        method: 'POST',
+        token: e2eAlphaToken,
+        body: {
+          roomCode: 'CHARRED-EXPAND',
+          mode: 'online',
+          round: 1,
+          participants: [
+            { slot: 0, userId: alphaId, name: 'Alpha Prime', ai: false },
+            { slot: 1, userId: bravoId, name: 'Commander Bravo', ai: false }
+          ]
+        }
+      });
+      apiOk(
+        startExpansionMatch.status === 201 && startExpansionMatch.data.nonce,
+        'Combat-expansion E2E ranked match ticket issued'
+      );
+
+      const expansionActionLog = [
+        // Alpha turn 1: 2 setup actions in the same turn (satellite deploy + callable Satellite Laser Strike)
+        { actor: 0, action: 'fire', weaponOrItem: 'Orbital Laser Satellite', angle: 45, power: 650, az: 0, targetX: 400 },
+        { actor: 0, action: 'sat_strike', weaponOrItem: 'Satellite Laser Strike', targetX: 400 },
+        // Bravo turn 1: 2 setup actions in the same turn (ASAT silo deploy + ASAT Silo Launch)
+        { actor: 1, action: 'fire', weaponOrItem: 'Anti-Satellite Silo', angle: 135, power: 650, az: 0 },
+        { actor: 1, action: 'silo_launch', weaponOrItem: 'ASAT Silo Launch', targetSatId: 1 },
+        // Alpha turn 2: 2 setup actions (structure deploy + piloted Strike Attack Drone sortie)
+        { actor: 0, action: 'fire', weaponOrItem: 'Anti-Drone Net Launcher', angle: 45, power: 650, az: 0 },
+        { actor: 0, action: 'fire', weaponOrItem: 'Strike Attack Drone', angle: 45, power: 650, az: 0, targetX: 400 }
+      ];
+      const expansionOutcomes = [
+        { slot: 0, kills: 1, finalHp: 78 },
+        { slot: 1, kills: 0, finalHp: 0 }
+      ];
+
+      const attestAlpha = await req(`/api/matches/${startExpansionMatch.data.matchId}/attest`, {
+        method: 'POST',
+        token: e2eAlphaToken,
+        body: {
+          nonce: startExpansionMatch.data.nonce,
+          winnerSlot: 0,
+          durationMs: 18500,
+          actionLog: expansionActionLog,
+          outcomes: expansionOutcomes
+        }
+      });
+      apiOk(
+        attestAlpha.status === 202 &&
+          attestAlpha.data.status === 'pending_co_attestation' &&
+          typeof attestAlpha.data.canonicalHash === 'string',
+        'Combat-expansion E2E: Alpha attestation accepted as 202 pending_co_attestation'
+      );
+
+      const attestBravo = await req(`/api/matches/${startExpansionMatch.data.matchId}/attest`, {
+        method: 'POST',
+        token: bravoToken,
+        body: {
+          nonce: startExpansionMatch.data.nonce,
+          winnerSlot: 0,
+          durationMs: 18700,
+          actionLog: expansionActionLog,
+          outcomes: expansionOutcomes
+        }
+      });
+      apiOk(
+        attestBravo.status === 200 &&
+          attestBravo.data.status === 'verified' &&
+          attestBravo.data.leaderboardUpdated === true &&
+          attestBravo.data.canonicalHash === attestAlpha.data.canonicalHash,
+        'Combat-expansion E2E: Bravo co-attestation produces identical canonicalHash and finalizes as verified'
+      );
+
+      const replayExpansion = await req(`/api/matches/${startExpansionMatch.data.matchId}/attest`, {
+        method: 'POST',
+        token: bravoToken,
+        body: {
+          nonce: startExpansionMatch.data.nonce,
+          winnerSlot: 0,
+          durationMs: 18700,
+          actionLog: expansionActionLog,
+          outcomes: expansionOutcomes
+        }
+      });
+      apiOk(replayExpansion.status === 409, 'Combat-expansion E2E: replay on finalized match rejected with 409');
+
+      const lbAfter = await req('/api/leaderboard');
+      const alphaAfter = lbAfter.data.leaderboard.find(e => e.username === 'alpha');
+      const bravoAfter = lbAfter.data.leaderboard.find(e => e.username === 'bravo');
+      apiOk(
+        alphaAfter.wins === alphaBefore.wins + 1 &&
+          alphaAfter.kills === alphaBefore.kills + 1 &&
+          alphaAfter.matchesPlayed === alphaBefore.matchesPlayed + 1 &&
+          bravoAfter.losses === bravoBefore.losses + 1 &&
+          bravoAfter.matchesPlayed === bravoBefore.matchesPlayed + 1,
+        'Combat-expansion E2E: ranked match counted once in leaderboard and player stats'
+      );
+    }
+
+    console.log(`${apiChecks} API & account checks passed (${simChecks} simulation + ${apiChecks} API = ${simChecks + apiChecks} total checks; MySQL adapter verified via fake-pool unit tests, main suite runs on SQLite).`);
   } finally {
     await new Promise(resolve => server.close(resolve));
   }

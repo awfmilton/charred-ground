@@ -7,14 +7,44 @@ const { publicProfile } = require('./db.cjs');
 const MAX_BODY_BYTES = 64 * 1024;
 const SESSION_COOKIE = 'cg_session';
 
-const ALLOWED_WEAPONS = new Set([
+const SHOT_WEAPONS = new Set([
   'Baby Missile', 'Missile', 'Baby Nuke', 'Nuke', 'MIRV', "Death's Head",
   'LeapFrog', 'Funky Bomb', 'Roller', 'Heavy Roller', 'Digger', 'Sandhog',
   'Dirt Ball', 'Ton of Dirt', 'Liquid Dirt', 'Riot Bomb', 'Napalm', 'Hot Napalm',
-  'Laser', 'Plasma Blast', 'Standard Shield', 'Force Shield', 'Heavy Shield',
-  'Mag Deflector', 'Battery', 'Parachute', 'Fuel Tank', 'Reinforced Bunker Wall',
-  'Blast Canopy Dome', 'CIWS Point-Defense Turret', 'Repair Depot',
-  'FPV Kamikaze Drone', 'Hunter-Killer Gunship Drone', 'EMP Shield-Breaker Drone'
+  'Laser', 'Plasma Blast'
+]);
+
+const DRONE_WEAPONS = new Set([
+  'FPV Kamikaze Drone', 'Strike Attack Drone',
+  'Hunter-Killer Gunship Drone', 'EMP Shield-Breaker Drone'
+]);
+
+const SATELLITE_WEAPONS = new Set([
+  'Orbital Laser Satellite'
+]);
+
+const STRUCTURE_WEAPONS = new Set([
+  'Reinforced Bunker Wall', 'Blast Canopy Dome', 'CIWS Point-Defense Turret',
+  'Repair Depot', 'Anti-Satellite Silo', 'Anti-Drone Net Launcher',
+  'Anti-Drone Flak Shotgun'
+]);
+
+const EQUIPMENT_WEAPONS = new Set([
+  'Standard Shield', 'Force Shield', 'Heavy Shield',
+  'Mag Deflector', 'Battery', 'Parachute', 'Fuel Tank'
+]);
+
+const SPECIAL_ACTION_WEAPONS = new Set([
+  'Satellite Laser Strike', 'ASAT Silo Launch'
+]);
+
+const ALLOWED_WEAPONS = new Set([
+  ...SHOT_WEAPONS,
+  ...DRONE_WEAPONS,
+  ...SATELLITE_WEAPONS,
+  ...STRUCTURE_WEAPONS,
+  ...EQUIPMENT_WEAPONS,
+  ...SPECIAL_ACTION_WEAPONS
 ]);
 
 function json(res, status, payload, extraHeaders = {}) {
@@ -212,24 +242,139 @@ function validateAndCanonicalizeAttestation(match, body) {
     const kind = String(entry.action || 'fire');
     if (kind === 'move') {
       const dx = Number(entry.dx ?? 0);
-      if (!Number.isFinite(dx) || Math.abs(dx) > 4) {
+      if (!Number.isFinite(dx) || dx === 0 || Math.abs(dx) > 4) {
         return { ok: false, reason: `Invalid move delta at action ${i}` };
       }
       continue;
     }
-    const weapon = String(entry.weaponOrItem || '');
+
+    const rawWeapon = entry.weaponOrItem === undefined || entry.weaponOrItem === null ? '' : String(entry.weaponOrItem);
+    const isSatStrike = kind === 'sat_strike' || rawWeapon === 'Satellite Laser Strike';
+    const isSiloLaunch = !isSatStrike && (kind === 'silo_launch' || rawWeapon === 'ASAT Silo Launch');
+
+    if (isSatStrike) {
+      if (kind !== 'sat_strike' && kind !== 'fire') {
+        return { ok: false, reason: `Invalid action kind at action ${i}` };
+      }
+      if (rawWeapon && rawWeapon !== 'Satellite Laser Strike') {
+        return { ok: false, reason: `Disallowed weapon or item: ${rawWeapon}` };
+      }
+      const tx = Number(entry.targetX);
+      if (entry.targetX === undefined || entry.targetX === null || !Number.isFinite(tx) || tx < 0 || tx > 480) {
+        return { ok: false, reason: `Invalid strike targetX at action ${i}` };
+      }
+      if (entry.angle !== undefined && entry.angle !== null) {
+        const angle = Number(entry.angle);
+        if (!Number.isFinite(angle) || angle < 0 || angle > 180) {
+          return { ok: false, reason: `Invalid firing angle at action ${i}` };
+        }
+      }
+      if (entry.power !== undefined && entry.power !== null) {
+        const power = Number(entry.power);
+        if (!Number.isFinite(power) || power < 0 || power > 1000) {
+          return { ok: false, reason: `Invalid firing power at action ${i}` };
+        }
+      }
+      const az = Number(entry.az ?? 0);
+      if (!Number.isFinite(az) || az < -20 || az > 20) {
+        return { ok: false, reason: `Invalid azimuth at action ${i}` };
+      }
+      continue;
+    }
+
+    if (isSiloLaunch) {
+      if (kind !== 'silo_launch' && kind !== 'fire') {
+        return { ok: false, reason: `Invalid action kind at action ${i}` };
+      }
+      if (rawWeapon && rawWeapon !== 'ASAT Silo Launch') {
+        return { ok: false, reason: `Disallowed weapon or item: ${rawWeapon}` };
+      }
+      if (entry.targetSatId !== undefined && entry.targetSatId !== null) {
+        const satId = Number(entry.targetSatId);
+        if (!Number.isInteger(satId) || satId <= 0) {
+          return { ok: false, reason: `Invalid targetSatId at action ${i}` };
+        }
+      }
+      if (entry.targetX !== undefined && entry.targetX !== null) {
+        const tx = Number(entry.targetX);
+        if (!Number.isFinite(tx) || tx < 0 || tx > 480) {
+          return { ok: false, reason: `Invalid targetX at action ${i}` };
+        }
+      }
+      if (entry.angle !== undefined && entry.angle !== null) {
+        const angle = Number(entry.angle);
+        if (!Number.isFinite(angle) || angle < 0 || angle > 180) {
+          return { ok: false, reason: `Invalid firing angle at action ${i}` };
+        }
+      }
+      if (entry.power !== undefined && entry.power !== null) {
+        const power = Number(entry.power);
+        if (!Number.isFinite(power) || power < 0 || power > 1000) {
+          return { ok: false, reason: `Invalid firing power at action ${i}` };
+        }
+      }
+      const az = Number(entry.az ?? 0);
+      if (!Number.isFinite(az) || az < -20 || az > 20) {
+        return { ok: false, reason: `Invalid azimuth at action ${i}` };
+      }
+      continue;
+    }
+
+    if (kind !== 'fire') {
+      return { ok: false, reason: `Invalid action kind at action ${i}` };
+    }
+    const weapon = rawWeapon;
     if (!ALLOWED_WEAPONS.has(weapon)) {
       return { ok: false, reason: `Disallowed weapon or item: ${weapon}` };
     }
-    const angle = Number(entry.angle);
-    const power = Number(entry.power);
+
+    const hasTargetX = entry.targetX !== undefined && entry.targetX !== null;
+    if (hasTargetX) {
+      const tx = Number(entry.targetX);
+      if (!Number.isFinite(tx) || tx < 0 || tx > 480) {
+        return { ok: false, reason: `Invalid targetX at action ${i}` };
+      }
+    }
+
+    if (SHOT_WEAPONS.has(weapon)) {
+      const angle = Number(entry.angle);
+      const power = Number(entry.power);
+      if (!Number.isFinite(angle) || angle < 0 || angle > 180) {
+        return { ok: false, reason: `Invalid firing angle at action ${i}` };
+      }
+      if (!Number.isFinite(power) || power < 0 || power > 1000) {
+        return { ok: false, reason: `Invalid firing power at action ${i}` };
+      }
+    } else if (DRONE_WEAPONS.has(weapon) || SATELLITE_WEAPONS.has(weapon)) {
+      const hasAngle = entry.angle !== undefined && entry.angle !== null;
+      const hasPower = entry.power !== undefined && entry.power !== null;
+      if (hasAngle) {
+        const angle = Number(entry.angle);
+        if (!Number.isFinite(angle) || angle < 0 || angle > 180) {
+          return { ok: false, reason: `Invalid firing angle at action ${i}` };
+        }
+      }
+      if (hasPower) {
+        const power = Number(entry.power);
+        if (!Number.isFinite(power) || power < 0 || power > 1000) {
+          return { ok: false, reason: `Invalid firing power at action ${i}` };
+        }
+      }
+      if (!hasTargetX && !(hasAngle && hasPower)) {
+        return { ok: false, reason: `Missing targetX or aim parameters at action ${i}` };
+      }
+    } else if (STRUCTURE_WEAPONS.has(weapon) || EQUIPMENT_WEAPONS.has(weapon)) {
+      const angle = Number(entry.angle ?? 45);
+      const power = Number(entry.power ?? 600);
+      if (!Number.isFinite(angle) || angle < 0 || angle > 180) {
+        return { ok: false, reason: `Invalid firing angle at action ${i}` };
+      }
+      if (!Number.isFinite(power) || power < 0 || power > 1000) {
+        return { ok: false, reason: `Invalid firing power at action ${i}` };
+      }
+    }
+
     const az = Number(entry.az ?? 0);
-    if (!Number.isFinite(angle) || angle < 0 || angle > 180) {
-      return { ok: false, reason: `Invalid firing angle at action ${i}` };
-    }
-    if (!Number.isFinite(power) || power < 0 || power > 1000) {
-      return { ok: false, reason: `Invalid firing power at action ${i}` };
-    }
     if (!Number.isFinite(az) || az < -20 || az > 20) {
       return { ok: false, reason: `Invalid azimuth at action ${i}` };
     }
@@ -1115,6 +1260,7 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
           json(res, 202, {
             ok: true,
             status: 'pending_co_attestation',
+            canonicalHash: validation.canonicalHash,
             attestedCount: attestedHumans.length,
             requiredCount: humanParticipants.length
           });
@@ -1161,6 +1307,7 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
         json(res, 200, {
           ok: true,
           status: finalized.status,
+          canonicalHash: validation.canonicalHash,
           winnerUserId: finalized.winnerUserId,
           leaderboardUpdated: !isBotMatch
         });
@@ -1200,6 +1347,12 @@ module.exports = {
   isLocalhostRequest,
   makeSessionCookie,
   clearSessionCookie,
+  SHOT_WEAPONS,
+  DRONE_WEAPONS,
+  SATELLITE_WEAPONS,
+  STRUCTURE_WEAPONS,
+  EQUIPMENT_WEAPONS,
+  SPECIAL_ACTION_WEAPONS,
   ALLOWED_WEAPONS,
   validateCustomFields,
   validateAndCanonicalizeAttestation
