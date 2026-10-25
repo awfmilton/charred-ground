@@ -1143,13 +1143,263 @@ vm.runInContext(test,context,{timeout:30000});
       );
     }
 
-    // (7) MySQL data layer (mysql2) selected when DATABASE_URL is set — fake-pool unit test (no live MySQL)
+    // (7) MySQL data layer (mysql2) selected when DB_HOST is set — fake-pool unit test (no live MySQL)
     {
       const envExample = fs.readFileSync(require.resolve('../.env.example'), 'utf8');
-      apiOk(/^DATABASE_URL=\s*$/m.test(envExample), '.env.example documents DATABASE_URL= with an empty placeholder');
+      const dbSrc = fs.readFileSync(require.resolve('../scripts/db.cjs'), 'utf8');
+      const serveSrc = fs.readFileSync(require.resolve('../scripts/serve.cjs'), 'utf8');
+      const testingDoc = fs.readFileSync(require.resolve('../docs/TESTING.md'), 'utf8');
+      const legacyDbUrlKey = ['DATABASE', 'URL'].join('_');
+
+      apiOk(
+        !dbSrc.includes(legacyDbUrlKey) &&
+          !serveSrc.includes(legacyDbUrlKey) &&
+          !envExample.includes(legacyDbUrlKey) &&
+          !testingDoc.includes(legacyDbUrlKey),
+        'Legacy connection URL setting is removed from db.cjs, serve.cjs, .env.example, and docs/TESTING.md'
+      );
+      apiOk(/^DB_HOST=\s*$/m.test(envExample), '.env.example documents DB_HOST= with an empty placeholder');
+      apiOk(/^DB_PORT=3306\s*$/m.test(envExample), '.env.example documents DB_PORT=3306 default');
+      apiOk(/^DB_USER=\s*$/m.test(envExample), '.env.example documents DB_USER= with an empty placeholder');
+      apiOk(/^DB_PASSWORD=\s*$/m.test(envExample), '.env.example documents DB_PASSWORD= with an empty placeholder');
+      apiOk(/^DB_NAME=\s*$/m.test(envExample), '.env.example documents DB_NAME= with an empty placeholder');
+      apiOk(
+        /#.*paste the password exactly as it is,\s*quotes are not needed\r?\nDB_PASSWORD=/i.test(envExample),
+        '.env.example DB_PASSWORD comment states to paste the password exactly as it is, quotes are not needed'
+      );
       apiOk(/^TRUST_PROXY=\s*$/m.test(envExample), '.env.example documents TRUST_PROXY= with an empty placeholder');
 
       const { openStore } = require('../scripts/db.cjs');
+      const { loadProjectEnv } = require('../scripts/serve.cjs');
+
+      // Backend selection: SQLite when DB_HOST is unset, MySQL when DB_HOST is set
+      const sqliteDefaultStore = openStore({ env: {} });
+      apiOk(sqliteDefaultStore.backend === 'sqlite', 'openStore selects sqlite backend when DB_HOST is unset');
+      sqliteDefaultStore.close();
+
+      // Pool options object & verbatim password checks
+      const poolCalls = [];
+      const noopPool = {
+        async execute() { return [[], []]; },
+        async end() {}
+      };
+      const createPoolSpy = opts => {
+        poolCalls.push(opts);
+        return noopPool;
+      };
+      const rawPassword = `  p@ss:w/rd#1%? &"'\`\\  `;
+      const spyStoreDefaultPort = openStore({
+        env: {
+          DB_HOST: 'db.example.com',
+          DB_USER: 'charred_user',
+          DB_PASSWORD: rawPassword,
+          DB_NAME: 'charred_db'
+        },
+        createPool: createPoolSpy
+      });
+      await spyStoreDefaultPort.ready;
+      apiOk(spyStoreDefaultPort.backend === 'mysql', 'openStore selects mysql backend when DB_HOST is set');
+      apiOk(
+        poolCalls.length === 1 &&
+          typeof poolCalls[0] === 'object' &&
+          poolCalls[0] !== null &&
+          !Array.isArray(poolCalls[0]) &&
+          poolCalls[0].host === 'db.example.com' &&
+          poolCalls[0].port === 3306 &&
+          poolCalls[0].user === 'charred_user' &&
+          poolCalls[0].database === 'charred_db',
+        'openStore builds mysql2 pool from { host, port: 3306, user, password, database } options object when DB_PORT is unset'
+      );
+      apiOk(
+        poolCalls[0].password === rawPassword,
+        'DB_PASSWORD with special characters (@ : / # % " \' \\ and spaces) is passed verbatim without URL encoding or trimming'
+      );
+
+      const spyStoreCustomPort = openStore({
+        env: {
+          DB_HOST: 'db.example.com',
+          DB_PORT: '3307',
+          DB_USER: 'charred_user',
+          DB_PASSWORD: 'pw',
+          DB_NAME: 'charred_db'
+        },
+        createPool: createPoolSpy
+      });
+      await spyStoreCustomPort.ready;
+      apiOk(
+        poolCalls.length === 2 &&
+          poolCalls[1].port === 3307 &&
+          poolCalls.every(arg => typeof arg !== 'string'),
+        'openStore honours custom DB_PORT and never calls createPool with a URL string'
+      );
+
+      // Missing-setting start-up validation when DB_HOST is set
+      const secretPw = 'SuperSecret!Pw#42';
+      let errMissingUser = null;
+      try {
+        openStore({ env: { DB_HOST: 'db.example.com', DB_PASSWORD: secretPw, DB_NAME: 'charred_db' }, createPool: createPoolSpy });
+      } catch (err) {
+        errMissingUser = err;
+      }
+      apiOk(
+        Boolean(errMissingUser) &&
+          errMissingUser.message.includes('DB_USER') &&
+          !errMissingUser.message.includes('DB_PASSWORD') &&
+          !errMissingUser.message.includes('DB_NAME') &&
+          !errMissingUser.message.includes(secretPw),
+        'openStore fails at start-up naming DB_USER when DB_USER is missing and never leaks DB_PASSWORD'
+      );
+
+      let errMissingPass = null;
+      try {
+        openStore({ env: { DB_HOST: 'db.example.com', DB_USER: 'u', DB_NAME: 'charred_db' }, createPool: createPoolSpy });
+      } catch (err) {
+        errMissingPass = err;
+      }
+      apiOk(
+        Boolean(errMissingPass) &&
+          errMissingPass.message.includes('DB_PASSWORD') &&
+          !errMissingPass.message.includes('DB_USER') &&
+          !errMissingPass.message.includes('DB_NAME'),
+        'openStore fails at start-up naming DB_PASSWORD when DB_PASSWORD is missing'
+      );
+
+      let errMissingName = null;
+      try {
+        openStore({ env: { DB_HOST: 'db.example.com', DB_USER: 'u', DB_PASSWORD: secretPw }, createPool: createPoolSpy });
+      } catch (err) {
+        errMissingName = err;
+      }
+      apiOk(
+        Boolean(errMissingName) &&
+          errMissingName.message.includes('DB_NAME') &&
+          !errMissingName.message.includes('DB_USER') &&
+          !errMissingName.message.includes('DB_PASSWORD') &&
+          !errMissingName.message.includes(secretPw),
+        'openStore fails at start-up naming DB_NAME when DB_NAME is missing and never leaks DB_PASSWORD'
+      );
+
+      let errMissingAll = null;
+      try {
+        openStore({ env: { DB_HOST: 'db.example.com' }, createPool: createPoolSpy });
+      } catch (err) {
+        errMissingAll = err;
+      }
+      apiOk(
+        Boolean(errMissingAll) &&
+          errMissingAll.message.includes('DB_USER') &&
+          errMissingAll.message.includes('DB_PASSWORD') &&
+          errMissingAll.message.includes('DB_NAME'),
+        'openStore fails at start-up naming all missing settings (DB_USER, DB_PASSWORD, DB_NAME) when all three are omitted'
+      );
+
+      // Password redaction on connection / query failure errors
+      let connCreateErr = null;
+      try {
+        openStore({
+          env: { DB_HOST: 'db.example.com', DB_USER: 'u', DB_PASSWORD: secretPw, DB_NAME: 'd' },
+          createPool() {
+            const e = new Error(`Access denied for user 'u' with password '${secretPw}'`);
+            e.sqlMessage = `Auth failed (${secretPw})`;
+            throw e;
+          }
+        });
+      } catch (err) {
+        connCreateErr = err;
+      }
+      apiOk(
+        Boolean(connCreateErr) &&
+          connCreateErr.message.includes('***') &&
+          !connCreateErr.message.includes(secretPw) &&
+          !String(connCreateErr.stack || '').includes(secretPw) &&
+          !String(connCreateErr.sqlMessage || '').includes(secretPw),
+        'Connection failure during pool creation redacts DB_PASSWORD from error message, stack, and sqlMessage'
+      );
+
+      let queryConnErr = null;
+      try {
+        const failingStore = openStore({
+          env: { DB_HOST: 'db.example.com', DB_USER: 'u', DB_PASSWORD: secretPw, DB_NAME: 'd' },
+          createPool() {
+            return {
+              async execute() {
+                const e = new Error(`ECONNREFUSED connecting with password=${secretPw}`);
+                e.code = 'ECONNREFUSED';
+                e.sqlMessage = `Connect failed using ${secretPw}`;
+                throw e;
+              },
+              async end() {}
+            };
+          }
+        });
+        await failingStore.ready;
+      } catch (err) {
+        queryConnErr = err;
+      }
+      apiOk(
+        Boolean(queryConnErr) &&
+          queryConnErr.code === 'ECONNREFUSED' &&
+          queryConnErr.message.includes('***') &&
+          !queryConnErr.message.includes(secretPw) &&
+          !String(queryConnErr.stack || '').includes(secretPw) &&
+          !String(queryConnErr.sqlMessage || '').includes(secretPw),
+        'Connection/query failure in pool.execute redacts DB_PASSWORD while preserving error code'
+      );
+
+      // Automatic .env loading helper & test isolation
+      const os = require('node:os');
+      const path = require('node:path');
+      const missingEnvPath = path.join(os.tmpdir(), `charred-nonexistent-${ process.pid }-${ Date.now() }.env`);
+      apiOk(
+        loadProjectEnv({ envPath: missingEnvPath }) === false,
+        'loadProjectEnv returns false and does not throw when .env file does not exist'
+      );
+
+      const tmpEnvFile = path.join(os.tmpdir(), `charred-test-${ process.pid }-${ Date.now() }.env`);
+      const presetKey = 'CHARRED_TEST_PRESET_VAR';
+      const loadedKey = 'CHARRED_TEST_LOADED_VAR';
+      fs.writeFileSync(tmpEnvFile, `${presetKey}=from_dotenv\n${loadedKey}=from_dotenv_file\n`, 'utf8');
+      try {
+        let spyPath = null;
+        const spyRes = loadProjectEnv({
+          envPath: tmpEnvFile,
+          loadEnvFile(p) {
+            spyPath = p;
+          }
+        });
+        apiOk(spyRes === true && spyPath === tmpEnvFile, 'loadProjectEnv invokes loadEnvFile with the .env path when the file exists');
+
+        process.env[presetKey] = 'from_real_env';
+        delete process.env[loadedKey];
+        const realRes = loadProjectEnv({ envPath: tmpEnvFile });
+        apiOk(
+          realRes === true &&
+            process.env[presetKey] === 'from_real_env' &&
+            process.env[loadedKey] === 'from_dotenv_file',
+          'loadProjectEnv loads variables from .env via process.loadEnvFile while existing environment variables win'
+        );
+      } finally {
+        delete process.env[presetKey];
+        delete process.env[loadedKey];
+        try { fs.unlinkSync(tmpEnvFile); } catch {}
+      }
+
+      const origLoadEnvFile = process.loadEnvFile;
+      let loadEnvFileCalledByServer = false;
+      process.loadEnvFile = () => {
+        loadEnvFileCalledByServer = true;
+      };
+      try {
+        const ephemeralSrv = createServer({ dbPath: ':memory:', env: {} });
+        ephemeralSrv.close();
+      } finally {
+        process.loadEnvFile = origLoadEnvFile;
+      }
+      apiOk(
+        loadEnvFileCalledByServer === false,
+        'createServer() in tests does not call process.loadEnvFile (.env is only loaded when serve.cjs is the main program)'
+      );
+
       const executedQueries = [];
       const tables = {
         users: [],
@@ -1412,11 +1662,10 @@ vm.runInContext(test,context,{timeout:30000});
       };
 
       const mysqlStore = openStore({
-        databaseUrl: 'mysql://placeholder:placeholder@localhost:3306/charred_test',
         mysqlPool: fakeMysqlPool
       });
       await mysqlStore.ready;
-      apiOk(mysqlStore.backend === 'mysql', 'openStore selects mysql backend when DATABASE_URL is mysql://...');
+      apiOk(mysqlStore.backend === 'mysql', 'openStore selects mysql backend when DB_HOST or mysqlPool is provided');
       apiOk(executedQueries.filter(q => q.sql.startsWith('CREATE TABLE IF NOT EXISTS')).length === 5, 'MySQL adapter creates all 5 schema tables on start-up');
 
       const u1 = await mysqlStore.createUser({

@@ -8,12 +8,33 @@ const { createApi } = require('./api.cjs');
 
 const root = path.resolve(__dirname, '..');
 
-function createServer({ dbPath, databaseUrl, mysqlPool, env = process.env, fetchImpl = globalThis.fetch } = {}) {
+function loadProjectEnv({
+  envPath = path.join(root, '.env'),
+  loadEnvFile = process.loadEnvFile,
+  existsSync = fs.existsSync
+} = {}) {
+  if (typeof existsSync === 'function' && !existsSync(envPath)) {
+    return false;
+  }
+  if (typeof loadEnvFile !== 'function') {
+    return false;
+  }
+  try {
+    loadEnvFile.call(process, envPath);
+    return true;
+  } catch (err) {
+    if (err && err.code === 'ENOENT') {
+      return false;
+    }
+    throw err;
+  }
+}
+
+function createServer({ dbPath, mysqlPool, env = process.env, fetchImpl = globalThis.fetch } = {}) {
   const resolvedDbPath =
     dbPath || env.DB_PATH || path.join(root, 'data', 'charred-ground.sqlite');
   const store = openStore({
     file: resolvedDbPath,
-    databaseUrl: databaseUrl ?? env.DATABASE_URL,
     mysqlPool,
     env
   });
@@ -48,6 +69,7 @@ function createServer({ dbPath, databaseUrl, mysqlPool, env = process.env, fetch
 }
 
 if (require.main === module) {
+  loadProjectEnv();
   const port = Number(process.env.PORT || 8187);
   const host = process.env.HOST || '127.0.0.1';
   const server = createServer();
@@ -56,4 +78,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createServer };
+module.exports = { createServer, loadProjectEnv };
