@@ -1242,30 +1242,9 @@ vm.runInContext(test,context,{timeout:30000});
           poolCalls[0].ssl.ca.includes('BEGIN CERTIFICATE') &&
           poolCalls[0].ssl.ca === committedCaPem &&
           poolCalls[0].ssl.rejectUnauthorized === true &&
-          typeof poolCalls[0].ssl.checkServerIdentity === 'function',
-        'Default MySQL TLS mode (when DB_HOST is set and DB_SSL is omitted) is verify with ssl.ca, rejectUnauthorized:true, and checkServerIdentity'
-      );
-
-      // Certificate pin checkServerIdentity behaviour (case-insensitive pin, replaces hostname check)
-      const pinnedCheck = poolCalls[0].ssl.checkServerIdentity;
-      const pinMatchRes = pinnedCheck('mysql.tbay.tk', {
-        subject: { CN: 'MySQL_Server_8.0.28_Auto_Generated_Server_Certificate' },
-        fingerprint256: expectedDreamhostServerPin.toLowerCase()
-      });
-      const otherFp = '00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF';
-      const pinMismatchErr = pinnedCheck('mysql.tbay.tk', {
-        subject: { CN: 'mysql.tbay.tk' },
-        fingerprint256: otherFp
-      });
-      apiOk(
-        pinMatchRes === undefined &&
-          pinMismatchErr instanceof Error &&
-          pinMismatchErr.code === 'ERR_MYSQL_CERT_PIN_MISMATCH' &&
-          /certificate changed or could not be verified/i.test(pinMismatchErr.message) &&
-          pinMismatchErr.message.includes('DB_SSL_FINGERPRINT') &&
-          pinMismatchErr.message.includes('DB_SSL_CA') &&
-          !pinMismatchErr.message.includes(rawPassword.trim()),
-        'DB_SSL_FINGERPRINT checkServerIdentity accepts matching sha256 fingerprint (ignoring mismatched CN) and rejects any other fingerprint naming DB_SSL_FINGERPRINT and DB_SSL_CA'
+          !('checkServerIdentity' in poolCalls[0].ssl) &&
+          Object.keys(poolCalls[0].ssl).sort().join(',') === 'ca,rejectUnauthorized',
+        'Default MySQL TLS mode (when DB_HOST is set and DB_SSL is omitted) is verify with ssl: { ca, rejectUnauthorized: true } and no inert checkServerIdentity option'
       );
 
       const spyStoreCustomPort = openStore({
@@ -1284,26 +1263,453 @@ vm.runInContext(test,context,{timeout:30000});
       apiOk(
         poolCalls.length === 2 &&
           poolCalls[1].port === 3307 &&
-          poolCalls.every(arg => typeof arg !== 'string'),
-        'openStore honours custom DB_PORT and never calls createPool with a URL string'
+          poolCalls.every(arg => typeof arg !== 'string') &&
+          Boolean(poolCalls[1].ssl) &&
+          poolCalls[1].ssl.ca === committedCaPem &&
+          poolCalls[1].ssl.rejectUnauthorized === true &&
+          !('checkServerIdentity' in poolCalls[1].ssl),
+        'openStore honours custom DB_PORT, never calls createPool with a URL string, and never passes checkServerIdentity on ssl config'
       );
 
-      // Without DB_SSL_FINGERPRINT, verify mode keeps standard tls.checkServerIdentity hostname verification
-      const unpinnedCheck = poolCalls[1].ssl.checkServerIdentity;
-      const hostMatchRes = unpinnedCheck('db.example.com', {
-        subject: { CN: 'db.example.com' },
-        subjectaltname: 'DNS:db.example.com'
-      });
-      const hostMismatchErr = unpinnedCheck('db.example.com', {
-        subject: { CN: 'MySQL_Server_Auto_Generated' },
-        subjectaltname: 'DNS:other.example.com'
-      });
-      apiOk(
-        hostMatchRes === undefined &&
-          hostMismatchErr instanceof Error &&
-          hostMismatchErr.code === 'ERR_TLS_CERT_ALTNAME_INVALID',
-        'When DB_SSL_FINGERPRINT is unset, DB_SSL=verify preserves standard tls.checkServerIdentity hostname verification'
-      );
+      // Post-handshake certificate pin & TLS socket enforcement on a REAL TLS socket (tests/fixtures/tls)
+      {
+        const net = require('node:net');
+        const tls = require('node:tls');
+        const { buildMysqlSslConfig, verifyConnectionTls, wrapMysqlPool } = require('../scripts/db.cjs');
+        const { runDbCheck } = require('../scripts/db-check.cjs');
+
+        const fixtureCaRel = 'tests/fixtures/tls/test-only-ca.pem';
+        const fixtureCaPem = fs.readFileSync(require.resolve('../tests/fixtures/tls/test-only-ca.pem'), 'utf8');
+        const fixtureServerKeyPem = fs.readFileSync(require.resolve('../tests/fixtures/tls/test-only-server-key.pem'), 'utf8');
+        const fixtureServerCertPem = fs.readFileSync(require.resolve('../tests/fixtures/tls/test-only-server-cert.pem'), 'utf8');
+        const fixtureCaX509 = new nodeCrypto.X509Certificate(fixtureCaPem);
+        const fixtureServerX509 = new nodeCrypto.X509Certificate(fixtureServerCertPem);
+        const fixturePinUpper = fixtureServerX509.fingerprint256.toUpperCase();
+        const wrongPin = '00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF';
+
+        apiOk(
+          fixtureCaX509.ca === true &&
+            fixtureServerX509.verify(fixtureCaX509.publicKey) === true &&
+            fixturePinUpper !== wrongPin,
+          'Committed test-only TLS fixtures (tests/fixtures/tls/) contain a valid throwaway CA and server certificate'
+        );
+
+        const serverSockets = new Set();
+        const tlsServer = tls.createServer(
+          { key: fixtureServerKeyPem, cert: fixtureServerCertPem },
+          sock => {
+            serverSockets.add(sock);
+            sock.on('error', () => {});
+            sock.on('close', () => serverSockets.delete(sock));
+          }
+        );
+        tlsServer.on('tlsClientError', () => {});
+        await new Promise((resolve, reject) => {
+          tlsServer.once('error', reject);
+          tlsServer.listen(0, '127.0.0.1', resolve);
+        });
+        const tlsPort = tlsServer.address().port;
+
+        const connectRealTls = sslOpts =>
+          new Promise((resolve, reject) => {
+            const sock = tls.connect({ host: '127.0.0.1', port: tlsPort, ...sslOpts });
+            sock.once('secureConnect', () => resolve(sock));
+            sock.once('error', reject);
+          });
+
+        try {
+          // 1. Matching fingerprint on a real TLS socket is accepted (case-insensitive) and cached per core connection in WeakSet
+          const matchSslCfg = buildMysqlSslConfig({
+            env: {
+              DB_SSL: 'verify',
+              DB_SSL_CA: fixtureCaRel,
+              DB_SSL_FINGERPRINT: fixturePinUpper.toLowerCase()
+            }
+          });
+          const goodTlsSock = await connectRealTls(matchSslCfg.ssl);
+          try {
+            let getPeerCertCalls = 0;
+            const origGetPeerCert = goodTlsSock.getPeerCertificate.bind(goodTlsSock);
+            goodTlsSock.getPeerCertificate = (...args) => {
+              getPeerCertCalls += 1;
+              return origGetPeerCert(...args);
+            };
+            let goodDestroyed = false;
+            let goodReleased = false;
+            const coreConn = {
+              stream: goodTlsSock,
+              destroy() {
+                goodDestroyed = true;
+                goodTlsSock.destroy();
+              }
+            };
+            const pooledWrapper1 = {
+              connection: coreConn,
+              destroy: () => coreConn.destroy(),
+              release: () => { goodReleased = true; }
+            };
+            const pooledWrapper2 = {
+              connection: coreConn,
+              destroy: () => coreConn.destroy(),
+              release: () => { goodReleased = true; }
+            };
+            const verifiedSet = new WeakSet();
+            const tlsMetaGood = {
+              sslMode: matchSslCfg.mode,
+              caPath: matchSslCfg.caPath,
+              fingerprint: matchSslCfg.fingerprint
+            };
+            verifyConnectionTls(pooledWrapper1, tlsMetaGood, verifiedSet);
+            verifyConnectionTls(pooledWrapper2, tlsMetaGood, verifiedSet);
+            apiOk(
+              !goodDestroyed &&
+                !goodReleased &&
+                goodTlsSock.destroyed === false &&
+                verifiedSet.has(coreConn) &&
+                getPeerCertCalls === 1,
+              'verifyConnectionTls accepts a real TLS socket with matching DB_SSL_FINGERPRINT (case-insensitive), keeps socket alive, and caches verification in WeakSet'
+            );
+          } finally {
+            goodTlsSock.destroy();
+          }
+
+          // 2. Wrong fingerprint on a real TLS socket destroys the connection (never releases) and throws ERR_MYSQL_CERT_PIN_MISMATCH
+          const mismatchSslCfg = buildMysqlSslConfig({
+            env: {
+              DB_SSL: 'verify',
+              DB_SSL_CA: fixtureCaRel,
+              DB_SSL_FINGERPRINT: wrongPin
+            }
+          });
+          const badPinTlsSock = await connectRealTls(mismatchSslCfg.ssl);
+          try {
+            let badDestroyed = false;
+            let badReleased = false;
+            const badCoreConn = {
+              stream: badPinTlsSock,
+              destroy() {
+                badDestroyed = true;
+                badPinTlsSock.destroy();
+              }
+            };
+            const badPooledWrapper = {
+              connection: badCoreConn,
+              destroy: () => badCoreConn.destroy(),
+              release: () => { badReleased = true; }
+            };
+            let pinErr = null;
+            try {
+              verifyConnectionTls(
+                badPooledWrapper,
+                {
+                  sslMode: mismatchSslCfg.mode,
+                  caPath: mismatchSslCfg.caPath,
+                  fingerprint: mismatchSslCfg.fingerprint
+                },
+                new WeakSet()
+              );
+            } catch (err) {
+              pinErr = err;
+            }
+            apiOk(
+              Boolean(pinErr) &&
+                pinErr.code === 'ERR_MYSQL_CERT_PIN_MISMATCH' &&
+                pinErr.message.includes('DB_SSL_FINGERPRINT') &&
+                pinErr.message.includes(wrongPin) &&
+                pinErr.message.includes(fixturePinUpper) &&
+                pinErr.message.includes('DB_SSL_CA') &&
+                badDestroyed === true &&
+                badReleased === false &&
+                badPinTlsSock.destroyed === true,
+              'verifyConnectionTls on a real TLS socket with wrong DB_SSL_FINGERPRINT destroys the connection (never releases) and throws ERR_MYSQL_CERT_PIN_MISMATCH'
+            );
+          } finally {
+            badPinTlsSock.destroy();
+          }
+
+          // 3. Plaintext net.Socket is refused and destroyed when DB_SSL is verify or require
+          const plainServer = net.createServer(sock => {
+            sock.on('error', () => {});
+          });
+          await new Promise((resolve, reject) => {
+            plainServer.once('error', reject);
+            plainServer.listen(0, '127.0.0.1', resolve);
+          });
+          const plainPort = plainServer.address().port;
+          try {
+            for (const modeUnderTest of ['verify', 'require']) {
+              const plainSock = await new Promise((resolve, reject) => {
+                const s = net.connect({ host: '127.0.0.1', port: plainPort }, () => resolve(s));
+                s.once('error', reject);
+              });
+              let plainDestroyed = false;
+              let plainReleased = false;
+              const plainConn = {
+                connection: {
+                  stream: plainSock,
+                  destroy() {
+                    plainDestroyed = true;
+                    plainSock.destroy();
+                  }
+                },
+                destroy() {
+                  plainDestroyed = true;
+                  plainSock.destroy();
+                },
+                release() {
+                  plainReleased = true;
+                }
+              };
+              let plainErr = null;
+              try {
+                verifyConnectionTls(
+                  plainConn,
+                  { sslMode: modeUnderTest, caPath: fixtureCaRel, fingerprint: fixturePinUpper },
+                  new WeakSet()
+                );
+              } catch (err) {
+                plainErr = err;
+              }
+              apiOk(
+                Boolean(plainErr) &&
+                  plainErr.code === 'ERR_MYSQL_CERT_PIN_MISMATCH' &&
+                  /not TLS/i.test(plainErr.message) &&
+                  plainDestroyed === true &&
+                  plainReleased === false &&
+                  plainSock.destroyed === true,
+                `verifyConnectionTls refuses a plaintext net.Socket when DB_SSL=${modeUnderTest}, destroys the connection, and throws ERR_MYSQL_CERT_PIN_MISMATCH`
+              );
+              plainSock.destroy();
+            }
+          } finally {
+            await new Promise(resolve => plainServer.close(resolve));
+          }
+
+          // 4. Pool wrapper routes both pool.execute and pool.query through getConnection + pin check
+          {
+            const badWrapSock1 = await connectRealTls(mismatchSslCfg.ssl);
+            const badWrapSock2 = await connectRealTls(mismatchSslCfg.ssl);
+            try {
+              const socks = [badWrapSock1, badWrapSock2];
+              let getConnCount = 0;
+              let destroyedCount = 0;
+              let releasedCount = 0;
+              let directExecuteCalls = 0;
+              let directQueryCalls = 0;
+              const stubWrongPinPool = wrapMysqlPool(
+                {
+                  async getConnection() {
+                    const sock = socks[getConnCount] || badWrapSock2;
+                    getConnCount += 1;
+                    return {
+                      connection: { stream: sock },
+                      destroy() {
+                        destroyedCount += 1;
+                        sock.destroy();
+                      },
+                      release() {
+                        releasedCount += 1;
+                      },
+                      async execute() { return [[{ ok: 1 }], []]; },
+                      async query() { return [[{ ok: 1 }], []]; }
+                    };
+                  },
+                  async execute() {
+                    directExecuteCalls += 1;
+                    return [[{ bypassed: 1 }], []];
+                  },
+                  async query() {
+                    directQueryCalls += 1;
+                    return [[{ bypassed: 1 }], []];
+                  }
+                },
+                'PinTestSecret#99',
+                { sslMode: 'verify', caPath: fixtureCaRel, fingerprint: wrongPin }
+              );
+
+              let execPinErr = null;
+              try {
+                await stubWrongPinPool.execute('SELECT 1', []);
+              } catch (err) {
+                execPinErr = err;
+              }
+              let queryPinErr = null;
+              try {
+                await stubWrongPinPool.query('SELECT 1');
+              } catch (err) {
+                queryPinErr = err;
+              }
+              apiOk(
+                Boolean(execPinErr) &&
+                  execPinErr.code === 'ERR_MYSQL_CERT_PIN_MISMATCH' &&
+                  Boolean(queryPinErr) &&
+                  queryPinErr.code === 'ERR_MYSQL_CERT_PIN_MISMATCH' &&
+                  getConnCount === 2 &&
+                  destroyedCount === 2 &&
+                  releasedCount === 0 &&
+                  directExecuteCalls === 0 &&
+                  directQueryCalls === 0 &&
+                  badWrapSock1.destroyed === true &&
+                  badWrapSock2.destroyed === true,
+                'wrapMysqlPool routes both pool.execute and pool.query through getConnection, rejecting wrong DB_SSL_FINGERPRINT and destroying the socket on both paths'
+              );
+            } finally {
+              badWrapSock1.destroy();
+              badWrapSock2.destroy();
+            }
+
+            const goodWrapSock = await connectRealTls(matchSslCfg.ssl);
+            try {
+              let getConnCalls = 0;
+              let releaseCalls = 0;
+              let destroyCalls = 0;
+              let peerCertInspections = 0;
+              const origPeerCert = goodWrapSock.getPeerCertificate.bind(goodWrapSock);
+              goodWrapSock.getPeerCertificate = (...args) => {
+                peerCertInspections += 1;
+                return origPeerCert(...args);
+              };
+              const sharedCoreConn = {
+                stream: goodWrapSock,
+                destroy() {
+                  destroyCalls += 1;
+                  goodWrapSock.destroy();
+                }
+              };
+              const stubGoodPinPool = wrapMysqlPool(
+                {
+                  async getConnection() {
+                    getConnCalls += 1;
+                    return {
+                      connection: sharedCoreConn,
+                      destroy: () => sharedCoreConn.destroy(),
+                      release() {
+                        releaseCalls += 1;
+                      },
+                      async execute(sql) {
+                        return [[{ via: 'execute', sql }], []];
+                      },
+                      async query(sql) {
+                        return [[{ via: 'query', sql }], []];
+                      }
+                    };
+                  },
+                  async execute() {
+                    throw new Error('raw pool.execute should not be called directly when getConnection exists');
+                  },
+                  async query() {
+                    throw new Error('raw pool.query should not be called directly when getConnection exists');
+                  }
+                },
+                'PinTestSecret#99',
+                { sslMode: 'verify', caPath: fixtureCaRel, fingerprint: fixturePinUpper }
+              );
+
+              const [execRows] = await stubGoodPinPool.execute('SELECT 1', []);
+              const [queryRows] = await stubGoodPinPool.query('SELECT 2');
+              apiOk(
+                execRows[0].via === 'execute' &&
+                  queryRows[0].via === 'query' &&
+                  getConnCalls === 2 &&
+                  releaseCalls === 2 &&
+                  destroyCalls === 0 &&
+                  peerCertInspections === 1 &&
+                  goodWrapSock.destroyed === false,
+                'wrapMysqlPool succeeds on pool.execute and pool.query when DB_SSL_FINGERPRINT matches, releasing each connection and checking the cached socket once'
+              );
+            } finally {
+              goodWrapSock.destroy();
+            }
+          }
+
+          // 5. npm run db:check (scripts/db-check.cjs) verification
+          {
+            const pkgJson = JSON.parse(fs.readFileSync(require.resolve('../package.json'), 'utf8'));
+            apiOk(
+              pkgJson.scripts && pkgJson.scripts['db:check'] === 'node scripts/db-check.cjs',
+              'package.json defines "db:check": "node scripts/db-check.cjs"'
+            );
+
+            const dbCheckSock = await connectRealTls(matchSslCfg.ssl);
+            try {
+              const checkSecret = 'DbCheckTopSecret!42';
+              const sharedCore = {
+                stream: dbCheckSock,
+                destroy: () => dbCheckSock.destroy()
+              };
+              const checkLines = [];
+              const checkStore = openStore({
+                env: {
+                  DB_HOST: '127.0.0.1',
+                  DB_PORT: String(tlsPort),
+                  DB_USER: 'charred_user',
+                  DB_PASSWORD: checkSecret,
+                  DB_NAME: 'charred_db',
+                  DB_SSL: 'verify',
+                  DB_SSL_CA: fixtureCaRel,
+                  DB_SSL_FINGERPRINT: fixturePinUpper
+                },
+                createPool() {
+                  const runSql = async sql => {
+                    const norm = String(sql).replace(/\s+/g, ' ').trim();
+                    if (norm.startsWith('SHOW SESSION STATUS')) {
+                      return [
+                        [
+                          { Variable_name: 'Ssl_version', Value: 'TLSv1.3' },
+                          { Variable_name: 'Ssl_cipher', Value: 'TLS_AES_256_GCM_SHA384' }
+                        ],
+                        []
+                      ];
+                    }
+                    if (norm.includes('information_schema.tables')) {
+                      return [[{ cnt: 5 }], []];
+                    }
+                    return [[], []];
+                  };
+                  return {
+                    async getConnection() {
+                      return {
+                        connection: sharedCore,
+                        destroy: () => sharedCore.destroy(),
+                        release() {},
+                        execute: runSql,
+                        query: runSql
+                      };
+                    },
+                    execute: runSql,
+                    query: runSql,
+                    async end() {}
+                  };
+                }
+              });
+
+              const checkRes = await runDbCheck({
+                env: { DB_PASSWORD: checkSecret },
+                store: checkStore,
+                log: line => checkLines.push(line)
+              });
+              apiOk(
+                checkLines.length === 5 &&
+                  checkLines[0] === 'backend: mysql' &&
+                  checkLines[1] === 'Ssl_version: TLSv1.3' &&
+                  checkLines[2] === 'Ssl_cipher: TLS_AES_256_GCM_SHA384' &&
+                  checkLines[3] === 'pin matched: yes' &&
+                  checkLines[4] === 'tables: 5' &&
+                  checkRes.pinMatched === 'yes' &&
+                  checkLines.every(l => !l.includes(checkSecret)),
+                'scripts/db-check.cjs prints only backend, Ssl_version, Ssl_cipher, pin matched, and tables, and never prints DB_PASSWORD'
+              );
+            } finally {
+              dbCheckSock.destroy();
+            }
+          }
+        } finally {
+          for (const s of serverSockets) {
+            try { s.destroy(); } catch {}
+          }
+          await new Promise(resolve => tlsServer.close(resolve));
+        }
+      }
 
       // DB_SSL=require and DB_SSL=off modes and warnings
       const requireWarnings = [];
