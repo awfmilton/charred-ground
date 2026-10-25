@@ -596,13 +596,78 @@ function openSqliteStore(file) {
   };
 }
 
-function openMysqlStore({ databaseUrl, pool: injectedPool } = {}) {
-  const pool =
-    injectedPool ||
-    (() => {
-      const mysql = require('mysql2/promise');
-      return mysql.createPool(databaseUrl);
-    })();
+function redactPassword(err, password) {
+  if (!err || typeof password !== 'string' || password.length === 0) return err;
+  for (const prop of ['message', 'stack', 'sqlMessage']) {
+    if (typeof err[prop] === 'string' && err[prop].includes(password)) {
+      err[prop] = err[prop].split(password).join('***');
+    }
+  }
+  return err;
+}
+
+function wrapMysqlPool(rawPool, password) {
+  if (!rawPool) return rawPool;
+  const wrapConn = conn => {
+    if (!conn || conn.__redactedWrapped) return conn;
+    return new Proxy(conn, {
+      get(target, prop, receiver) {
+        if (prop === '__redactedWrapped') return true;
+        if (prop === 'execute') {
+          return async (...args) => {
+            try {
+              return await target.execute(...args);
+            } catch (err) {
+              throw redactPassword(err, password);
+            }
+          };
+        }
+        const val = Reflect.get(target, prop, receiver);
+        return typeof val === 'function' ? val.bind(target) : val;
+      }
+    });
+  };
+
+  return new Proxy(rawPool, {
+    get(target, prop, receiver) {
+      if (prop === 'execute') {
+        return async (...args) => {
+          try {
+            return await target.execute(...args);
+          } catch (err) {
+            throw redactPassword(err, password);
+          }
+        };
+      }
+      if (prop === 'getConnection' && typeof target.getConnection === 'function') {
+        return async (...args) => {
+          try {
+            const conn = await target.getConnection(...args);
+            return wrapConn(conn);
+          } catch (err) {
+            throw redactPassword(err, password);
+          }
+        };
+      }
+      const val = Reflect.get(target, prop, receiver);
+      return typeof val === 'function' ? val.bind(target) : val;
+    }
+  });
+}
+
+function openMysqlStore({ host, port = 3306, user, password, database, pool: injectedPool, createPool } = {}) {
+  let rawPool;
+  try {
+    rawPool =
+      injectedPool ||
+      (() => {
+        const poolFactory = createPool || require('mysql2/promise').createPool;
+        return poolFactory({ host, port, user, password, database });
+      })();
+  } catch (err) {
+    throw redactPassword(err, password);
+  }
+  const pool = wrapMysqlPool(rawPool, password);
 
   async function migrate() {
     const ddl = [
@@ -1109,11 +1174,47 @@ function openMysqlStore({ databaseUrl, pool: injectedPool } = {}) {
 
 function openStore(options = {}) {
   const env = options.env || process.env;
-  const databaseUrl = String(options.databaseUrl ?? env.DATABASE_URL ?? '').trim();
-  if (options.mysqlPool || /^mysql2?:\/\//i.test(databaseUrl)) {
-    return openMysqlStore({ databaseUrl, pool: options.mysqlPool });
+  const dbHost = String(options.dbHost ?? env.DB_HOST ?? '').trim();
+  if (dbHost) {
+    const user = String(options.dbUser ?? env.DB_USER ?? '').trim();
+    const password = String(options.dbPassword ?? env.DB_PASSWORD ?? '');
+    const database = String(options.dbName ?? env.DB_NAME ?? '').trim();
+    const missing = [];
+    if (!user) missing.push('DB_USER');
+    if (!password) missing.push('DB_PASSWORD');
+    if (!database) missing.push('DB_NAME');
+    if (missing.length > 0) {
+      throw new Error(
+        `MySQL configuration incomplete: DB_HOST is set but these settings are missing: ${missing.join(', ')}`
+      );
+    }
+    const rawPort = String(options.dbPort ?? env.DB_PORT ?? '').trim();
+    let port = 3306;
+    if (rawPort !== '') {
+      const parsedPort = Number(rawPort);
+      if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535) {
+        throw new Error(`Invalid DB_PORT: "${rawPort}" (expected an integer between 1 and 65535)`);
+      }
+      port = parsedPort;
+    }
+    return openMysqlStore({
+      host: dbHost,
+      port,
+      user,
+      password,
+      database,
+      pool: options.mysqlPool,
+      createPool: options.createPool
+    });
   }
-  const file = options.file || ':memory:';
+  if (options.mysqlPool) {
+    return openMysqlStore({
+      pool: options.mysqlPool,
+      password: String(options.dbPassword ?? env.DB_PASSWORD ?? ''),
+      createPool: options.createPool
+    });
+  }
+  const file = options.file || env.DB_PATH || ':memory:';
   return openSqliteStore(file);
 }
 
