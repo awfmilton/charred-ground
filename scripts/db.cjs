@@ -687,24 +687,11 @@ function buildMysqlSslConfig({ options = {}, env = {} } = {}) {
     fingerprint = rawFp.toUpperCase();
   }
 
-  const checkServerIdentity = fingerprint
-    ? (_host, cert) => {
-        const actual = String(cert?.fingerprint256 || '').toUpperCase();
-        if (actual === fingerprint) return undefined;
-        const err = new Error(
-          `${TLS_ERROR_PREFIX} the database server certificate changed or could not be verified — expected DB_SSL_FINGERPRINT ${fingerprint}, got ${actual || 'none'} (CA from DB_SSL_CA ${rawCa})`
-        );
-        err.code = 'ERR_MYSQL_CERT_PIN_MISMATCH';
-        return err;
-      }
-    : (host, cert) => tls.checkServerIdentity(host, cert);
-
   return {
     mode,
     ssl: {
       ca: caPem,
-      rejectUnauthorized: true,
-      checkServerIdentity
+      rejectUnauthorized: true
     },
     caPath: rawCa,
     fingerprint,
@@ -712,18 +699,72 @@ function buildMysqlSslConfig({ options = {}, env = {} } = {}) {
   };
 }
 
+function verifyConnectionTls(conn, tlsMeta = {}, verifiedSet = new WeakSet()) {
+  if (!conn || typeof conn !== 'object') return;
+  const sslMode = tlsMeta && tlsMeta.sslMode;
+  if (sslMode !== 'verify' && sslMode !== 'require') return;
+
+  const coreConn = conn.connection && typeof conn.connection === 'object' ? conn.connection : conn;
+  if (verifiedSet && typeof verifiedSet.has === 'function' && verifiedSet.has(coreConn)) {
+    return;
+  }
+
+  const stream = conn?.connection?.stream ?? conn?.stream ?? null;
+  const destroyConn = () => {
+    if (typeof conn.destroy === 'function') {
+      conn.destroy();
+    } else if (conn.connection && typeof conn.connection.destroy === 'function') {
+      conn.connection.destroy();
+    }
+    if (stream && typeof stream.destroy === 'function' && !stream.destroyed) {
+      stream.destroy();
+    }
+  };
+
+  if (!(stream && stream.encrypted === true && typeof stream.getPeerCertificate === 'function')) {
+    destroyConn();
+    const err = new Error(
+      `${TLS_ERROR_PREFIX} expected an encrypted TLS socket for DB_SSL=${sslMode}, but the connection stream is not TLS`
+    );
+    err.code = 'ERR_MYSQL_CERT_PIN_MISMATCH';
+    throw err;
+  }
+
+  if (sslMode === 'verify' && tlsMeta.fingerprint) {
+    const expectedFp = String(tlsMeta.fingerprint).toUpperCase();
+    const peerCert = stream.getPeerCertificate() || {};
+    const actualFp = String(peerCert.fingerprint256 || '').toUpperCase();
+    if (actualFp !== expectedFp) {
+      destroyConn();
+      const caLabel = tlsMeta.caPath || 'unset';
+      const err = new Error(
+        `${TLS_ERROR_PREFIX} the database server certificate changed or could not be verified — expected DB_SSL_FINGERPRINT ${expectedFp}, got ${actualFp || 'none'} (CA from DB_SSL_CA ${caLabel})`
+      );
+      err.code = 'ERR_MYSQL_CERT_PIN_MISMATCH';
+      throw err;
+    }
+  }
+
+  if (verifiedSet && typeof verifiedSet.add === 'function') {
+    verifiedSet.add(coreConn);
+  }
+}
+
 function wrapMysqlPool(rawPool, password, tlsMeta = {}) {
   if (!rawPool) return rawPool;
   const sanitize = err => redactPassword(formatTlsError(err, tlsMeta), password);
+  const verifiedConns = new WeakSet();
+  const hasGetConnection = typeof rawPool.getConnection === 'function';
+
   const wrapConn = conn => {
     if (!conn || conn.__redactedWrapped) return conn;
     return new Proxy(conn, {
       get(target, prop, receiver) {
         if (prop === '__redactedWrapped') return true;
-        if (prop === 'execute') {
+        if (prop === 'execute' || prop === 'query') {
           return async (...args) => {
             try {
-              return await target.execute(...args);
+              return await target[prop](...args);
             } catch (err) {
               throw sanitize(err);
             }
@@ -735,22 +776,40 @@ function wrapMysqlPool(rawPool, password, tlsMeta = {}) {
     });
   };
 
+  const acquireVerifiedConnection = async (...args) => {
+    try {
+      const conn = await rawPool.getConnection(...args);
+      verifyConnectionTls(conn, tlsMeta, verifiedConns);
+      return wrapConn(conn);
+    } catch (err) {
+      throw sanitize(err);
+    }
+  };
+
   return new Proxy(rawPool, {
     get(target, prop, receiver) {
-      if (prop === 'execute') {
-        return async (...args) => {
-          try {
-            return await target.execute(...args);
-          } catch (err) {
-            throw sanitize(err);
-          }
-        };
+      if (prop === 'getConnection' && hasGetConnection) {
+        return acquireVerifiedConnection;
       }
-      if (prop === 'getConnection' && typeof target.getConnection === 'function') {
+      if (prop === 'execute' || prop === 'query') {
+        if (hasGetConnection) {
+          return async (...args) => {
+            const conn = await acquireVerifiedConnection();
+            try {
+              const fn = typeof conn[prop] === 'function' ? conn[prop].bind(conn) : target[prop].bind(target);
+              return await fn(...args);
+            } catch (err) {
+              throw sanitize(err);
+            } finally {
+              if (conn && typeof conn.release === 'function') {
+                conn.release();
+              }
+            }
+          };
+        }
         return async (...args) => {
           try {
-            const conn = await target.getConnection(...args);
-            return wrapConn(conn);
+            return await target[prop](...args);
           } catch (err) {
             throw sanitize(err);
           }
@@ -876,6 +935,7 @@ function openMysqlStore({
   return {
     backend: 'mysql',
     db: pool,
+    tlsMeta,
     ready,
     migrate,
 
@@ -1352,7 +1412,10 @@ module.exports = {
   openSqliteStore,
   openMysqlStore,
   buildMysqlSslConfig,
+  wrapMysqlPool,
+  verifyConnectionTls,
   formatTlsError,
+  redactPassword,
   publicProfile,
   MAX_EMAIL_VERIFY_ATTEMPTS
 };
