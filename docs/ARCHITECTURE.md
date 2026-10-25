@@ -9,3 +9,5 @@ The runtime lives in `index.html`. Three.js r128 and PeerJS 1.5.4 load from CDNs
 - **AI:** local numerical targeting works without a key. Optional Gemini JSON decisions are validated and time out after three seconds. Keys stay in page memory and go only to Google's API.
 
 The Sites deployment retains its existing project identity. Hosting credentials, local deployment archives, temporary scripts and account configuration are deliberately not stored in this repository.
+
+- **Custom maps:** versioned bounded map records hold the heightfield, six spawn locations and up to 16 destructible platform decks. Local storage contains map data only. The editor pauses simulation and keeps a full snapshot for cancel; host snapshots carry decks and the round-reset map. Platform support augments terrain height for tanks while deck-slab collision handles shots.
