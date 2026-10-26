@@ -32,7 +32,7 @@ const STRUCTURE_WEAPONS = new Set([
 
 const EQUIPMENT_WEAPONS = new Set([
   'Standard Shield', 'Force Shield', 'Heavy Shield',
-  'Mag Deflector', 'Battery', 'Parachute', 'Fuel Tank'
+  'Mag Deflector', 'Battery', 'Parachute', 'Fuel Tank', 'Action Supply Pack'
 ]);
 
 const SPECIAL_ACTION_WEAPONS = new Set([
@@ -242,9 +242,22 @@ function validateAndCanonicalizeAttestation(match, body) {
     }
     const kind = String(entry.action || 'fire');
     if (kind === 'move') {
-      const dx = Number(entry.dx ?? 0);
-      if (!Number.isFinite(dx) || dx === 0 || Math.abs(dx) > 4) {
+      const dx = Number(entry.dx ?? entry.dir ?? 0);
+      const maxMoveDist = 30 * 6;
+      if (!Number.isFinite(dx) || (dx === 0 && !(typeof entry.duration === 'number' && typeof entry.distance === 'number')) || Math.abs(dx) > maxMoveDist) {
         return { ok: false, reason: `Invalid move delta at action ${i}` };
+      }
+      if (entry.duration !== undefined && entry.duration !== null) {
+        const dur = Number(entry.duration);
+        if (!Number.isFinite(dur) || dur < 0 || dur > 30) {
+          return { ok: false, reason: `Invalid move duration at action ${i}` };
+        }
+      }
+      if (entry.distance !== undefined && entry.distance !== null) {
+        const dist = Number(entry.distance);
+        if (!Number.isFinite(dist) || dist < 0 || dist > maxMoveDist) {
+          return { ok: false, reason: `Invalid move distance at action ${i}` };
+        }
       }
       continue;
     }
