@@ -6,6 +6,9 @@
   - **Personal Turns 1–3 of each round (Setup Phase)**: Each commander receives **4 actions** per turn.
   - **Personal Turn 4+ (Combat Phase)**: Each commander receives **2 actions** per turn.
   - **Costs**: Driving (`←`/`→`), firing a tank weapon, activating a shield/battery/fuel/magnet, launching a drone sortie, deploying a structure or satellite, calling a Satellite Laser Strike, or launching an ASAT Silo interceptor each costs **1 action**. Aiming is free; invalid actions cost **0 actions**. Flight and drone sorties resolve completely before the next action or turn transition.
+- **Movement and recovery**: Each driving action gives 11 seconds by default (3–30 seconds in match settings). Direction changes and early stopping do not cost another action; fuel follows actual travel. Batteries restore 100 HP and 1000 power.
+- **Action Supply Pack ($3500)**: Spending one action grants three actions, for a net gain of two. Only one pack may be activated per personal turn; unused actions expire at turn end.
+- **Water equipment**: A Floating Platform ($450) automatically equips for 8 m/s water travel; an Inflatable Lifejacket ($220) automatically equips for 3 m/s water travel. Ground travel is 6 m/s. Automatic equipment consumes stock once per round and no action. A Deployable Bridge ($900) places a destructible 40m deck ahead for one action.
 - **3D Piloted Drones**:
   - **FPV Kamikaze Drone ($400)**: Launches into an onboard 3D chase camera (`7.5s` battery, `65` blast damage). Steer with `W/S` or `↑/↓` (pitch), `A/D` or `←/→` (yaw/bank), `Q/E` (throttle), and `Space` (detonate). Wind accelerates the drone laterally and requires counter-steering.
   - **Strike Attack Drone ($550)**: Piloted 3D sortie (`8.0s` battery) armed with **3 anti-tank rounds** (`22` damage each). Press `Space` (or Fire) up to 3 times during the single-action sortie.
