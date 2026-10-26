@@ -10,9 +10,9 @@ pinned: false
 
 # CHARRED GROUND
 
-[Play the hosted game](https://charred-ground.niftybuddy25.chatgpt.site) (currently owner-private).
+[Play the hosted game](https://charred-ground.kodex.tbay.tk).
 
-For local development: `npm install`, copy `.env.example` to `.env` (`cp .env.example .env`), then `npm start` and open http://127.0.0.1:8187. Run `npm test` for the simulation, camera, and player-account API regression suite. The application itself needs no build step.
+Node.js 22.5 or newer is required. For local development: `npm install`, copy `.env.example` to `.env` (`cp .env.example .env`), then `npm start` and open http://127.0.0.1:8187. Run `npm test` for the simulation, camera, and player-account API regression suite. The application itself needs no build step.
 
 Open `index.html` through `npm start` (which serves both the single-file client and the `/api/*` player-account backend on the same origin). The application fetches Three.js, PeerJS, and optional display fonts from CDNs, so the first load needs an internet connection. This README also supplies metadata for a Hugging Face Static Space.
 
@@ -37,9 +37,11 @@ Tanks can drive across connected decks over water. Unbridged water and abrupt st
 - Choose a terrain, boundary rule, and two to six human or AI commanders. Press **Deploy to battle**.
 - Set elevation and power, choose a payload, then press **Fire** or Space. Left/right arrows adjust elevation; up/down adjust power.
 - Press **V** for barrel-mounted first-person aiming. Judge wind and elevation without a trajectory guide.
-- Each player gets **two actions on their first three personal turns of each round**, then **one action per turn**. Driving, firing, equipment, construction, drone sorties and orbital commands each cost one action. Aiming is free. Parachutes are automatic.
+- Each player gets **four actions on their first three personal turns of each round**, then **two actions per turn**. Driving, firing, equipment, construction, drone sorties and orbital commands each cost one action. Aiming is free. Parachutes are automatic.
 - Pilot FPV kamikaze and Strike Attack drones in 3D: **W/S** pitch, **A/D** turn, **Q/E** throttle, **Space** detonate/fire. Wind pushes the drone. The attack drone gets three moderate-damage rounds per single-action sortie. Other drone types remain autonomous.
 - Deploy a satellite, then select **Satellite Laser Strike** and set **Target X**. Protect tanks with canopies and shields. Net launchers and flak shotguns engage nearby enemy drones automatically. Deploy an anti-satellite silo, then select **ASAT Silo Launch** to destroy an enemy satellite. See [combat rules and controls](docs/COMBAT_EXPANSION.md).
+- Driving lasts **11 seconds per action** by default; set 3–30 seconds before starting a match. Reverse or stop during that action without spending another action. Fuel follows distance traveled.
+- A **Battery** restores full health and firing power. An **Action Supply Pack ($3500)** costs one action to use and grants three (net +2), once per personal turn. Unused actions expire when the turn ends.
 - Between rounds, purchase supplies and mark each human commander ready. Credits receive round awards and 5% compound interest.
 
 The registry contains 39 individually selectable items spanning all 23 requested arsenal categories: ballistics, nuclear and cluster weapons, rollers, diggers, dirt, napalm, beams, defenses, accessories, seven structures, four drones, and orbital satellites.
@@ -48,29 +50,8 @@ The registry contains 39 individually selectable items spanning all 23 requested
 
 **Host Private** produces a room code. Other players enter it and join; the host starts the battle. Public matchmaking scans ten deterministic lobby IDs and attempts to host an available slot if it cannot join. Each browser must use this application version. The host simulates combat and broadcasts state, including terrain, inventory, turns, structures, drones, and shop readiness. Disconnected guests become local AI; there is no host migration.
 
-PeerJS relies on its public signaling service. Restricted networks may need a TURN relay; optional URL and credential fields are provided. These settings and the Google key stay in page memory. Reloading clears them.
+PeerJS relies on its public signaling service. Restricted networks may need a TURN relay; optional URL and credential fields are provided. These connection settings stay in page memory. Reloading clears them.
 
-To use **Gemini 4 Argon Mastermind**, enter a Google AI Studio key. The game sends combat/shop context to the requested `gemini-4-argon` endpoint, requests JSON, validates actionable fields, and falls back to a local ballistic search after a failure or three-second timeout. Local AI requires no key. The key is never included in peer messages or game snapshots.
+Local computer opponents offer **Easy, Normal, and Hard** difficulty. They estimate range and wind, make imperfect shots, and adjust from observed misses rather than searching for an exact terrain impact.
 
-## Implementation limits and verification
-
-- The battlefield is a 1D heightfield extruded into a 3D mesh. It supports craters, added dirt, settling slopes, and tank falls. It cannot represent overhangs or underground cavities; diggers collapse trenches instead.
-- Explosion clouds, shockwaves, smoke and fire use a fixed 400-slot particle buffer. Projectiles use an instanced mesh. Terrain normals update after terrain changes, and removed tank/building/drone resources are disposed.
-- Quality modes adjust particle capacity, rendering resolution and antialiasing; Low caps rendering at 30 FPS and other modes at 60. A cap is not a guaranteed frame rate. The embedded test browser displayed roughly 15–30 FPS during two-tab testing; sustained 60 FPS has not been established.
-- Camera and tank positions remain centered around the shared terrain strip. Fine azimuth changes projectile depth; the game is not a fully volumetric battlefield.
-- 316 isolated simulation assertions passed across all 39 registry items, including completion of each offensive action, finite terrain and health, power limits, shield absorption, safe Riot Bomb terrain removal, fall protection, boundary behavior, CIWS charges, purchasing and round income.
-- The combat update has not passed browser visual or live multiplayer testing: the embedded browser reported crashed tabs and a fresh preview timed out. Earlier browser checks verified menu deployment, rendered terrain, both camera modes, private room creation, two-browser joining, match start, turn transfer and remote firing.
-- Live Gemini responses, public matchmaking at scale, remote networks/TURN relaying, long-session memory behavior and mobile performance were not verified. Local tests do not establish those production guarantees.
-
-API references: [Google generateContent](https://ai.google.dev/api/generate-content), [PeerJS networking FAQ](https://peerjs.com/client/faq).
-
-This is an independent browser remake, not an official release of the original game.
-
-
-## Repository coordination
-
-Managed by kôdex / MCP Config Manager. Session Bus room: `#charred-ground`.
-
-## License
-
-Copyright (c) 2026 tbay.tk LLC. All rights reserved. This is proprietary software: using, copying, modifying, playing, hosting or sharing it requires prior written permission from tbay.tk LLC. See [LICENSE](LICENSE).
+Gemini decisions use the owner-configured backend and require a verified account. No API-key field is shown to players, and credentials never enter the client or peer snapshots. If the backend is unavailable, the game falls back to local AI. See [server AI configuration](docs/SERVER_AI.md).
