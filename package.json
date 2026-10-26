@@ -7,12 +7,17 @@
   "author": "tbay.tk LLC",
   "scripts": {
     "start": "node scripts/serve.cjs",
-    "test": "node tests/game.cjs"
+    "test": "node tests/game.cjs && node tests/ai.cjs",
+    "db:check": "node scripts/db-check.cjs"
   },
   "devDependencies": {
     "three": "0.128.0"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "mysql2": "^3.24.6"
   }
 }
