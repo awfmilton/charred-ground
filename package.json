@@ -7,7 +7,7 @@
   "author": "tbay.tk LLC",
   "scripts": {
     "start": "node scripts/serve.cjs",
-    "test": "node tests/game.cjs",
+    "test": "node tests/game.cjs && node tests/ai.cjs",
     "db:check": "node scripts/db-check.cjs"
   },
   "devDependencies": {

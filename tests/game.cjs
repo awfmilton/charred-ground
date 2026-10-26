@@ -5,15 +5,35 @@ source=source.slice(0,source.indexOf('for(let i=0;i<6;i++){let d=document.create
 const store=new Map(),localStorage={getItem:k=>store.has(k)?store.get(k):null,setItem:(k,v)=>store.set(k,String(v)),removeItem:k=>store.delete(k)};
 const elements=new Map();function element(){const cl=new Set(['hidden']);return {value:'',checked:true,classList:{contains:c=>cl.has(c),add:c=>cl.add(c),remove:c=>cl.delete(c),toggle:(c,f)=>f===undefined?(cl.has(c)?cl.delete(c):cl.add(c)):(f?cl.add(c):cl.delete(c))},style:{},replaceChildren(){},appendChild(){},append(){},textContent:'',remove(){},setAttribute(){}}}
 const document={body:element(),getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id)},createElement:element,querySelectorAll:()=>[],hidden:false};
-const context={console,innerWidth:1280,innerHeight:720,THREE:require('three'),document,window:{localStorage},localStorage,setTimeout,clearTimeout,performance,crypto:require('crypto').webcrypto,requestAnimationFrame(){}};
+const context={console,htmlSource:fs.readFileSync('index.html','utf8'),innerWidth:1280,innerHeight:720,THREE:require('three'),document,window:{localStorage},localStorage,setTimeout,clearTimeout,performance,crypto:require('crypto').webcrypto,requestAnimationFrame(){}};
 vm.createContext(context);vm.runInContext(source,context);
 const test=`
 let checks=0;function ok(value,message){if(!value)throw Error(message);checks++}
-emit=()=>{};flash=()=>{};sound=()=>{};refreshWeapons=()=>{};updateUI=()=>{};showShop=()=>{};clearViews=()=>{};broadcastState=()=>{};notice=()=>{};laserLine=()=>{};
-function setup(){seed=1729;S={cfg:{terrain:'Rolling Hills',wall:'Concrete',difficulty:'Cyborg',market:'fixed'},round:1,turn:0,heights:new Float32Array(481).fill(20),tanks:[0,1].map(id=>({id,name:'P'+id,x:40+id*100,y:20,hp:100,shield:0,mag:false,inv:Object.fromEntries(Object.keys(WEAPONS_CONFIG).map(n=>[n,10])),fuel:100,power:650,angle:id?135:45,az:0,vy:0,chuting:0,buried:0,cash:10000,score:0})),platforms:[],customMap:null,satellites:[],buildings:[],drones:[],shots:[],fires:[],phase:'aim',wind:0,wall:'Concrete',time:0,uid:0,prices:{},ready:[]};running=true;host=true;online=false;shotClock=0;return S.tanks[0]}
-for(let[name,w]of Object.entries(WEAPONS_CONFIG)){let t=setup();let accepted=action({weaponOrItem:name,angle:35,power:500,az:0,targetX:140},0);if(w.kind==='chute'){ok(!accepted&&S.actionsLeft===2,'Passive parachute rejected without spending action');continue}ok(accepted,'Action rejected '+name);if(['blast','nuke','split','leap','funky','roller','digger','dirt','liquid','riot','napalm','laser','drone'].includes(w.kind)){for(let i=0;i<1600&&S.phase==='flight';i++)step(1/60);ok(S.phase!=='flight','Flight stuck '+name);ok(S.heights.every(Number.isFinite),'Invalid terrain '+name);ok(S.tanks.every(t=>Number.isFinite(t.hp)&&Number.isFinite(t.y)),'Invalid tank '+name);ok(S.actionsLeft===1,'Flight action spent 1 of 2 setup actions')}else ok(S.phase==='aim'&&S.actionsLeft===1,'Equipment/structure/satellite spent 1 of 2 setup actions '+name)}
+const originalClearViews=clearViews;emit=()=>{};flash=()=>{};sound=()=>{};refreshWeapons=()=>{};updateUI=()=>{};showShop=()=>{};clearViews=()=>{};broadcastState=()=>{};notice=()=>{};laserLine=()=>{};
+function setup(){seed=1729;S={cfg:{terrain:'Rolling Hills',wall:'Concrete',difficulty:'Cyborg',market:'fixed'},round:1,turn:0,actionsMax:2,actionsLeft:2,heights:new Float32Array(481).fill(20),tanks:[0,1].map(id=>({id,name:'P'+id,x:40+id*100,y:20,hp:100,shield:0,mag:false,inv:Object.fromEntries(Object.keys(WEAPONS_CONFIG).map(n=>[n,10])),fuel:100,power:650,angle:id?135:45,az:0,vy:0,chuting:0,buried:0,cash:10000,score:0})),platforms:[],customMap:null,satellites:[],buildings:[],drones:[],shots:[],fires:[],phase:'aim',wind:0,wall:'Concrete',time:0,uid:0,prices:{},ready:[]};running=true;host=true;online=false;shotClock=0;return S.tanks[0]}
+for(let[name,w]of Object.entries(WEAPONS_CONFIG)){let t=setup();let accepted=action({weaponOrItem:name,angle:35,power:500,az:0,targetX:140},0);if(['chute','floatplat','lifejacket'].includes(w.kind)){ok(!accepted&&S.actionsLeft===2,'Passive parachute rejected without spending action');continue}ok(accepted,'Action rejected '+name);if(w.kind==='actionpack'){ok(S.actionsLeft===4&&current().packUsed,'Action pack adds net two actions');continue}if(['blast','nuke','split','leap','funky','roller','digger','dirt','liquid','riot','napalm','laser','drone'].includes(w.kind)){for(let i=0;i<1600&&S.phase==='flight';i++)step(1/60);ok(S.phase!=='flight','Flight stuck '+name);ok(S.heights.every(Number.isFinite),'Invalid terrain '+name);ok(S.tanks.every(t=>Number.isFinite(t.hp)&&Number.isFinite(t.y)),'Invalid tank '+name);ok(S.actionsLeft===1,'Flight spends one of two configured remaining actions')}else ok(S.phase==='aim'&&S.actionsLeft===1,'Equipment/structure/satellite spends one configured action '+name)}
 setup();let t=current();t.hp=60;action({weaponOrItem:'Baby Missile',angle:45,power:1000});ok(t.power===600,'Health caps power');
-setup();t=current();t.hp=35;action({weaponOrItem:'Battery',angle:45,power:600});ok(t.hp===80,'Battery restores health');
+setup();t=current();t.hp=15;t.power=150;$('power').value=150;action({weaponOrItem:'Battery',angle:45,power:150});ok(t.hp===100&&t.power===1000&&+$('power').value===1000&&+$('power').max===1000,'Battery restores full 100 HP and 1000 firing power');
+{
+  setup();for(let tank of S.tanks)tank.inv['Standard Shield']=100;beginTurn();
+  for(let cycle=1;cycle<=4;cycle++){
+    for(let pid of [0,1]){
+      let expected=cycle<=3?4:2;
+      ok(S.turn===pid&&S.actionsMax===expected&&S.actionsLeft===expected,'Player '+pid+' turn '+cycle+' grants '+expected+' actions (4 setup -> 2 standard)');
+      for(let k=0;k<expected;k++)ok(action({weaponOrItem:'Standard Shield',angle:45,power:500},pid),'Spend action '+(k+1)+'/'+expected);
+      ok(S.turn!==pid,'Turn advances after '+expected+' actions');
+    }
+  }
+  setup();beginTurn();t=current();
+  ok(!starter()['Action Supply Pack']&&WEAPONS_CONFIG['Action Supply Pack']?.cost===3500,'Action Supply Pack costs 3500 and is not in starter kit');
+  t.inv['Action Supply Pack']=2;
+  let beforeLeft=S.actionsLeft,beforeMax=S.actionsMax;
+  ok(action({weaponOrItem:'Action Supply Pack'},0),'First Action Supply Pack activation succeeds');
+  ok(S.actionsLeft===beforeLeft+2&&S.actionsMax===beforeMax+2&&t.inv['Action Supply Pack']===1,'Action Supply Pack spends 1 action and grants 3 (net +2)');
+  ok(!action({weaponOrItem:'Action Supply Pack'},0)&&S.actionsLeft===beforeLeft+2&&t.inv['Action Supply Pack']===1,'Second Action Supply Pack in same turn rejected at 0 stock and 0 action cost');
+  nextTurn();nextTurn();
+  ok(S.turn===0&&!t.packUsed&&action({weaponOrItem:'Action Supply Pack'},0),'Action Supply Pack limit resets on next personal turn');
+}
 setup();t=current();t.shield=40;damage(t,55,1);ok(t.hp===85&&t.shield===0,'Shield absorbs damage');
 setup();let before=S.heights[140];impact({name:'Dirt Ball',x:140,y:20,z:0,owner:0});ok(S.heights[140]>before,'Dirt adds terrain');
 setup();impact({name:'Riot Bomb',x:140,y:20,z:0,owner:0});ok(S.heights[140]<20&&S.tanks[1].hp===100,'Riot clears without blast damage');
@@ -21,7 +41,56 @@ setup();impact({name:'Nuke',x:140,y:20,z:0,owner:0});ok(S.tanks[1].hp===0,'Nuke 
 setup();for(let boundary of ['Concrete','Rubber','Spring','Wrap-Around']){S.wall=boundary;let p={x:-2,z:0,vx:-10};let gone=wall(p);ok(boundary==='Concrete'?gone:!gone,'Wall mode '+boundary);if(boundary==='Spring')ok(p.vx===13,'Spring amplification');if(boundary==='Wrap-Around')ok(p.x>239,'Wrapping');}
 setup();t=current();t.y=50;t.inv.Parachute=1;for(let i=0;i<400;i++)step(1/60);ok(t.hp===100&&t.inv.Parachute===0,'Parachute prevents fall damage');
 setup();t=current();t.y=50;t.inv.Parachute=0;for(let i=0;i<180;i++)step(1/60);ok(t.hp<100,'Unprotected fall damages');
-setup();let estimateResult=estimate(current(),S.tanks[1]);ok(estimateResult.error<5,'Heuristic hits within five meters');
+setup();S.cfg.difficulty='Hard';let estimateResult=estimate(current(),S.tanks[1]);ok(estimateResult.error<15,'Hard heuristic initial estimate within 15m');
+{
+  const htmlMenu=htmlSource;
+  ok(htmlMenu.includes('<option value="Easy">Easy</option><option value="Normal" selected>Normal</option><option value="Hard">Hard</option>'),'Menu difficulty select has Easy/Normal/Hard with Normal selected by default');
+  let pEasy=aiProfile('Easy'),pNorm=aiProfile('Normal'),pHard=aiProfile('Hard');
+  ok(pEasy.rangeErr>pNorm.rangeErr&&pNorm.rangeErr>pHard.rangeErr&&pEasy.learn<pNorm.learn&&pNorm.learn<pHard.learn,'Difficulty profiles order error and learning rate Easy -> Normal -> Hard');
+  let runBracketing=(diff)=>{
+    setup();S.cfg.difficulty=diff;S.wind=7.5;seed=1337;
+    let bot=S.tanks[0],target=S.tanks[1];bot.ai=true;bot.x=40;target.x=210;
+    let misses=[];
+    for(let s=0;s<3;s++){
+      S.heights.fill(20);bot.x=40;bot.y=20;bot.hp=100;bot.falling=false;bot.vy=0;target.x=210;target.y=20;target.hp=100;target.shield=180;target.falling=false;target.vy=0;
+      S.turn=0;S.phase='aim';S.actionsLeft=2;
+      let est=estimate(bot,target);
+      bot.aiPlan={targetId:target.id,targetX:target.x,angle:est.angle,power:est.power,biasRange:est.biasRange,biasWind:est.biasWind};
+      ok(action({action:'fire',weaponOrItem:'Baby Missile',angle:est.angle,power:est.power,az:0},0),'AI shot '+s+' valid action on '+diff);
+      for(let i=0;i<600&&S.phase==='flight';i++)step(1/60);
+      let mem=bot.aiMem?.[target.id];
+      ok(mem&&mem.shots===s+1,'Observed impact recorded in aiMem on shot '+(s+1));
+      misses.push(Math.abs(mem.lastMissX));
+    }
+    return misses;
+  };
+  let mEasy=runBracketing('Easy'),mNorm=runBracketing('Normal'),mHard=runBracketing('Hard');
+  ok(mEasy[2]<mEasy[1]&&mEasy[1]<mEasy[0]&&mNorm[2]<mNorm[1]&&mNorm[1]<mNorm[0]&&mHard[2]<mHard[1]&&mHard[1]<mHard[0],'Controlled unchanged-battlefield calibration converges monotonically per tier');
+  ok(mHard[0]<mNorm[0]&&mNorm[0]<mEasy[0]&&mHard[2]<mNorm[2]&&mNorm[2]<mEasy[2],'Hard < Normal < Easy miss distance on initial and calibrated shots');
+  setup();let hCalls=0,plCalls=0,origH=height,origPl=platformCollision;height=x=>{hCalls++;return origH(x)};platformCollision=(x,y,z)=>{plCalls++;return origPl(x,y,z)};estimate(current(),S.tanks[1]);height=origH;platformCollision=origPl;ok(hCalls===0&&plCalls===0,'estimate() uses analytical perception without terrain/platform trajectory search');
+  setup();S.cfg.difficulty='Normal';let b0=S.tanks[0],t1=S.tanks[1];b0.x=40;t1.x=210;b0.aiPlan={targetId:1,targetX:210,angle:45,power:600,biasRange:0,biasWind:0};recordAiImpact(0,175);ok(b0.aiMem[1].lastMissX===-35&&b0.aiMem[1].corrX>0&&b0.aiMem[1].corrPower>0,'Undershoot produces positive range and power correction');
+  let cBefore=b0.aiMem[1].corrX;t1.x=255;estimate(b0,t1);ok(b0.aiMem[1].corrX>0&&b0.aiMem[1].corrX<cBefore,'Target movement decays stored correction');
+  setup();S.cfg.difficulty='Normal';b0=S.tanks[0];t1=S.tanks[1];b0.x=40;t1.x=210;b0.aiPlan={targetId:1,targetX:210,angle:45,power:600,biasRange:0,biasWind:0};recordAiImpact(0,245);ok(b0.aiMem[1].lastMissX===35&&b0.aiMem[1].corrX<0&&b0.aiMem[1].corrPower<0,'Overshoot produces negative range and power correction');
+  for(let nb of [{weaponOrItem:'Battery',angle:45,power:500},{weaponOrItem:'Standard Shield',angle:45,power:500},{weaponOrItem:'Laser',angle:45,power:500},{weaponOrItem:'FPV Kamikaze Drone',angle:45,power:500,targetX:210},{action:'move',dx:4},{weaponOrItem:'NonExistent',angle:45,power:500}]){setup();S.tanks[0].hp=50;S.tanks[0].aiPlan={targetId:1,targetX:140,angle:45,power:500};action(nb,0);ok(S.tanks[0].aiPlan===null,'Stale aiPlan cleared for non-ballistic or invalid action');}
+  let popStats=(diff)=>{
+    let prof=aiProfile(diff),s0=0,s1=0,n=12;
+    for(let k=1;k<=n;k++){
+      setup();S.cfg.difficulty=diff;S.wind=(k%2?1:-1)*(3+(k%5)*1.5);seed=k*997+101;
+      let b=S.tanks[0],tg=S.tanks[1];b.ai=true;b.x=40;tg.x=200+(k%4)*15;
+      for(let s=0;s<2;s++){
+        S.heights.fill(20);b.y=20;tg.y=20;tg.hp=100;tg.shield=180;tg.falling=false;tg.vy=0;S.turn=0;S.phase='aim';S.actionsLeft=2;
+        let est=estimate(b,tg),ang=clamp(est.angle+(rng()-.5)*2*prof.angleJitter,5,175),pwr=clamp(est.power+(rng()-.5)*2*prof.powerJitter,100,1000);
+        b.aiPlan={targetId:tg.id,targetX:tg.x,angle:ang,power:pwr,biasRange:est.biasRange,biasWind:est.biasWind};
+        action({action:'fire',weaponOrItem:'Baby Missile',angle:ang,power:pwr,az:0},0);
+        for(let i=0;i<600&&S.phase==='flight';i++)step(1/60);
+        if(s===0)s0+=Math.abs(b.aiMem[tg.id].lastMissX);else s1+=Math.abs(b.aiMem[tg.id].lastMissX);
+      }
+    }
+    return{m0:s0/n,m1:s1/n};
+  };
+  let popE=popStats('Easy'),popN=popStats('Normal'),popH=popStats('Hard');
+  ok(popH.m0<popN.m0&&popN.m0<popE.m0&&popH.m1<popN.m1&&popN.m1<popE.m1&&popE.m1<popE.m0&&popN.m1<popN.m0&&popH.m1<popH.m0,'Seeded populations order accuracy Hard > Normal > Easy and improve on shot 2');
+}
 setup();S.phase='shop';let cash=current().cash;ok(buy(0,'Missile'),'Shop purchase');ok(current().cash===cash-120,'Shop charges price');S.ready.push(0);ok(!buy(0,'Nuke'),'Ready player cannot shop');
 setup();let initial=current().cash;S.tanks[1].hp=0;finishRound();ok(S.phase==='shop','Round ends');ok(current().cash===Math.floor((initial+1400)*1.05),'Winner award and compound interest');
 setup();S.buildings.push({shape:'ciws',owner:1,x:100,y:20,charges:1,hp:55});ok(intercepted({owner:0,x:100,y:35,z:0}),'CIWS interception');ok(!intercepted({owner:0,x:100,y:35,z:0}),'CIWS single charge');
@@ -43,16 +112,21 @@ setup();
 S.heights.fill(6);
 for(let x=20;x<=38;x++)S.heights[x]=13;
 S.platforms=[{id:1,x:52,y:13,width:28,hp:120,maxHp:120}];
-t=current();t.x=36;t.y=supportHeight(36);t.fuel=100;
+t=current();t.inv['Floating Platform']=0;t.inv['Inflatable Lifejacket']=0;t.x=36;t.y=supportHeight(36);t.fuel=100;
 ok(t.y===13,'Tank starts on coastal ramp at platform elevation');
-ok(action({action:'move',dx:4},0)&&t.x===40&&t.y===13,'Tank drives from land onto floating platform over deep water');
-ok(action({action:'move',dx:4},0)&&t.x===44&&t.y===13,'Tank drives along floating platform over deep water');
-S.turn=0;S.actionsLeft=2;t.x=65;t.y=supportHeight(65);
-ok(!action({action:'move',dx:4},0)&&t.x===65,'Tank blocked from driving off platform into unbridged deep water');
+ok(action({action:'move',dir:1},0)&&S.activeDrive,'Tank starts timed drive from land onto floating platform');
+for(let i=0;i<80;i++)step(1/60);
+ok(t.x>42&&t.y===13,'Tank drives from land onto and along floating platform over deep water');
+ok(steerDrive({stop:true,moveId:S.activeDrive.id},0)&&!S.activeDrive,'Stop timed drive on platform');
+S.turn=0;S.actionsLeft=2;t.x=66;t.y=supportHeight(66);
+ok(!action({action:'move',dir:1},0)&&t.x===66&&S.actionsLeft===2,'Tank blocked from driving off platform edge into unbridged deep water at 0 cost');
 
 S.platforms=[{id:1,x:46,y:13,width:12,hp:120,maxHp:120},{id:2,x:62,y:13,width:12,hp:120,maxHp:120}];
-t.x=51;t.y=supportHeight(51);t.fuel=100;
-ok(!action({action:'move',dx:4},0)&&t.x===51,'Intermediate water gap between separated platforms blocks movement');
+t.x=50;t.y=supportHeight(50);t.fuel=100;
+ok(action({action:'move',dir:1},0),'Start drive toward water gap between separated platforms');
+for(let i=0;i<60;i++)step(1/60);
+ok(t.x<=52&&t.y===13,'Intermediate water gap between separated platforms blocks timed drive from crossing');
+finishDrive();
 
 S.platforms=[{id:1,x:52,y:13,width:28,hp:15,maxHp:120}];
 t.x=40;t.y=supportHeight(40);t.hp=100;t.inv.Parachute=0;
@@ -134,21 +208,7 @@ step(1/60);ok(S.drones[0].hp===15&&S.buildings[0].ammo===2,'Shotgun defense dama
 for(let i=0;i<60;i++)step(1/60);ok(S.drones.length===0,'Shotgun defense destroys hostile drone after cooldown');
 // --- Combat Expansion Verification Suite (Part 1) ---
 setup();predict();predictFlight();ok(!arc.visible&&arcGeo.drawRange.count===0,'Predicted aim and remaining-flight arcs removed');
-setup();beginTurn();
-for(let cycle=1;cycle<=4;cycle++){
-  for(let pid of [0,1]){
-    let expected=cycle<=3?2:1;
-    ok(S.turn===pid&&S.actionsMax===expected&&S.actionsLeft===expected,'Player '+pid+' turn '+cycle+' grants '+expected+' action(s)');
-    ok(!action({action:'move',dx:0},pid)&&S.actionsLeft===expected,'Zero move rejected at 0 cost');
-    ok(!action({weaponOrItem:'NonExistent'},pid)&&S.actionsLeft===expected,'Invalid item rejected at 0 cost');
-    ok(action({weaponOrItem:'Standard Shield',angle:45,power:500},pid),'Action 1 shield accepted');
-    if(expected===2){
-      ok(S.turn===pid&&S.actionsLeft===1,'1 action remains after first setup action');
-      ok(action({action:'move',dx:4},pid),'Action 2 move accepted');
-    }
-    ok(S.turn!==pid,'Turn advances after all actions spent');
-  }
-}
+setup();ok(maxActionsForTank({turnsTaken:1})===4&&maxActionsForTank({turnsTaken:3})===4&&maxActionsForTank({turnsTaken:4})===2,'Setup grants four actions, later turns two');
 setup();S.wind=10;action({weaponOrItem:'FPV Kamikaze Drone',angle:45,power:600,targetX:140},0);
 let fpv=S.drones[0];ok(fpv&&fpv.piloted&&activePilotDrone()===fpv,'Human FPV drone enters 3D piloted mode');
 ok(!steerDrone({pitch:.5,yaw:.4},1),'Host rejects steering from non-owner player');
@@ -179,11 +239,90 @@ setup();S.buildings.push({id:1,owner:0,shape:'net',hp:60,ammo:2,x:40,y:20});acti
 setup();let exposed=S.tanks[1];explosion(140,38,0,{r:28,dmg:60},0,true);let exposedLoss=100-exposed.hp;
 setup();S.buildings.push({id:1,owner:1,shape:'canopy',hp:100,x:140,y:20});explosion(140,38,0,{r:28,dmg:60},0,true);ok(100-S.tanks[1].hp<exposedLoss*.3,'Canopy attenuates overhead blast damage');
 setup();S.platforms.push({id:1,x:57,y:30,width:24,hp:100,maxHp:100});action({weaponOrItem:'Anti-Satellite Silo'},0);step(.05);ok(S.buildings[0].y===30,'Structures remain supported on raised floating decks');
-setup();S.tanks.forEach(t=>t.turnsTaken=9);S.satellites=[{id:1,owner:0,hp:60}];newRound();ok(current().turnsTaken===1&&S.actionsLeft===2&&S.satellites.length===0,'Round reset grants fresh setup phase and clears satellites');
+setup();S.tanks.forEach(t=>t.turnsTaken=9);S.satellites=[{id:1,owner:0,hp:60}];newRound();ok(current().turnsTaken===1&&S.actionsLeft===4&&S.satellites.length===0,'Round reset grants fresh setup phase and clears satellites');
+// --- Chunk 2 Timed Driving Verification ---
+{
+  ok(sanitizeMoveDuration(undefined)===11&&sanitizeMoveDuration(1)===3&&sanitizeMoveDuration(99)===30&&movementSpeed(S.tanks[0])===6,'Move duration defaults to 11s (clamped 3..30s) and ground speed is 6m/s');
+  setup();S.cfg.moveDuration=11;t=current();t.x=100;t.fuel=100;
+  ok(action({action:'move',dir:1},0)&&S.actionsLeft===1&&S.activeDrive?.remaining===11,'Timed drive starts with 11s budget and spends 1 action');
+  let mid=S.activeDrive.id;
+  ok(!action({weaponOrItem:'Baby Missile',angle:45,power:500},0)&&!action({weaponOrItem:'Standard Shield'},0)&&S.actionsLeft===1,'Offensive and deploy actions rejected while drive is active');
+  ok(!steerDrive({dir:-1,moveId:mid+99},0)&&!steerDrive({dir:-1,moveId:mid},1),'Stale moveId and wrong actor rejected');
+  for(let i=0;i<120;i++)step(1/60);
+  ok(Math.abs(t.x-112)<1e-3&&Math.abs(t.fuel-88)<1e-3&&Math.abs(S.activeDrive.remaining-9)<1e-3,'2s of driving at 6m/s moves 12m and drains 12 fuel');
+  ok(steerDrive({dir:-1,moveId:mid},0)&&S.actionsLeft===1,'Reversing direction mid-drive costs 0 extra actions');
+  for(let i=0;i<60;i++)step(1/60);
+  ok(Math.abs(t.x-106)<1e-3&&Math.abs(t.fuel-82)<1e-3,'1s reverse moves 6m left and drains 6 fuel by actual distance');
+  ok(steerDrive({stop:true,moveId:mid},0)&&!S.activeDrive&&S.actionsLeft===1,'Stopping early ends drive and preserves remaining setup action');
+  ok(!steerDrive({dir:1,moveId:mid},0)&&!action({action:'move',moveId:mid,dir:1},0)&&!action({action:'stop_move'},0)&&S.actionsLeft===1,'Stale steer/stop commands after drive ends rejected at 0 cost');
+  S.buildings.push({id:++S.uid,owner:1,x:115,y:20,shape:'wall',hp:120});
+  ok(action({action:'move',dir:1},0),'Start second drive toward wall');
+  for(let i=0;i<180;i++)step(1/60);
+  ok(t.x<=110.05&&t.fuel>=82-(110.05-106)-1e-3,'Wall blocks tank without teleporting and fuel only drains by actual distance moved');
+  finishDrive();
+  ok(S.turn===1,'Finishing 2nd setup action drive advances turn');
+}
+// Argon flotation and mesh lifecycle regression.
+{
+    setup();S.heights.fill(6);for(let x=20;x<=40;x++)S.heights[x]=13;for(let x=60;x<=80;x++)S.heights[x]=13;
+    let tk=S.tanks[0];tk.x=38;tk.y=13;tk.fuel=100;tk.inv['Floating Platform']=1;tk.inv['Inflatable Lifejacket']=1;
+    ok(!action({weaponOrItem:'Floating Platform'},0)&&!action({weaponOrItem:'Inflatable Lifejacket'},0)&&S.actionsLeft===2&&tk.inv['Floating Platform']===1&&tk.inv['Inflatable Lifejacket']===1,'Water gear automatic (0 manual cost)');
+    ok(movementSpeed(tk,38)===6,'Ground speed 6 m/s');
+    ok(action({action:'move',dir:1},0)&&S.activeDrive,'Start drive toward water');
+    for(let i=0;i<220&&S.activeDrive;i++)step(1/60);
+    ok(tk.waterGear==='platform'&&tk.inv['Floating Platform']===0&&tk.inv['Inflatable Lifejacket']===1&&movementSpeed(tk,50)===8&&tk.x>=60&&tk.y===13,'Platform preferred (8m/s), consumed once, crosses water onto shore');
+    syncViews();let vw=views.get('t0');ok(vw&&vw.raft&&vw.ring&&!vw.raft.visible&&!vw.ring.visible,'Raft/ring hidden on dry land');
+    tk.x=50;tk.y=WATER_LEVEL;syncViews();ok(vw.raft.visible&&!vw.ring.visible,'Raft visible while afloat');
+    setup();S.heights.fill(6);let lj=S.tanks[0];lj.x=50;lj.y=36;lj.inv.Parachute=0;lj.inv['Floating Platform']=0;lj.inv['Inflatable Lifejacket']=1;
+    for(let i=0;i<180;i++)step(1/60);
+    ok(lj.waterGear==='lifejacket'&&lj.inv['Inflatable Lifejacket']===0&&lj.y===WATER_LEVEL&&lj.hp===100&&movementSpeed(lj,50)===3,'Lifejacket auto-deploys on fall into water (3m/s)');
+    syncViews();let vw2=views.get('t0');ok(vw2&&vw2.ring.visible&&!vw2.raft.visible,'Ring visible while lifejacket tank afloat');
+    let floatDisposals=0;vw2.raft.geometry.addEventListener('dispose',()=>floatDisposals++);vw2.ring.geometry.addEventListener('dispose',()=>floatDisposals++);originalClearViews();ok(views.size===0&&floatDisposals===2,'clearViews disposes raft and ring geometries');
+    newRound();ok(!S.tanks[0].waterGear,'waterGear resets on newRound');
+    setup();S.heights.fill(6);let unp=S.tanks[0];unp.x=50;unp.y=36;unp.inv.Parachute=0;unp.inv['Floating Platform']=0;unp.inv['Inflatable Lifejacket']=0;
+    for(let i=0;i<180;i++)step(1/60);
+    ok(!unp.waterGear&&unp.y===6&&unp.hp<100,'Unprotected tank sinks and takes fall damage');
+    setup();S.actionLog=[];
+}
+// Effective shoreline support and no midair drive teleport.
+{
+setup();t=current();S.heights.fill(1);for(let x=0;x<=99;x++)S.heights[x]=18;t.x=99;t.y=18;
+ok(action({action:'move',dir:1},0),'Flotation permits six-meter shore-to-water drop despite deep floor');for(let i=0;i<120;i++)step(1/60);ok(t.x>106&&t.y===12,'Tank crosses steep submerged floor at water surface');finishDrive();
+setup();t=current();t.y=50;let oldFuel=t.fuel;ok(!action({action:'move',dir:1},0)&&S.actionsLeft===2&&t.y===50&&t.fuel===oldFuel,'Airborne movement rejected without teleport or cost');
+setup();t=current();action({action:'move',dir:1},0);for(let i=0;i<30;i++)step(1/60);let xpos=t.x;S.heights.fill(1);step(1/60);ok(!S.activeDrive&&t.x===xpos&&t.y>12&&t.falling,'Losing ground support ends driving and preserves falling physics');
+}
+// Independent water safety and movement checks.
+{
+setup();t=current();S.heights.fill(1);t.x=100;t.y=40;t.inv.Parachute=0;let p=t.inv['Floating Platform'],j=t.inv['Inflatable Lifejacket'];S.turn=1;
+for(let i=0;i<180;i++)step(1/60);
+ok(t.y===WATER_LEVEL&&t.hp===100&&t.waterGear==='platform','Off-turn fall automatically floats without damage');
+ok(t.inv['Floating Platform']===p-1&&t.inv['Inflatable Lifejacket']===j&&S.actionsLeft===2,'Preferred platform consumes exactly one stock and zero actions');
+for(let i=0;i<120;i++)step(1/60);ok(t.inv['Floating Platform']===p-1,'Remaining afloat does not consume repeated stock');
+setup();t=current();S.heights.fill(1);t.y=1;t.inv['Floating Platform']=0;step(1/60);
+ok(t.waterGear==='lifejacket'&&t.y===12&&movementSpeed(t)===3,'Lifejacket rescues submerged tank and uses slow water speed');
+setup();t=current();S.heights.fill(1);t.y=1;t.inv['Floating Platform']=0;t.inv['Inflatable Lifejacket']=0;step(1/60);ok(!t.waterGear&&t.y===1,'No free flotation without purchased equipment');
+setup();t=current();S.heights.fill(1);t.x=100;t.y=12;t.waterGear='platform';action({action:'move',dir:1},0);for(let i=0;i<60;i++)step(1/60);ok(Math.abs(t.x-108)<.001,'Platform drives 8m in one second');finishDrive();
+setup();t=current();S.heights.fill(1);t.x=100;t.y=12;t.waterGear='lifejacket';action({action:'move',dir:1},0);for(let i=0;i<60;i++)step(1/60);ok(Math.abs(t.x-103)<.001,'Lifejacket swims 3m in one second');finishDrive();
+}
+// Purchasable bridges share deck collision, persistence and destruction rules.
+{
+setup();t=current();let stock=t.inv['Deployable Bridge'];
+ok(action({weaponOrItem:'Deployable Bridge',angle:45},0)&&S.platforms.length===1&&S.actionsLeft===1&&t.inv['Deployable Bridge']===stock-1,'Bridge deployment spends exactly one item and one action');
+let deck=S.platforms[0];ok(deck.width===40&&supportHeight(deck.x)===deck.y,'Bridge supports tanks through existing deck system');
+ok(!action({weaponOrItem:'Deployable Bridge',angle:45},0)&&S.actionsLeft===1&&t.inv['Deployable Bridge']===stock-1,'Overlapping bridge rejected before spending');
+setup();t=current();t.x=6;stock=t.inv['Deployable Bridge'];ok(!action({weaponOrItem:'Deployable Bridge',angle:135},0)&&t.inv['Deployable Bridge']===stock&&S.actionsLeft===2,'Out-of-bounds bridge rejected before spending');
+setup();t=current();S.platforms=Array.from({length:MAX_PLATFORMS},(_,i)=>({id:i+1,x:300,y:20,width:12,hp:140}));ok(!action({weaponOrItem:'Deployable Bridge'},0)&&S.actionsLeft===2,'Bridge respects global platform cap');
+}
+// Stopping before displacement must record an honest zero-distance action.
+setup();S.actionLog=[];t=current();t.x=100;
+ok(action({action:'move',dir:1},0),'Start drive for immediate-stop logging');
+ok(!steerDrive({dir:-1},0),'Steering requires exact active movement identifier');
+steerDrive({stop:true,moveId:S.activeDrive.id},0);
+ok(S.actionLog.length===1&&S.actionLog[0].dx===0&&S.actionLog[0].distance===0&&S.actionLog[0].duration===0,'Immediate stop logs zero displacement without inventing movement');
 // --- Client actionLog hook recording for all action kinds & items ---
 setup();S.actionLog=[];
 for(let[name,w]of Object.entries(WEAPONS_CONFIG)){
-  if(w.kind==='chute')continue;
+  if(['chute','floatplat','lifejacket'].includes(w.kind))continue;
   S.turn=0;S.phase='aim';S.actionsLeft=2;S.satellites=[];S.buildings=[];S.drones=[];S.shots=[];
   S.tanks[0].inv[name]=5;
   let beforeLen=S.actionLog.length;
@@ -197,9 +336,15 @@ for(let[name,w]of Object.entries(WEAPONS_CONFIG)){
   ok(Number.isFinite(rec.angle)&&rec.angle>0&&Number.isFinite(rec.power)&&rec.power>0,'Client hook records effective non-zero angle/power for '+name);
 }
 S.turn=0;S.phase='aim';S.actionsLeft=2;S.tanks[0].x=40;S.tanks[0].fuel=100;
-ok(action({action:'move',dx:4},0),'Client hook move action succeeds');
+ok(action({action:'move',dir:1},0),'Client hook timed move action succeeds');
+let moveId=S.activeDrive.id,logLenBeforeSteer=S.actionLog.length;
+for(let i=0;i<60;i++)step(1/60);
+ok(steerDrive({dir:-1,moveId},0),'Direction change during timed drive succeeds');
+for(let i=0;i<18;i++)step(1/60);
+ok(steerDrive({stop:true,moveId},0),'Early stop during timed drive succeeds');
+ok(S.actionLog.length===logLenBeforeSteer,'Direction change and stop do not add extra actionLog entries');
 let moveRec=S.actionLog[S.actionLog.length-1];
-ok(moveRec.action==='move'&&moveRec.dx===4&&moveRec.weaponOrItem===undefined,'Client hook records move entry with clamped dx');
+ok(moveRec.action==='move'&&moveRec.dx>0&&moveRec.distance>moveRec.dx&&moveRec.duration>0&&moveRec.weaponOrItem===undefined,'Client hook updates move entry with net dx, distance, and duration');
 S.turn=0;S.phase='aim';S.actionsLeft=2;S.satellites=[{id:7,owner:0,x:140,y:190,z:0,hp:60,maxHp:60,cooldown:0}];
 ok(action({action:'sat_strike',weaponOrItem:'Satellite Laser Strike',targetX:140},0),'Client hook sat_strike succeeds');
 let strikeRec=S.actionLog[S.actionLog.length-1];
@@ -209,6 +354,15 @@ ok(action({action:'silo_launch',weaponOrItem:'ASAT Silo Launch',targetSatId:9},0
 let siloRec=S.actionLog[S.actionLog.length-1];
 ok(siloRec.action==='silo_launch'&&siloRec.weaponOrItem==='ASAT Silo Launch'&&siloRec.targetSatId===9,'Client hook records silo_launch with ASAT Silo Launch and targetSatId');
 globalThis.__vmClientRecordedLog=JSON.parse(JSON.stringify(S.actionLog));
+// Local computer aim uses estimates and observed misses, not terrain trajectory search.
+setup();S.cfg.difficulty='Normal';let oldHeight=height,oldPlatformCollision=platformCollision;
+try{height=()=>{throw Error('AI read hidden terrain')};platformCollision=()=>{throw Error('AI traced platform collision')};let guess=estimate(current(),S.tanks[1]);ok(Number.isFinite(guess.angle)&&Number.isFinite(guess.power),'AI estimates without reading terrain/collision geometry')}finally{height=oldHeight;platformCollision=oldPlatformCollision}
+let shooter=current();shooter.aiPlan={targetId:1,targetX:140};recordAiImpact(0,100);ok(shooter.aiMem[1].corrX>0,'Observed undershoot corrects aim toward target');
+shooter.aiMem={};shooter.aiPlan={targetId:1,targetX:140};recordAiImpact(0,180);ok(shooter.aiMem[1].corrX<0,'Observed overshoot corrects aim back toward target');
+shooter.aiPlan={targetId:1,targetX:140};action({weaponOrItem:'Standard Shield',angle:45,power:500});ok(shooter.aiPlan===null,'Equipment never arms ballistic feedback');
+let averageMiss={};for(let level of ['Easy','Normal','Hard']){let sum=0;for(let n=1;n<=32;n++){setup();seed=n*8191;S.cfg.difficulty=level;S.wind=(n%13)-6;let bot=current(),target=S.tanks[1];target.x=210;target.shield=180;let guess=estimate(bot,target),profile=aiProfile(level);bot.aiPlan={targetId:1,targetX:target.x,biasRange:guess.biasRange,biasWind:guess.biasWind};action({weaponOrItem:'Baby Missile',angle:clamp(guess.angle+(rng()-.5)*2*profile.angleJitter,5,175),power:clamp(guess.power+(rng()-.5)*2*profile.powerJitter,100,1000)},0);for(let f=0;f<1500&&S.phase==='flight';f++)step(1/60);sum+=Math.abs(bot.aiMem[1]?.lastMissX??480)}averageMiss[level]=sum/32}
+ok(averageMiss.Easy>averageMiss.Normal&&averageMiss.Normal>averageMiss.Hard,'Difficulty separates observed average miss distance over 32 seeded shots');
+ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
 `;
 vm.runInContext(test,context,{timeout:30000});
@@ -236,7 +390,7 @@ const simChecks = vm.runInContext('checks', context);
   while ((m = keyRe.exec(weaponsCfgMatch[1])) !== null) {
     parsedConfigNames.push(m[1] ?? m[2]);
   }
-  assert.strictEqual(parsedConfigNames.length, 39, `Expected 39 items in WEAPONS_CONFIG, found ${parsedConfigNames.length}`);
+  assert.strictEqual(parsedConfigNames.length, 43, `Expected 43 items in WEAPONS_CONFIG, found ${parsedConfigNames.length}`);
 
   const refreshMatch = htmlText.match(/function refreshWeapons\(\)\{[^\r\n]*\}/);
   assert(refreshMatch, 'Could not locate refreshWeapons() in index.html');
@@ -329,6 +483,10 @@ const simChecks = vm.runInContext('checks', context);
   });
   assert(rtRes.ok, `Client-recorded actionLog failed server validation: ${rtRes.reason}`);
 
+  for (const entry of [{actor:0,action:'move',dx:0,distance:0,duration:0},{actor:0,action:'move',dx:0,distance:12,duration:2},{actor:0,action:'move',dx:240,distance:240,duration:30}]) {
+    const result=validateAndCanonicalizeAttestation(syntheticMatch,{nonce:'drift-nonce',winnerSlot:0,durationMs:5000,actionLog:[entry],outcomes:syntheticOutcomes});
+    assert(result.ok, 'Stopped and reversed timed drives remain valid ranked records');
+  }
   // Negative checks: unknown weapons and out-of-range fields must still be rejected
   const badEntries = [
     [{ actor: 0, action: 'fire', weaponOrItem: 'Quantum Singularity Cannon', angle: 45, power: 500, az: 0 }],
@@ -340,7 +498,7 @@ const simChecks = vm.runInContext('checks', context);
     [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 500, az: 25 }],
     [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 500, az: 0, targetX: 500 }],
     [{ actor: 0, action: 'move', dx: 0 }],
-    [{ actor: 0, action: 'move', dx: 5 }],
+    [{ actor: 0, action: 'move', dx: 241 }],
     [{ actor: 0, action: 'silo_launch', weaponOrItem: 'ASAT Silo Launch', targetSatId: -2 }]
   ];
   for (const badLog of badEntries) {
@@ -2900,4 +3058,3 @@ const simChecks = vm.runInContext('checks', context);
   console.error(err);
   process.exit(1);
 });
-
