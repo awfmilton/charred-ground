@@ -363,6 +363,38 @@ shooter.aiPlan={targetId:1,targetX:140};action({weaponOrItem:'Standard Shield',a
 let averageMiss={};for(let level of ['Easy','Normal','Hard']){let sum=0;for(let n=1;n<=32;n++){setup();seed=n*8191;S.cfg.difficulty=level;S.wind=(n%13)-6;let bot=current(),target=S.tanks[1];target.x=210;target.shield=180;let guess=estimate(bot,target),profile=aiProfile(level);bot.aiPlan={targetId:1,targetX:target.x,biasRange:guess.biasRange,biasWind:guess.biasWind};action({weaponOrItem:'Baby Missile',angle:clamp(guess.angle+(rng()-.5)*2*profile.angleJitter,5,175),power:clamp(guess.power+(rng()-.5)*2*profile.powerJitter,100,1000)},0);for(let f=0;f<1500&&S.phase==='flight';f++)step(1/60);sum+=Math.abs(bot.aiMem[1]?.lastMissX??480)}averageMiss[level]=sum/32}
 ok(averageMiss.Easy>averageMiss.Normal&&averageMiss.Normal>averageMiss.Hard,'Difficulty separates observed average miss distance over 32 seeded shots');
 ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
+{
+  ok(sanitizeMaxWind(undefined)===6.5&&sanitizeMaxWind('')===6.5&&sanitizeMaxWind('bad')===6.5&&sanitizeMaxWind(true)===6.5,'Max wind default');
+  ok(sanitizeMaxWind(-4)===0&&sanitizeMaxWind(0)===0&&sanitizeMaxWind(3.25)===3.25&&sanitizeMaxWind(99)===6.5,'Max wind clamp');
+  ok(sanitizeWindCadence(undefined)==='turn'&&sanitizeWindCadence('bad')==='turn'&&sanitizeWindCadence('cycle')==='cycle'&&sanitizeWindCadence('Each cycle')==='cycle'&&sanitizeWindCadence('round')==='round'&&sanitizeWindCadence('Whole round')==='round','Wind cadence sanitize');
+  $('maxWind').value='9';$('windCadence').value='Whole round';let c1=config();ok(c1.maxWind===6.5&&c1.windCadence==='round','config clamp');
+  $('maxWind').value='';$('windCadence').value='bogus';let c2=config();ok(c2.maxWind===6.5&&c2.windCadence==='turn','config default');
+  $('maxWind').value='0';$('windCadence').value='turn';setup();S.cfg=config();newRound();ok(S.wind===0,'Calm 0');nextTurn();ok(S.wind===0,'Calm 0 turn');
+  $('maxWind').value='2.5';$('windCadence').value='turn';setup();S.cfg=config();newRound();for(let i=0;i<12;i++){ok(Math.abs(S.wind)<=2.5,'Turn <=2.5');nextTurn()}
+  setup();S.cfg.maxWind=6.5;S.cfg.windCadence='turn';newRound();let tw=S.wind;
+  ok(action({weaponOrItem:'Standard Shield',angle:45,power:500},S.turn)&&S.wind===tw&&S.actionsLeft===3,'Action 1 keeps wind');
+  ok(action({weaponOrItem:'Baby Missile',angle:45,power:500,az:0},S.turn)&&S.phase==='flight','Shot flight');
+  for(let i=0;i<1600&&S.phase==='flight';i++)step(1/60);
+  ok(S.phase!=='flight'&&S.actionsLeft===2&&S.wind===tw,'Completed flight keeps wind');
+  let qsa=document.querySelectorAll;
+  try{
+    let slots=['human','human','human','human','off','off'].map(v=>({value:v}));
+    document.querySelectorAll=s=>s==='.slot select'?slots:[];
+    $('maxWind').value='6.5';$('windCadence').value='cycle';startMatch();
+    ok(S.round===1&&S.tanks.length===4&&S.turn===0&&S.windRoundSet===true&&S.windCycleSeen.length===1&&S.windCycleSeen[0]===0,'Cycle R1 slot 0');
+    let cw=S.wind;S.tanks[2].hp=0;
+    nextTurn();ok(S.turn===1&&S.wind===cw&&S.windCycleSeen.length===2,'Cycle slot 1');
+    nextTurn();ok(S.turn===3&&S.wind===cw&&S.windCycleSeen.length===3,'Cycle skips dead 2 to 3');
+    nextTurn();ok(S.turn===0&&S.wind!==cw&&S.windCycleSeen.length===1&&S.windCycleSeen[0]===0,'Cycle rolls after living act');
+    newRound();ok(S.round===2&&S.turn===1&&S.windRoundSet===true&&S.windCycleSeen.length===1&&S.windCycleSeen[0]===1,'newRound rotates slot 1');
+  }finally{document.querySelectorAll=qsa}
+  setup();S.cfg.maxWind=6.5;S.cfg.windCadence='round';newRound();let rw=S.wind;
+  for(let i=0;i<4;i++){nextTurn();ok(S.wind===rw,'Round keeps wind')}
+  newRound();ok(S.wind!==rw&&S.windRoundSet===true,'newRound rolls round wind');
+  let snap=JSON.parse(JSON.stringify(snapshot()));snap.cfg.maxWind=99;snap.cfg.windCadence='Each cycle';snap.wind=-40;snap.windCycleSeen=[0,99,'bad'];receiveState(snap);
+  ok(S.cfg.maxWind===6.5&&S.cfg.windCadence==='cycle'&&S.wind===-6.5&&S.windCycleSeen.length===1&&S.windCycleSeen[0]===0,'receiveState clamps');
+  $('maxWind').value='6.5';$('windCadence').value='turn';
+}
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
 `;
 vm.runInContext(test,context,{timeout:30000});
