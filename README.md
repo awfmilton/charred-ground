@@ -24,6 +24,8 @@ Open `index.html` through `npm start` (which serves both the single-file client 
 
 ## New in Charred Ground
 
+Before a match, set **Max Wind** from 0 (calm) to 6.5 and choose whether it changes each turn, each cycle of living commanders, or once per round. Defaults preserve the original wind behavior. The wind gauge shows direction and strength. Each commander also sees their previous accepted ballistic shot's weapon, angle, power, azimuth, and wind, plus the change in wind since that shot. This reference resets each round and shows no predicted path or impact point.
+
 The map is now 480 meters wide and 160 meters deep, with pooled trees and rocks, animated water, and sandy shores. Press F to focus your tank, E to explore, V for gunner view, or R to reset the full-map camera. Drag to orbit, scroll to zoom, or use the camera sliders. In exploration mode, WASD pans across the map. Firing from a 3D mode shows a short tank-side launch view, then automatically returns to a tactical view that fits the shot. A solid line traces the actual path. Predictive aim and remaining-flight arcs are disabled. Trees are scenery. Water requires a deck crossing or purchased flotation equipment.
 
 ## Map editor and floating platforms
