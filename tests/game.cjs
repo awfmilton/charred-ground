@@ -363,6 +363,76 @@ shooter.aiPlan={targetId:1,targetX:140};action({weaponOrItem:'Standard Shield',a
 let averageMiss={};for(let level of ['Easy','Normal','Hard']){let sum=0;for(let n=1;n<=32;n++){setup();seed=n*8191;S.cfg.difficulty=level;S.wind=(n%13)-6;let bot=current(),target=S.tanks[1];target.x=210;target.shield=180;let guess=estimate(bot,target),profile=aiProfile(level);bot.aiPlan={targetId:1,targetX:target.x,biasRange:guess.biasRange,biasWind:guess.biasWind};action({weaponOrItem:'Baby Missile',angle:clamp(guess.angle+(rng()-.5)*2*profile.angleJitter,5,175),power:clamp(guess.power+(rng()-.5)*2*profile.powerJitter,100,1000)},0);for(let f=0;f<1500&&S.phase==='flight';f++)step(1/60);sum+=Math.abs(bot.aiMem[1]?.lastMissX??480)}averageMiss[level]=sum/32}
 ok(averageMiss.Easy>averageMiss.Normal&&averageMiss.Normal>averageMiss.Hard,'Difficulty separates observed average miss distance over 32 seeded shots');
 ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
+{
+  ok(sanitizeMaxWind(undefined)===6.5&&sanitizeMaxWind('')===6.5&&sanitizeMaxWind('bad')===6.5&&sanitizeMaxWind(true)===6.5,'Max wind default');
+  ok(sanitizeMaxWind(-4)===0&&sanitizeMaxWind(0)===0&&sanitizeMaxWind(3.25)===3.25&&sanitizeMaxWind(99)===6.5,'Max wind clamp');
+  ok(sanitizeWindCadence(undefined)==='turn'&&sanitizeWindCadence('bad')==='turn'&&sanitizeWindCadence('cycle')==='cycle'&&sanitizeWindCadence('Each cycle')==='cycle'&&sanitizeWindCadence('round')==='round'&&sanitizeWindCadence('Whole round')==='round','Wind cadence sanitize');
+  $('maxWind').value='9';$('windCadence').value='Whole round';let c1=config();ok(c1.maxWind===6.5&&c1.windCadence==='round','config clamp');
+  $('maxWind').value='';$('windCadence').value='bogus';let c2=config();ok(c2.maxWind===6.5&&c2.windCadence==='turn','config default');
+  $('maxWind').value='0';$('windCadence').value='turn';setup();S.cfg=config();newRound();ok(S.wind===0,'Calm 0');nextTurn();ok(S.wind===0,'Calm 0 turn');
+  $('maxWind').value='2.5';$('windCadence').value='turn';setup();S.cfg=config();newRound();for(let i=0;i<12;i++){ok(Math.abs(S.wind)<=2.5,'Turn <=2.5');nextTurn()}
+  setup();S.cfg.maxWind=6.5;S.cfg.windCadence='turn';newRound();let tw=S.wind;
+  ok(action({weaponOrItem:'Standard Shield',angle:45,power:500},S.turn)&&S.wind===tw&&S.actionsLeft===3,'Action 1 keeps wind');
+  ok(action({weaponOrItem:'Baby Missile',angle:45,power:500,az:0},S.turn)&&S.phase==='flight','Shot flight');
+  for(let i=0;i<1600&&S.phase==='flight';i++)step(1/60);
+  ok(S.phase!=='flight'&&S.actionsLeft===2&&S.wind===tw,'Completed flight keeps wind');
+  let qsa=document.querySelectorAll;
+  try{
+    let slots=['human','human','human','human','off','off'].map(v=>({value:v}));
+    document.querySelectorAll=s=>s==='.slot select'?slots:[];
+    $('maxWind').value='6.5';$('windCadence').value='cycle';startMatch();
+    ok(S.round===1&&S.tanks.length===4&&S.turn===0&&S.windRoundSet===true&&S.windCycleSeen.length===1&&S.windCycleSeen[0]===0,'Cycle R1 slot 0');
+    let cw=S.wind;S.tanks[2].hp=0;
+    nextTurn();ok(S.turn===1&&S.wind===cw&&S.windCycleSeen.length===2,'Cycle slot 1');
+    nextTurn();ok(S.turn===3&&S.wind===cw&&S.windCycleSeen.length===3,'Cycle skips dead 2 to 3');
+    nextTurn();ok(S.turn===0&&S.wind!==cw&&S.windCycleSeen.length===1&&S.windCycleSeen[0]===0,'Cycle rolls after living act');
+    newRound();ok(S.round===2&&S.turn===1&&S.windRoundSet===true&&S.windCycleSeen.length===1&&S.windCycleSeen[0]===1,'newRound rotates slot 1');
+  }finally{document.querySelectorAll=qsa}
+  setup();S.cfg.maxWind=6.5;S.cfg.windCadence='round';newRound();let rw=S.wind;
+  for(let i=0;i<4;i++){nextTurn();ok(S.wind===rw,'Round keeps wind')}
+  newRound();ok(S.wind!==rw&&S.windRoundSet===true,'newRound rolls round wind');
+  let snap=JSON.parse(JSON.stringify(snapshot()));snap.cfg.maxWind=99;snap.cfg.windCadence='Each cycle';snap.wind=-40;snap.windCycleSeen=[0,99,'bad'];receiveState(snap);
+  ok(S.cfg.maxWind===6.5&&S.cfg.windCadence==='cycle'&&S.wind===-6.5&&S.windCycleSeen.length===1&&S.windCycleSeen[0]===0,'receiveState clamps');
+  $('maxWind').value='6.5';$('windCadence').value='turn';
+}
+{
+  ok(htmlSource.includes('id="windGauge"')&&htmlSource.includes('id="windBar"')&&htmlSource.includes('id="windMeta"')&&htmlSource.includes('id="lastShotInfo"'),'Wind HUD DOM');
+  ok(!sanitizeLastShot(null)&&!sanitizeLastShot('x')&&!sanitizeLastShot([])&&!sanitizeLastShot({weapon:'Standard Shield',angle:45,power:500,az:0,wind:0})&&!sanitizeLastShot({weapon:'Laser',angle:45,power:500,az:0,wind:0})&&!sanitizeLastShot({weapon:'Baby Missile',angle:NaN,power:500,az:0,wind:0}),'lastShot reject');
+  let cl=sanitizeLastShot({weapon:'MIRV',angle:195.4,power:1200.4,az:-29.3,wind:9.8,impactX:120});
+  ok(cl.weapon==='MIRV'&&cl.angle===180&&cl.power===1000&&cl.az===-20&&cl.wind===6.5&&cl.impactX===undefined,'lastShot clamp');
+  setup();S.round=0;S.cfg.maxWind=6.5;S.cfg.windCadence='turn';newRound();
+  ok(S.round===1&&S.turn===0&&S.tanks[0].lastShot===null&&$('lastShotInfo').textContent==='LAST SHOT: NONE','Initial lastShot');
+  S.wind=0;syncWindAndShotHUD();ok($('windBar').style.left==='50%'&&$('windBar').style.width==='0%'&&$('windMeta').textContent.includes('CALM'),'Gauge calm');
+  S.wind=3.25;syncWindAndShotHUD();ok($('windBar').style.left==='50%'&&$('windBar').style.width==='25%'&&$('windMeta').textContent.includes('EAST'),'Gauge east');
+  S.wind=-6.5;syncWindAndShotHUD();ok($('windBar').style.left==='0%'&&$('windBar').style.width==='50%'&&$('windMeta').textContent.includes('WEST'),'Gauge west');
+  S.cfg.maxWind=4;S.wind=-20;syncWindAndShotHUD();ok($('windBar').style.left==='0%'&&$('windBar').style.width==='50%','Gauge bound');
+  S.cfg.maxWind=6.5;S.cfg.windCadence='turn';S.wind=2.0;syncWindAndShotHUD();
+  ok(!action({weaponOrItem:'Baby Missile',angle:NaN,power:600,az:0},0)&&!S.tanks[0].lastShot&&!action({weaponOrItem:'Baby Missile',angle:45,power:600,az:0},1)&&!S.tanks[1].lastShot,'Rejected');
+  ok(action({weaponOrItem:'Standard Shield',angle:45,power:600,az:0},0)&&!S.tanks[0].lastShot&&action({weaponOrItem:'Laser',angle:45,power:600,az:0},0)&&!S.tanks[0].lastShot,'Non-ballistic');
+  for(let i=0;i<1600&&S.phase==='flight';i++)step(1/60);
+  S.tanks[0].inv.MIRV=2;S.wind=2.0;
+  ok(action({weaponOrItem:'MIRV',angle:52.5,power:640,az:-3.5},0)&&S.tanks[0].lastShot?.weapon==='MIRV'&&S.tanks[0].lastShot.angle===52.5&&S.tanks[0].lastShot.power===640&&S.tanks[0].lastShot.az===-3.5&&S.tanks[0].lastShot.wind===2&&!S.tanks[1].lastShot,'MIRV own');
+  for(let i=0;i<1600&&S.phase==='flight';i++)step(1/60);
+  ok(S.phase!=='flight'&&S.tanks[0].lastShot.weapon==='MIRV'&&S.tanks[0].lastShot.angle===52.5&&S.tanks[0].lastShot.power===640,'MIRV split keeps');
+  S.wind=-1.5;syncWindAndShotHUD();
+  let txt=$('lastShotInfo').textContent;
+  ok(txt.includes('MIRV')&&txt.includes('52.5°')&&txt.includes('640 PWR')&&txt.includes('AZ -3.5°')&&txt.includes('WIND +2.0')&&txt.includes('ΔWIND -3.5'),'HUD delta');
+  nextTurn();ok(S.turn===1&&$('lastShotInfo').textContent==='LAST SHOT: NONE'&&S.tanks[0].lastShot.weapon==='MIRV','Turn isolation');
+  S.tanks[1].hp=60;S.wind=-1.0;
+  ok(action({weaponOrItem:'Baby Missile',angle:200,power:1000,az:40},1)&&S.tanks[1].lastShot?.weapon==='Baby Missile'&&S.tanks[1].lastShot.angle===180&&S.tanks[1].lastShot.power===600&&S.tanks[1].lastShot.az===20&&S.tanks[1].lastShot.wind===-1,'Clamped fired values');
+  for(let i=0;i<1600&&S.phase==='flight';i++)step(1/60);
+  S.tanks[1].hp=100;
+  S.tanks[0].lastShot={weapon:'MIRV',angle:52.5,power:640,az:-3.5,wind:2,impactX:120,extra:'bad'};
+  let hostSnap=snapshot();
+  ok(hostSnap.tanks[0].lastShot.weapon==='MIRV'&&hostSnap.tanks[0].lastShot.impactX===undefined&&hostSnap.tanks[0].lastShot.extra===undefined,'Host snapshot filter');
+  let snap4=JSON.parse(JSON.stringify(hostSnap));
+  snap4.tanks[0].lastShot={weapon:'MIRV',angle:199,power:1500,az:35,wind:12,hack:1};
+  snap4.tanks[1].lastShot={weapon:'Standard Shield',angle:45,power:500,az:0,wind:0};
+  receiveState(snap4);
+  ok(S.tanks[0].lastShot.angle===180&&S.tanks[0].lastShot.power===1000&&S.tanks[0].lastShot.az===20&&S.tanks[0].lastShot.wind===6.5&&S.tanks[0].lastShot.hack===undefined&&S.tanks[1].lastShot===null,'Guest snap clamp');
+  predict();ok(!arc.visible&&arcGeo.drawRange.count===0,'No arc');
+  newRound();ok(S.tanks[0].lastShot===null&&S.tanks[1].lastShot===null&&$('lastShotInfo').textContent==='LAST SHOT: NONE','newRound reset');
+}
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
 `;
 vm.runInContext(test,context,{timeout:30000});
