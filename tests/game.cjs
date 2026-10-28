@@ -433,6 +433,46 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   predict();ok(!arc.visible&&arcGeo.drawRange.count===0,'No arc');
   newRound();ok(S.tanks[0].lastShot===null&&S.tanks[1].lastShot===null&&$('lastShotInfo').textContent==='LAST SHOT: NONE','newRound reset');
 }
+{
+  ok(htmlSource.includes('<details id="customQuotesDetails"><summary>Custom firing &amp; death quotes (optional)</summary>')&&!htmlSource.includes('<details id="customQuotesDetails" open'),'Quote section collapsed');
+  ok(sanitizeQuotePool(undefined).length===0&&sanitizeQuotePool(null).length===0&&sanitizeQuotePool(123).length===0&&sanitizeQuotePool({}).length===0&&sanitizeQuotePool('   \\n  \\r\\n \\t ').length===0,'Invalid/blank pools');
+  let cleanPool=sanitizeQuotePool(Array.from({length:12},(_,i)=>'  Line '+(i+1)+' '+'x'.repeat(90)+'  ').join('\\n'));
+  ok(cleanPool.length===8&&cleanPool.every(s=>s.length===80&&s.startsWith('Line ')),'Cap 8x80');
+  let mixedPool=sanitizeQuotePool([null,42,'','  alpha\\tbeta\\u0000gamma  ','<b>bold &amp; loud</b>',{},'   ']);
+  ok(mixedPool.length===2&&mixedPool[0]==='alpha beta gamma'&&mixedPool[1]==='<b>bold &amp; loud</b>','Control strip + plaintext');
+  $('fireQuotesInput').value='';$('deathQuotesInput').value='';
+  let cfgDef=config();
+  ok(cfgDef.fireQuotes.length===0&&cfgDef.deathQuotes.length===0&&cfgDef.maxWind===6.5&&cfgDef.windCadence==='turn','Blank config + wind');
+  setup();S.cfg=cfgDef;S.turn=0;S.phase='aim';S.actionsLeft=2;
+  ok(action({weaponOrItem:'Baby Missile',angle:45,power:500,az:0},0)&&DEFAULT_FIRE_QUOTES.includes(S.tanks[0].talk),'Default fire quote');
+  setup();S.cfg=cfgDef;S.turn=0;S.phase='aim';S.actionsLeft=2;
+  ok(action({weaponOrItem:'Baby Missile',angle:45,power:500,az:0,taunt:'  AI fallback taunt  '},0)&&S.tanks[0].talk==='AI fallback taunt','Blank pool AI taunt');
+  damage(S.tanks[1],200,0);
+  ok(S.tanks[1].hp===0&&DEFAULT_DEATH_QUOTES.includes(S.tanks[1].talk),'Default death quote');
+  $('fireQuotesInput').value='Custom Fire Alpha\\nCustom Fire Beta';
+  $('deathQuotesInput').value='Custom Death Omega';
+  let cfgCustom=config();
+  ok(cfgCustom.fireQuotes.length===2&&cfgCustom.deathQuotes.length===1,'Custom config');
+  setup();S.cfg=cfgCustom;S.turn=0;S.phase='aim';S.actionsLeft=2;S.tanks[0].talk='';
+  let invBefore=JSON.stringify(S.tanks[0].inv),cashBefore=S.tanks[0].cash;
+  ok(!action({weaponOrItem:'Baby Missile',angle:NaN,power:500},0)&&S.tanks[0].talk===''&&S.actionsLeft===2,'Rejected action no quote');
+  ok(action({weaponOrItem:'Standard Shield',angle:45,power:500},0)&&cfgCustom.fireQuotes.includes(S.tanks[0].talk)&&S.actionsLeft===1&&S.tanks[0].cash===cashBefore,'Accepted custom fire quote');
+  ok(action({weaponOrItem:'Baby Missile',angle:45,power:500,az:0,taunt:'AI Taunt Override'},0)&&cfgCustom.fireQuotes.includes(S.tanks[0].talk),'Custom fire pool beats AI taunt');
+  setup();S.cfg=cfgCustom;S.tanks[1].inv=JSON.parse(invBefore);
+  damage(S.tanks[1],200,0);
+  ok(S.tanks[1].hp===0&&S.tanks[1].talk==='Custom Death Omega'&&JSON.stringify(S.tanks[1].inv)===invBefore,'Custom death quote');
+  let htmlQuote='<img src=x onerror=alert(1)>';
+  setup();S.cfg={...config(),fireQuotes:[htmlQuote],deathQuotes:[htmlQuote]};S.turn=0;S.phase='aim';S.actionsLeft=2;
+  ok(action({weaponOrItem:'Baby Missile',angle:45,power:500,az:0},0)&&S.tanks[0].talk===htmlQuote&&S.tanks[0].talkUntil>S.time,'HTML-like quote plaintext');
+  let made=[],ce=document.createElement;document.createElement=tag=>{let el=ce(tag);Object.defineProperty(el,'innerHTML',{set(){el.htmlSet=true},get(){return ''}});made.push(el);return el};try{let v=views.get('t0');if(v)v.labelKey=null;syncViews();let sp=made.find(el=>el.className==='speech');ok(sp&&sp.textContent===htmlQuote&&!sp.htmlSet,'Speech bubble uses textContent')}finally{document.createElement=ce}
+  let rawSnap=JSON.parse(JSON.stringify(snapshot()));
+  rawSnap.cfg.fireQuotes=Array.from({length:15},(_,i)=>'GuestFire'+i+'_'+'y'.repeat(90));
+  rawSnap.cfg.deathQuotes='GuestDeath1\\n\\nGuestDeath2';
+  rawSnap.tanks[0].talk='  <script>evil()</script>\\n'+'z'.repeat(95);
+  receiveState(rawSnap);
+  ok(S.cfg.fireQuotes.length===8&&S.cfg.fireQuotes.every(q=>q.length===80)&&S.cfg.deathQuotes.length===2&&S.cfg.deathQuotes[0]==='GuestDeath1'&&S.tanks[0].talk.startsWith('<script>evil()</script>')&&S.tanks[0].talk.length===80,'receiveState sanitizes quotes');
+  $('fireQuotesInput').value='';$('deathQuotesInput').value='';
+}
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
 `;
 vm.runInContext(test,context,{timeout:30000});
