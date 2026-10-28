@@ -1,5 +1,11 @@
 # Verification record
 
+## Current verification — 27 October 2026
+
+`npm test` passes on Node 24.19.0: 624 simulation checks across 43 items, 191 API/account checks (815 combined), and the server-AI suite. Earlier counts below describe historical coverage. New checks cover wind strength/cadence, round resets, dead-player cycle handling, snapshot sanitization, the bounded wind gauge, accepted-shot capture after value clamping, player isolation, and host/guest previous-shot filtering. Predictive aiming remains disabled.
+
+Claude Opus 5.5 reviewed the exact Argon patches before integration. Browser/WebGL visual verification has not been repeated for this update. MySQL adapter checks use a fake pool; account integration uses SQLite. No live-host wake or deployment was performed by ChatGPT.
+
 ## Automated regression suite
 
 `npm test` runs 316 assertions against the inline application logic in a Node VM with a small DOM fixture and the same Three.js version used by the browser. It exercises all 39 inventory items, offensive-action completion, finite terrain/health, shields, batteries, parachutes, boundary rules, CIWS charges, purchasing, rewards and power caps. Camera checks cover focus, exploration panning, launch-to-tactical transitions, post-flight control recovery, trail construction/expiry, tree pooling, water setup, and all four enlarged terrain generators.
