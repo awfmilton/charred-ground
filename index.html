@@ -198,6 +198,18 @@ function sanitizeQuoteLine(v){if(typeof v!=='string')return '';return v.replace(
 function sanitizeQuotePool(v){let raw=Array.isArray(v)?v:(typeof v==='string'?v.split(/\r?\n/):[]);let out=[];for(let item of raw){let s=sanitizeQuoteLine(item);if(s){out.push(s);if(out.length>=MAX_QUOTE_LINES)break}}return out}
 function pickFireQuote(st=S){let pool=sanitizeQuotePool(st?.cfg?.fireQuotes);if(!pool.length)pool=DEFAULT_FIRE_QUOTES;return pool[Math.floor(rng()*pool.length)]}
 function pickDeathQuote(st=S){let pool=sanitizeQuotePool(st?.cfg?.deathQuotes);if(!pool.length)pool=DEFAULT_DEATH_QUOTES;return pool[Math.floor(rng()*pool.length)]}
+const TEAM_IDS=['A','B','C'],FRIENDLY_FIRE_MODES=['full','reduced','off'];
+function sanitizeTeam(v){if(typeof v!=='string')return null;let s=v.trim().toUpperCase();if(s.startsWith('TEAM'))s=s.slice(4).trim();return TEAM_IDS.includes(s)?s:null}
+function sanitizeFriendlyFire(v){let s=typeof v==='string'?v.trim().toLowerCase():'';return s==='reduced'||s==='50%'?'reduced':s==='off'||s==='none'?'off':'full'}
+function sameTeam(a,b){let ta=sanitizeTeam(a?.team),tb=sanitizeTeam(b?.team);return Boolean(ta&&tb&&ta===tb)}
+function isAlly(a,b){if(!a||!b)return false;if(Number.isInteger(a.id)&&a.id===b.id)return true;return sameTeam(a,b)}
+function isAllyId(idA,idB,st=S){if(!Number.isInteger(idA)||!Number.isInteger(idB))return false;if(idA===idB)return true;let tanks=st?.tanks;if(!Array.isArray(tanks))return false;let a=tanks.find(t=>t&&t.id===idA)??(tanks[idA]?.id===undefined?tanks[idA]:null),b=tanks.find(t=>t&&t.id===idB)??(tanks[idB]?.id===undefined?tanks[idB]:null);return sameTeam(a,b)}
+function sideKey(t,idx=0){let tm=sanitizeTeam(t?.team);return tm?'team:'+tm:'solo:'+(Number.isInteger(t?.id)?t.id:idx)}
+function hasMultipleSides(list){if(!Array.isArray(list)||list.length<2)return false;let sides=new Set();for(let i=0;i<list.length;i++){let t=list[i];if(!t||t.off)continue;sides.add(sideKey(t,i));if(sides.size>=2)return true}return false}
+function livingSides(st=S){let out=[],seen=new Set(),tanks=st?.tanks||[];for(let i=0;i<tanks.length;i++){let t=tanks[i];if(!t||!(t.hp>0))continue;let k=sideKey(t,i);if(!seen.has(k)){seen.add(k);out.push(k)}}return out}
+function hasMultipleSidesAlive(st=S){return livingSides(st).length>=2}
+function isTeamMatch(st=S){return Boolean(st?.unrankedTeamMatch||(st?.tanks||[]).some(t=>sanitizeTeam(t?.team)!==null))}
+function friendlyFireScale(target,ownerId,st=S){let isAsset=target&&typeof target==='object'&&('owner' in target||target.width!==undefined||target.shape!==undefined||target.role!==undefined),tid=Number.isInteger(target)?target:isAsset?target.owner:target?.id;if(!Number.isInteger(tid)||!Number.isInteger(ownerId)||tid===ownerId||!isAllyId(tid,ownerId,st))return 1;let m=sanitizeFriendlyFire(st?.cfg?.friendlyFire);return m==='off'?0:m==='reduced'?.5:1}
 function sanitizeMoveDuration(v){if(v===null||v===undefined||v==='')return DEFAULT_MOVE_DURATION;let n=Number(v);return Number.isFinite(n)?clamp(Math.round(n),MIN_MOVE_DURATION,MAX_MOVE_DURATION):DEFAULT_MOVE_DURATION}
 function moveDurationForState(st=S){return sanitizeMoveDuration(st?.cfg?.moveDuration??($('moveDuration')?.value||DEFAULT_MOVE_DURATION))}
 function sanitizeMaxWind(v){if(v===null||v===undefined||v===''||typeof v==='boolean')return DEFAULT_MAX_WIND;let n=Number(v);return Number.isFinite(n)?Math.round(clamp(n,MIN_MAX_WIND,MAX_WIND_LIMIT)*100)/100:DEFAULT_MAX_WIND}

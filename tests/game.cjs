@@ -473,6 +473,32 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   ok(S.cfg.fireQuotes.length===8&&S.cfg.fireQuotes.every(q=>q.length===80)&&S.cfg.deathQuotes.length===2&&S.cfg.deathQuotes[0]==='GuestDeath1'&&S.tanks[0].talk.startsWith('<script>evil()</script>')&&S.tanks[0].talk.length===80,'receiveState sanitizes quotes');
   $('fireQuotesInput').value='';$('deathQuotesInput').value='';
 }
+{
+  ok(sanitizeTeam('A')==='A'&&sanitizeTeam(' b ')==='B'&&sanitizeTeam('Team C')==='C'&&sanitizeTeam('team a')==='A','sanitizeTeam valid A/B/C');
+  ok(sanitizeTeam('')===null&&sanitizeTeam('FFA')===null&&sanitizeTeam('none')===null&&sanitizeTeam('D')===null&&sanitizeTeam(null)===null&&sanitizeTeam(undefined)===null&&sanitizeTeam(123)===null&&sanitizeTeam({})===null,'sanitizeTeam defaults invalid/blank');
+  ok(sanitizeFriendlyFire(undefined)==='full'&&sanitizeFriendlyFire('')==='full'&&sanitizeFriendlyFire('FULL')==='full'&&sanitizeFriendlyFire('bogus')==='full'&&sanitizeFriendlyFire(null)==='full','sanitizeFriendlyFire default full');
+  ok(sanitizeFriendlyFire('reduced')==='reduced'&&sanitizeFriendlyFire('50%')==='reduced'&&sanitizeFriendlyFire('off')==='off'&&sanitizeFriendlyFire('NONE')==='off','sanitizeFriendlyFire reduced/off');
+  let ffaSt={cfg:{friendlyFire:'full'},tanks:[{id:0,hp:100,team:null},{id:1,hp:100,team:null},{id:2,hp:100,team:null}]};
+  ok(!isTeamMatch(ffaSt)&&!sameTeam(ffaSt.tanks[0],ffaSt.tanks[1])&&isAlly(ffaSt.tanks[0],ffaSt.tanks[0])&&!isAlly(ffaSt.tanks[0],ffaSt.tanks[1]),'FFA tanks not allies');
+  ok(isAllyId(0,0,ffaSt)&&!isAllyId(0,1,ffaSt)&&!isAllyId(1,2,ffaSt)&&hasMultipleSides(ffaSt.tanks)&&hasMultipleSidesAlive(ffaSt)&&livingSides(ffaSt).length===3,'FFA side helpers');
+  let tmSt={cfg:{friendlyFire:'full'},tanks:[{id:0,hp:100,team:'A'},{id:1,hp:80,team:'A',ai:true},{id:2,hp:90,team:'B',ai:true},{id:3,hp:70,team:null,ai:true}]};
+  ok(isTeamMatch(tmSt)&&sameTeam(tmSt.tanks[0],tmSt.tanks[1])&&isAlly(tmSt.tanks[0],tmSt.tanks[1])&&isAllyId(0,1,tmSt),'Co-op Team A allies');
+  ok(!isAllyId(0,2,tmSt)&&!isAllyId(0,3,tmSt)&&!isAllyId(2,3,tmSt)&&isAllyId(3,3,tmSt)&&!isAllyId(0,99,tmSt),'Hostile/solo/invalid not allies');
+  ok(!hasMultipleSides([{id:0,team:'A'},{id:1,team:'A'},{id:2,team:'B',off:true}])&&!hasMultipleSides([{id:0,team:null}]),'hasMultipleSides rejects single side');
+  ok(hasMultipleSides([{id:0,team:'A'},{id:1,team:'A'},{id:2,team:null}])&&hasMultipleSides(tmSt.tanks),'hasMultipleSides accepts co-op');
+  ok(livingSides(tmSt).join(',')==='team:A,team:B,solo:3'&&hasMultipleSidesAlive(tmSt),'livingSides active sides');
+  tmSt.tanks[2].hp=0;tmSt.tanks[3].hp=0;
+  ok(livingSides(tmSt).join(',')==='team:A'&&!hasMultipleSidesAlive(tmSt),'hasMultipleSidesAlive false when only Team A left');
+  ok(isTeamMatch({unrankedTeamMatch:true,tanks:[{id:0,hp:100,team:null},{id:1,hp:100,team:null}]}),'isTeamMatch latched');
+  for(let mode of ['full','reduced','off']){
+    tmSt.cfg.friendlyFire=mode;
+    let exp=mode==='off'?0:mode==='reduced'?.5:1;
+    ok(friendlyFireScale(tmSt.tanks[0],0,tmSt)===1&&friendlyFireScale({id:99,owner:0},0,tmSt)===1,'Self scale 1 '+mode);
+    ok(friendlyFireScale(tmSt.tanks[2],0,tmSt)===1&&friendlyFireScale({id:98,owner:2},0,tmSt)===1,'Hostile scale 1 '+mode);
+    ok(friendlyFireScale(tmSt.tanks[1],0,tmSt)===exp&&friendlyFireScale({id:97,owner:1},0,tmSt)===exp,'Allied scale '+mode);
+    ok(friendlyFireScale({id:1,x:100,y:30,width:28,hp:140},0,tmSt)===1&&friendlyFireScale({id:1,owner:null,width:28,hp:140},0,tmSt)===1,'Neutral platform scale 1 '+mode);
+  }
+}
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
 `;
 vm.runInContext(test,context,{timeout:30000});
