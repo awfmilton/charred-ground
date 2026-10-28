@@ -542,6 +542,33 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
     ok(S.tanks[1].hp===0&&S.tanks[0].cash===ffaC0+200&&S.tanks[0].score===1,'FFA enemy kill reward unchanged');
   }
 }
+{
+  setup();S.tanks[0].team='A';S.tanks[1].team='A';S.cfg.friendlyFire='off';
+  for(let x=0;x<=W;x++)S.heights[x]=20;
+  S.tanks[0].x=80;S.tanks[0].y=20;S.tanks[0].angle=30;S.tanks[0].inv['Deployable Bridge']=1;
+  S.tanks[1].x=180;S.tanks[1].y=20;S.tanks[1].angle=30;S.tanks[1].inv['Deployable Bridge']=1;
+  ok(action({weaponOrItem:'Deployable Bridge',angle:30,power:500},0)&&S.platforms.length===1&&S.platforms[0].owner===0,'Deployed bridge records deploying tank 0 owner');
+  S.turn=1;S.phase='aim';S.actionsLeft=2;
+  ok(action({weaponOrItem:'Deployable Bridge',angle:30,power:500},1)&&S.platforms.length===2&&S.platforms[1].owner===1,'Deployed bridge records deploying tank 1 owner');
+  ok(friendlyFireScale(S.platforms[0],1,S)===0&&friendlyFireScale(S.platforms[1],0,S)===0&&friendlyFireScale(S.platforms[0],0,S)===1,'Deployed bridge owner metadata resolves allied vs self friendlyFireScale');
+  let snap=JSON.parse(JSON.stringify(snapshot()));
+  snap.platforms.push({id:9,x:260,y:24,width:28,hp:120,maxHp:120,owner:99},{id:10,x:310,y:24,width:28,hp:120,maxHp:120,owner:-1},{id:11,x:360,y:24,width:28,hp:120,maxHp:120,owner:'0'},{id:12,x:410,y:24,width:28,hp:120,maxHp:120});
+  receiveState(snap);
+  ok(S.platforms[0].owner===0&&S.platforms[1].owner===1,'receiveState preserves valid bridge owners');
+  ok(S.platforms[2].owner===null&&S.platforms[3].owner===null&&S.platforms[4].owner===null&&S.platforms[5].owner===null,'receiveState normalizes forged or legacy platform owners to null');
+  let sp=sanitizePlatform({id:3,x:140,y:26,width:32,hp:120,maxHp:120,owner:0});
+  ok(sp&&sp.owner===undefined&&!('owner' in sp),'sanitizePlatform strips owner from map/import platforms');
+  let rawMap={version:1,name:'NeutralTest',heights:Array.from({length:N},()=>20),spawns:[40,120,200,280,360,440],platforms:[{id:1,x:140,y:26,width:32,hp:120,maxHp:120,owner:0}]};
+  let vm=validateCustomMap(rawMap);
+  ok(vm&&vm.platforms[0].owner===undefined&&!('owner' in vm.platforms[0]),'validateCustomMap keeps map platforms neutral');
+  let cm=cloneMapData({version:1,name:'CloneTest',heights:Array.from({length:N},()=>20),spawns:[40,120,200,280,360,440],platforms:[{id:1,x:140,y:26,width:32,hp:120,maxHp:120,owner:1}]});
+  ok(cm&&cm.platforms[0].owner===undefined&&!('owner' in cm.platforms[0]),'cloneMapData strips forged owner');
+  applyCustomMapToState(vm);
+  ok(S.platforms.length===1&&S.platforms[0].owner===undefined&&friendlyFireScale(S.platforms[0],0,S)===1,'Custom map platforms remain neutral');
+  S.platforms=[{id:1,x:200,y:26,width:28,hp:120,maxHp:120,owner:0}];
+  let edPl=placePlatform(200,32,4);
+  ok(edPl&&edPl.owner===undefined&&!('owner' in edPl),'Editor placePlatform clears any existing owner to neutral');
+}
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
 `;
 vm.runInContext(test,context,{timeout:30000});
