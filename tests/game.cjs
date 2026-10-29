@@ -1781,6 +1781,16 @@ console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFI
   }
   setWorld({w:960,d:240,cell:2});
 }
+// Reviewer counterexample (ChatGPT 70b74a2e): cell 1, profile [20,20,13,27] along +x at 1 m spacing, move index 0 -> 1.
+{
+  setup();setWorld({w:480,d:80,cell:1});S.heights=new Float32Array(N).fill(20);S.platforms=[];
+  let iz=Math.round(D/CELL),x0=100,prof=[20,20,13,27];for(let i=0;i<prof.length;i++)for(let dz=-3;dz<=3;dz++)S.heights[(iz+dz)*NX+x0+i]=prof[i];
+  for(let i=prof.length;i<prof.length+4;i++)for(let dz=-3;dz<=3;dz++)S.heights[(iz+dz)*NX+x0+i]=27;
+  let g=buildSpawnGraph(S.heights),u=iz*NX+x0,v=u+1,t={...S.tanks[0],waterGear:null,inv:{},hp:100};
+  let rt=stepLegal(t,x0,0,x0+1,0);
+  ok(rt===false&&g.canStep(u,v,1)===false,'reviewer fixture [20,20,13,27] cell 1: runtime rejects 0->1 (13 -> 27 inside the 2 m look-ahead) and the graph edge agrees (runtime '+rt+')');
+  setWorld({w:960,d:240,cell:2});
+}
 `;
 vm.runInContext(test,context,{timeout:120000});
 const simChecks = vm.runInContext('checks', context);
