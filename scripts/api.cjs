@@ -482,7 +482,7 @@ function validateAndCanonicalizeAttestation(match, body) {
   };
 }
 
-function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = {}) {
+function createApi({ store, env = process.env, fetchImpl = globalThis.fetch, clock = () => Date.now() } = {}) {
   const decideAi = createAiDecisionService({ env, fetchImpl, allowedWeapons: ALLOWED_WEAPONS });
   if (!store) throw new Error('createApi requires a store instance');
 
@@ -500,7 +500,7 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch } = 
   }
 
   function checkRateLimit(req) {
-    const now = Date.now();
+    const now = clock();
     pruneRateLimitMap(now);
     const maxPerWindow = Number(env.AUTH_RATE_LIMIT_MAX || 60);
     const windowMs = Number(env.AUTH_RATE_LIMIT_WINDOW_MS || 60000);

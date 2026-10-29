@@ -2684,9 +2684,10 @@ const simChecks = vm.runInContext('checks', context);
       const rlEnv = {
         NODE_ENV: 'test',
         AUTH_RATE_LIMIT_MAX: '2',
-        AUTH_RATE_LIMIT_WINDOW_MS: '40'
+        AUTH_RATE_LIMIT_WINDOW_MS: '1000'
       };
-      const rlApi = createApi({ store: rlStore, env: rlEnv });
+      let rlNow = 1e12; // deterministic clock: the old 40 ms real-time window was flaky on a loaded machine
+      const rlApi = createApi({ store: rlStore, env: rlEnv, clock: () => rlNow });
 
       async function callAuth(xff, remoteAddress = '10.0.0.1') {
         let status = 0;
@@ -2714,7 +2715,7 @@ const simChecks = vm.runInContext('checks', context);
       apiOk(s1 === 401 && s2 === 401 && s3 === 429, 'Without TRUST_PROXY, X-Forwarded-For is ignored and socket IP shares rate-limit bucket');
 
       // Wait for window expiry, then enable TRUST_PROXY=1 (1 trusted hop from the right end)
-      await new Promise(r => setTimeout(r, 60));
+      rlNow += 1500; // past the 1000 ms window
       rlEnv.TRUST_PROXY = '1';
       // Rotating fake left-most XFF entries with the same right-most proxy-appended IP (198.51.100.10) must NOT change the key
       const spoof1 = await callAuth('203.0.113.1, 198.51.100.10');
@@ -2748,7 +2749,7 @@ const simChecks = vm.runInContext('checks', context);
       );
 
       // Wait for window expiry and trigger a check to prune expired entries
-      await new Promise(r => setTimeout(r, 60));
+      rlNow += 1500; // past the 1000 ms window
       await callAuth('198.51.100.99');
       apiOk(rlApi.rateLimitMapSize === 1, 'Expired rate-limit entries are pruned on subsequent checks');
       rlStore.close();
