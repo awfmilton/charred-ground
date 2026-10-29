@@ -603,9 +603,60 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   }
   ok(haloPreserved&&innerChanged>0,'F3: flat 140m field with tiny negative delta keeps every cell that did not change at 140');
 }
+// --- Phase P1b-FIX Renderer Review Regressions (R1-R3) ---
+{
+  // R1: Partial terrainUpdate re-seats or hides vegetation inside dirty box and leaves far trees untouched
+  setup();
+  S.heights.fill(30);
+  initNature();
+  terrainFullUpdate=true;terrainUpdate();
+  let te=trunks.instanceMatrix.array,ce=crowns.instanceMatrix.array,re=rocks.instanceMatrix.array;
+  let tx=te[12],tz=te[14],ts=te[5],fIdx=-1;
+  for(let k=1;k<trunks.count;k++)if(Math.hypot(te[k*16+12]-tx,te[k*16+14]-tz)>140){fIdx=k;break}
+  let fO=fIdx*16,fTx0=te[fO+12],fTy0=te[fO+13],fTz0=te[fO+14],fCy0=ce[fO+13];
+  let rx=re[12],rz=re[14];
+  deform(tx,14,-5,tz);
+  if(Math.hypot(rx-tx,rz-tz)>10)deform(rx,14,-5,rz);
+  ok(!terrainFullUpdate&&terrainDirty,'R1: crater deform schedules partial terrainUpdate');
+  terrainUpdate();
+  let newTy=height(tx,tz),newRy=height(rx,rz);
+  ok(newTy>=WATER_LEVEL+2&&Math.abs(te[13]-(newTy+2.5*ts))<1e-4&&Math.abs(ce[13]-(newTy+7*ts))<1e-4&&te[12]===tx&&te[14]===tz,'R1: partial terrainUpdate re-seats tree trunk and crown to new height(x,z) without moving x/z');
+  ok(newRy>=WATER_LEVEL+.5&&Math.abs(re[13]-(newRy+.7))<1e-4&&re[12]===rx&&re[14]===rz,'R1: partial terrainUpdate re-seats rock to new height(x,z)+0.7 without moving x/z');
+  ok(te[fO+12]===fTx0&&te[fO+13]===fTy0&&te[fO+14]===fTz0&&ce[fO+13]===fCy0,'R1: far-away tree outside partial dirty box is untouched');
+  deform(tx,14,-22,tz);
+  terrainUpdate();
+  ok(height(tx,tz)<WATER_LEVEL+2&&te[5]===0&&ce[5]===0&&te[13]<SKIRT_Y&&te[12]===tx&&te[14]===tz&&te[fO+13]===fTy0,'R1: crater dropping tree below water hides instance without rescattering or touching far tree');
+  // R2: Geometry identity checks W, D, CELL as well as NX, NZ
+  ok(setWorld({w:480,d:120,cell:1})===true&&NX===481&&NZ===241,'R2: setWorld 480x120 cell 1 (481x241)');
+  S.heights=new Float32Array(N).fill(20);
+  rebuildTerrainGeo();terrainUpdate();
+  let geo480=terrainGeo;
+  ok(setWorld({w:960,d:240,cell:2})===true&&NX===481&&NZ===241,'R2: setWorld 960x240 cell 2 also 481x241');
+  S.heights=new Float32Array(N).fill(20);
+  terrainUpdate();
+  let maxX=-Infinity,maxAbsZ=0,skMaxX=-Infinity,skMaxAbsZ=0;
+  for(let i=0;i<terrainPos.length;i+=3){
+    if(terrainPos[i]>maxX)maxX=terrainPos[i];
+    let az=Math.abs(terrainPos[i+2]);if(az>maxAbsZ)maxAbsZ=az;
+    if(i>=N*3){if(terrainPos[i]>skMaxX)skMaxX=terrainPos[i];if(az>skMaxAbsZ)skMaxAbsZ=az}
+  }
+  ok(terrainGeo!==geo480&&maxX===960&&maxAbsZ===240&&skMaxX===960&&skMaxAbsZ===240,'R2: switching 480/120/1 -> 960/240/2 rebuilds geometry and updates all vertices including skirt to max x=960, max |z|=240');
+  // R3: Fixed conservative boundingSphere covers corner raised to height cap on partial update
+  setup();
+  S.heights.fill(20);
+  rebuildTerrainGeo();terrainFullUpdate=true;terrainUpdate();
+  let bs=terrainGeo.boundingSphere;
+  ok(bs&&bs.center.x===W/2&&bs.center.y===70&&bs.center.z===0,'R3: boundingSphere centred at (W/2, 70, 0)');
+  deform(W-2,16,125,D-2);
+  ok(!terrainFullUpdate&&S.heights[gridIdx(NX-1,NZ-1)]>=130,'R3: corner raised to near the 135 m deform cap via partial update');S.heights[gridIdx(NX-2,NZ-2)]=140;markTerrainDirtyBox(NX-3,NX-1,NZ-3,NZ-1);
+  terrainUpdate();
+  let allInside=terrainGeo.boundingSphere===bs,vTmp=new THREE.Vector3();
+  for(let i=0;i<terrainPos.length;i+=3){vTmp.set(terrainPos[i],terrainPos[i+1],terrainPos[i+2]);if(!bs.containsPoint(vTmp)){allInside=false;break}}
+  ok(allInside,'R3: after raising corner to cap on partial update, every vertex lies inside fixed terrainGeo.boundingSphere');
+}
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
 `;
-vm.runInContext(test,context,{timeout:30000});
+vm.runInContext(test,context,{timeout:120000});
 const simChecks = vm.runInContext('checks', context);
 
 // --- Catalog Drift & Client<->Server Validator Round-Trip Verification ---
