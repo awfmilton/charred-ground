@@ -5,12 +5,17 @@ source=source.slice(0,source.indexOf('for(let i=0;i<6;i++){let d=document.create
 const store=new Map(),localStorage={getItem:k=>store.has(k)?store.get(k):null,setItem:(k,v)=>store.set(k,String(v)),removeItem:k=>store.delete(k)};
 const elements=new Map();function element(){const cl=new Set(['hidden']);return {value:'',checked:true,classList:{contains:c=>cl.has(c),add:c=>cl.add(c),remove:c=>cl.delete(c),toggle:(c,f)=>f===undefined?(cl.has(c)?cl.delete(c):cl.add(c)):(f?cl.add(c):cl.delete(c))},style:{},replaceChildren(){},appendChild(){},append(){},textContent:'',remove(){},setAttribute(){}}}
 const document={body:element(),getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id)},createElement:element,querySelectorAll:()=>[],hidden:false};
-const context={console,htmlSource:fs.readFileSync('index.html','utf8'),innerWidth:1280,innerHeight:720,THREE:require('three'),document,window:{localStorage},localStorage,setTimeout,clearTimeout,performance,crypto:require('crypto').webcrypto,requestAnimationFrame(){}};
-vm.createContext(context);vm.runInContext(source,context);
+const context={console,Buffer,coastalCrossingJson:fs.readFileSync('maps/coastal-crossing.json','utf8'),htmlSource:fs.readFileSync('index.html','utf8'),innerWidth:1280,innerHeight:720,THREE:require('three'),document,window:{localStorage},localStorage,setTimeout,clearTimeout,performance,crypto:require('crypto').webcrypto,requestAnimationFrame(){}};
+vm.createContext(context);
+// Bind hot globals lexically: inside a vm context every global lookup goes through the contextified global object,
+// which made newTerrain ~16x slower than in a browser (1111 ms vs 67 ms). The game code itself is unchanged.
+const FAST_GLOBALS="const Math=globalThis.Math,Float32Array=globalThis.Float32Array,Int32Array=globalThis.Int32Array,Int16Array=globalThis.Int16Array,Uint8Array=globalThis.Uint8Array,Uint32Array=globalThis.Uint32Array,Number=globalThis.Number,Array=globalThis.Array,Object=globalThis.Object;";
+vm.runInContext(FAST_GLOBALS+source,context);
 const test=`
 let checks=0;function ok(value,message){if(!value)throw Error(message);checks++}
-const originalClearViews=clearViews;emit=()=>{};flash=()=>{};sound=()=>{};refreshWeapons=()=>{};updateUI=()=>{};showShop=()=>{};clearViews=()=>{};broadcastState=()=>{};notice=()=>{};laserLine=()=>{};
-function setup(){seed=1729;S={cfg:{terrain:'Rolling Hills',wall:'Concrete',difficulty:'Cyborg',market:'fixed'},round:1,turn:0,actionsMax:2,actionsLeft:2,heights:new Float32Array(481).fill(20),tanks:[0,1].map(id=>({id,name:'P'+id,x:40+id*100,y:20,hp:100,shield:0,mag:false,inv:Object.fromEntries(Object.keys(WEAPONS_CONFIG).map(n=>[n,10])),fuel:100,power:650,angle:id?135:45,az:0,vy:0,chuting:0,buried:0,cash:10000,score:0})),platforms:[],customMap:null,satellites:[],buildings:[],drones:[],shots:[],fires:[],phase:'aim',wind:0,wall:'Concrete',time:0,uid:0,prices:{},ready:[]};running=true;host=true;online=false;shotClock=0;return S.tanks[0]}
+const originalClearViews=clearViews,originalBroadcastState=broadcastState;emit=()=>{};flash=()=>{};sound=()=>{};refreshWeapons=()=>{};updateUI=()=>{};showShop=()=>{};clearViews=()=>{};broadcastState=()=>{};notice=()=>{};laserLine=()=>{};
+function setFlatRow(x0,x1,v,z=0){let ix0=clamp(Math.floor(x0/CELL),0,NX-1),ix1=clamp(Math.ceil(x1/CELL),0,NX-1),iz0=clamp(Math.floor((z+D-6)/CELL),0,NZ-1),iz1=clamp(Math.ceil((z+D+6)/CELL),0,NZ-1);for(let iz=iz0;iz<=iz1;iz++)for(let ix=ix0;ix<=ix1;ix++)S.heights[gridIdx(ix,iz)]=quantH(v)}
+function setup(){setWorld({w:960,d:240,cell:2});seed=1729;S={cfg:{terrain:'Rolling Hills',wall:'Concrete',difficulty:'Cyborg',market:'fixed'},round:1,turn:0,actionsMax:2,actionsLeft:2,heights:new Float32Array(N).fill(20),tanks:[0,1].map(id=>({id,name:'P'+id,x:40+id*100,z:0,heading:id?Math.PI:0,y:20,hp:100,shield:0,mag:false,inv:Object.fromEntries(Object.keys(WEAPONS_CONFIG).map(n=>[n,10])),fuel:100,power:650,angle:id?135:45,az:0,vy:0,chuting:0,buried:0,cash:10000,score:0})),platforms:[],customMap:null,satellites:[],buildings:[],drones:[],shots:[],fires:[],phase:'aim',wind:0,wall:'Concrete',time:0,uid:0,prices:{},ready:[]};running=true;host=true;online=false;shotClock=0;return S.tanks[0]}
 for(let[name,w]of Object.entries(WEAPONS_CONFIG)){let t=setup();let accepted=action({weaponOrItem:name,angle:35,power:500,az:0,targetX:140},0);if(['chute','floatplat','lifejacket'].includes(w.kind)){ok(!accepted&&S.actionsLeft===2,'Passive parachute rejected without spending action');continue}ok(accepted,'Action rejected '+name);if(w.kind==='actionpack'){ok(S.actionsLeft===4&&current().packUsed,'Action pack adds net two actions');continue}if(['blast','nuke','split','leap','funky','roller','digger','dirt','liquid','riot','napalm','laser','drone'].includes(w.kind)){for(let i=0;i<1600&&S.phase==='flight';i++)step(1/60);ok(S.phase!=='flight','Flight stuck '+name);ok(S.heights.every(Number.isFinite),'Invalid terrain '+name);ok(S.tanks.every(t=>Number.isFinite(t.hp)&&Number.isFinite(t.y)),'Invalid tank '+name);ok(S.actionsLeft===1,'Flight spends one of two configured remaining actions')}else ok(S.phase==='aim'&&S.actionsLeft===1,'Equipment/structure/satellite spends one configured action '+name)}
 setup();let t=current();t.hp=60;action({weaponOrItem:'Baby Missile',angle:45,power:1000});ok(t.power===600,'Health caps power');
 setup();t=current();t.hp=15;t.power=150;$('power').value=150;action({weaponOrItem:'Battery',angle:45,power:150});ok(t.hp===100&&t.power===1000&&+$('power').value===1000&&+$('power').max===1000,'Battery restores full 100 HP and 1000 firing power');
@@ -35,8 +40,8 @@ setup();t=current();t.hp=15;t.power=150;$('power').value=150;action({weaponOrIte
   ok(S.turn===0&&!t.packUsed&&action({weaponOrItem:'Action Supply Pack'},0),'Action Supply Pack limit resets on next personal turn');
 }
 setup();t=current();t.shield=40;damage(t,55,1);ok(t.hp===85&&t.shield===0,'Shield absorbs damage');
-setup();let before=S.heights[140];impact({name:'Dirt Ball',x:140,y:20,z:0,owner:0});ok(S.heights[140]>before,'Dirt adds terrain');
-setup();impact({name:'Riot Bomb',x:140,y:20,z:0,owner:0});ok(S.heights[140]<20&&S.tanks[1].hp===100,'Riot clears without blast damage');
+setup();let before=height(140,0);impact({name:'Dirt Ball',x:140,y:20,z:0,owner:0});ok(height(140,0)>before,'Dirt adds terrain');
+setup();impact({name:'Riot Bomb',x:140,y:20,z:0,owner:0});ok(height(140,0)<20&&S.tanks[1].hp===100,'Riot clears without blast damage');
 setup();impact({name:'Nuke',x:140,y:20,z:0,owner:0});ok(S.tanks[1].hp===0,'Nuke lethal direct impact');
 setup();for(let boundary of ['Concrete','Rubber','Spring','Wrap-Around']){S.wall=boundary;let p={x:-2,z:0,vx:-10};let gone=wall(p);ok(boundary==='Concrete'?gone:!gone,'Wall mode '+boundary);if(boundary==='Spring')ok(p.vx===13,'Spring amplification');if(boundary==='Wrap-Around')ok(p.x>239,'Wrapping');}
 setup();t=current();t.y=50;t.inv.Parachute=1;for(let i=0;i<400;i++)step(1/60);ok(t.hp===100&&t.inv.Parachute===0,'Parachute prevents fall damage');
@@ -95,8 +100,8 @@ setup();S.phase='shop';let cash=current().cash;ok(buy(0,'Missile'),'Shop purchas
 setup();let initial=current().cash;S.tanks[1].hp=0;finishRound();ok(S.phase==='shop','Round ends');ok(current().cash===Math.floor((initial+1400)*1.05),'Winner award and compound interest');
 setup();S.buildings.push({shape:'ciws',owner:1,x:100,y:20,charges:1,hp:55});ok(intercepted({owner:0,x:100,y:35,z:0}),'CIWS interception');ok(!intercepted({owner:0,x:100,y:35,z:0}),'CIWS single charge');
 setup();ok(!action({weaponOrItem:'Nuke',angle:NaN,power:600}),'Invalid angles rejected');ok(!action({weaponOrItem:'Nuke',angle:45,power:600},1),'Out of turn rejected');
-setup();camera=new THREE.PerspectiveCamera(47,16/9,.2,1200);camera.position.set(240,180,570);scene=new THREE.Scene();initTrails();
-ok(W===480&&N===481&&D===80,'Expanded battlefield dimensions');
+setup();camera=new THREE.PerspectiveCamera(47,16/9,.2,1200);camera.position.set(W/2,180,570);scene=new THREE.Scene();initTrails();
+ok(W===960&&D===240&&CELL===2&&NX===481&&NZ===241&&N===115921&&LEGACY_N===481,'Expanded battlefield dimensions');
 setCameraMode('focus');ok(viewMode==='focus'&&exploreX===current().x,'Focus targets current tank');
 setCameraMode('explore');let oldX=exploreX;panExplore('d');ok(exploreX!==oldX,'Explore pans across map');
 setCameraMode('gunner');ok(fp,'Gunner mode enabled');lastVisualRound=S.round;lastVisualPhase='aim';
@@ -106,11 +111,11 @@ updateTrails(.016);ok(traces.size===1,'Projectile path tracked');S.shots[0].x+=2
 S.shots=[];for(let i=0;i<70;i++)updateTrails(1/60);ok(traces.size===0,'Trails expire without growth');
 S.phase='aim';updateCamera(.016,current(),45,0,direction(45,0));ok(!document.getElementById('orbit').disabled,'Camera sliders unlock after flight');
 initNature();updateNature();ok(trunks.count>0&&trunks.count<=180&&crowns.count===trunks.count,'Pooled trees populated');ok(water.position.y===12,'Water surface initialized');
-for(let terrainType of ['Rolling Hills','Jagged Mountains','Valleys','Cliffs']){let map=newTerrain(terrainType);ok(map.length===481&&map.every(Number.isFinite),'Larger valid terrain '+terrainType);}
+for(let terrainType of ['Rolling Hills','Jagged Mountains','Valleys','Cliffs']){let map=newTerrain(terrainType);ok(map.length===N&&map.every(Number.isFinite),'Larger valid terrain '+terrainType);}
 // --- Custom Terrain Editor & Floating Platform Verification ---
 setup();
 S.heights.fill(6);
-for(let x=20;x<=38;x++)S.heights[x]=13;
+setFlatRow(20,38,13);
 S.platforms=[{id:1,x:52,y:13,width:28,hp:120,maxHp:120}];
 t=current();t.inv['Floating Platform']=0;t.inv['Inflatable Lifejacket']=0;t.x=36;t.y=supportHeight(36);t.fuel=100;
 ok(t.y===13,'Tank starts on coastal ramp at platform elevation');
@@ -118,14 +123,14 @@ ok(action({action:'move',dir:1},0)&&S.activeDrive,'Tank starts timed drive from 
 for(let i=0;i<80;i++)step(1/60);
 ok(t.x>42&&t.y===13,'Tank drives from land onto and along floating platform over deep water');
 ok(steerDrive({stop:true,moveId:S.activeDrive.id},0)&&!S.activeDrive,'Stop timed drive on platform');
-S.turn=0;S.actionsLeft=2;t.x=66;t.y=supportHeight(66);
-ok(!action({action:'move',dir:1},0)&&t.x===66&&S.actionsLeft===2,'Tank blocked from driving off platform edge into unbridged deep water at 0 cost');
+S.turn=0;S.actionsLeft=2;setFlatRow(67,140,4);t.x=66;t.y=supportHeight(66);
+ok(!action({action:'move',dir:1},0)&&t.x===66&&S.actionsLeft===2,'Tank blocked from driving off platform edge when the drop to the lakebed exceeds 7 m, at 0 cost (P3: gearless tanks may otherwise enter water)');
 
-S.platforms=[{id:1,x:46,y:13,width:12,hp:120,maxHp:120},{id:2,x:62,y:13,width:12,hp:120,maxHp:120}];
+S.platforms=[{id:1,x:46,y:13,width:12,hp:120,maxHp:120},{id:2,x:62,y:13,width:12,hp:120,maxHp:120}];setFlatRow(52,56,4);
 t.x=50;t.y=supportHeight(50);t.fuel=100;
 ok(action({action:'move',dir:1},0),'Start drive toward water gap between separated platforms');
 for(let i=0;i<60;i++)step(1/60);
-ok(t.x<=52&&t.y===13,'Intermediate water gap between separated platforms blocks timed drive from crossing');
+ok(t.x<=52&&t.y===13,'Intermediate water gap (drop to a 4 m bed > 7 m) between separated platforms blocks timed drive from crossing (P3: a gap within the step rule could be waded)');
 finishDrive();
 
 S.platforms=[{id:1,x:52,y:13,width:28,hp:15,maxHp:120}];
@@ -136,46 +141,46 @@ for(let i=0;i<120;i++)step(1/60);
 ok(t.y===6&&t.hp<100,'Surviving tank falls to underwater floor and takes fall damage when platform collapses');
 
 setup();
-S.heights[200]=30;S.heights[204]=22;editorFlattenY=30;
+S.heights[gridIdx(200/CELL,D/CELL)]=30;S.heights[gridIdx(204/CELL,D/CELL)]=22;editorFlattenY=30;
 sculptTerrain(200,'flat',20,8);
 sculptTerrain(200,'flat',20,8);
-ok(S.heights[200]>=29&&S.heights[204]>22,'Flatten brush converges toward locked target height without flipping to water');
+ok(height(200,0)>=29&&height(204,0)>22,'Flatten brush converges toward locked target height without flipping to water');
 editorFlattenY=null;
 sculptTerrain(200,'water',20,10);
 sculptTerrain(200,'water',20,10);
-ok(S.heights[200]<WATER_LEVEL,'Separate water brush carves channel below water level');
+ok(height(200,0)<WATER_LEVEL,'Separate water brush carves channel below water level');
 
-ok(!validateCustomMap({name:'NoVersion',heights:new Array(481).fill(20),spawns:[40,440]}),'Validator rejects missing version');
-ok(!validateCustomMap({version:1,name:'StrHeight',heights:new Array(481).fill('20'),spawns:[40,440]}),'Validator rejects numeric string heights');
-ok(!validateCustomMap({version:1,name:'NullHeight',heights:new Array(481).fill(null),spawns:[40,440]}),'Validator rejects null heights');
-ok(!validateCustomMap({version:1,name:'CloseSpawns',heights:new Array(481).fill(20),spawns:[100,106]}),'Validator rejects spawns closer than 10m');
-let wetHeights=new Array(481).fill(20);wetHeights[120]=5;
+ok(!validateCustomMap({name:'NoVersion',heights:new Array(N).fill(20),spawns:[40,440]}),'Validator rejects missing version');
+ok(!validateCustomMap({version:1,name:'StrHeight',heights:new Array(N).fill('20'),spawns:[40,440]}),'Validator rejects numeric string heights');
+ok(!validateCustomMap({version:1,name:'NullHeight',heights:new Array(N).fill(null),spawns:[40,440]}),'Validator rejects null heights');
+ok(!validateCustomMap({version:1,name:'CloseSpawns',heights:new Array(N).fill(20),spawns:[100,106]}),'Validator rejects spawns closer than 10m');
+let wetHeights=new Array(N).fill(20);wetHeights[gridIdx(120/CELL,D/CELL)]=5;
 ok(!validateCustomMap({version:1,name:'WetSpawn',heights:wetHeights,spawns:[40,120]}),'Validator rejects unsupported water spawn');
 let bridgedMap=validateCustomMap({version:1,name:'Bridged',heights:wetHeights,platforms:[{id:1,x:120,y:13,width:24,hp:120,maxHp:120}],spawns:[40,120]});
 ok(bridgedMap&&bridgedMap.spawns.length===6,'Validator accepts platform-supported water spawn and validates all 6 spawns');
 
 setup();
-let origH=S.heights[150],origX=S.tanks[0].x,origAngle=S.tanks[0].angle;
+let origH=height(150,0),origX=S.tanks[0].x,origAngle=S.tanks[0].angle;
 openEditor();
 sculptTerrain(150,'raise',20,10);
 placePlatform(150,28,0);
 S.tanks[0].x=250;S.tanks[0].angle=12;S.tanks[0].falling=true;
 closeEditor(false);
-ok(Math.abs(S.heights[150]-origH)<1e-4&&S.platforms.length===0&&S.tanks[0].x===origX&&S.tanks[0].angle===origAngle&&!S.tanks[0].falling,'Editor cancel restores full snapshot state');
+ok(Math.abs(height(150,0)-origH)<1e-4&&S.platforms.length===0&&S.tanks[0].x===origX&&S.tanks[0].angle===origAngle&&!S.tanks[0].falling,'Editor cancel restores full snapshot state');
 
 setup();S.phase='flight';ok(!openEditor(),'No editing during projectile flight');S.phase='shop';ok(!openEditor(),'No editing during shop');
 setup();online=true;host=false;ok(!openEditor(),'Guest cannot edit maps');host=true;ok(!openEditor(),'Host cannot edit active online match');online=false;
 setup();S.tanks[0].ai=true;ok(openEditor(),'Open editor before AI starts');let beforeTime=S.time;last=1000;let savedDraw=draw;draw=()=>{};animate(1100);draw=savedDraw;ok(S.time===beforeTime&&!aiBusy,'Editor pauses simulation and AI');closeEditor(false);
-setup();openEditor();sculptTerrain(100,'raise',20,10);let incoming=JSON.parse(JSON.stringify(snapshot()));incoming.heights.fill(33);receiveState(incoming);ok(!editorOpen&&S.heights[100]===33,'Incoming snapshot replaces draft without restoring old backup');
-setup();editorSpawns=[40,440,120,360,200,280];let good={version:1,name:'Crossing',heights:Array(481).fill(20),spawns:editorSpawns.slice(),platforms:[{x:240,y:20,width:30,hp:120,maxHp:120}]};
+setup();openEditor();sculptTerrain(100,'raise',20,10);let incoming=JSON.parse(JSON.stringify(snapshot()));incoming.heights=encodeHeights(new Float32Array(N).fill(33));receiveState(incoming);ok(!editorOpen&&height(100,0)===33,'Incoming snapshot replaces draft without restoring old backup');
+setup();editorSpawns=[40,440,120,360,200,280];let good={version:1,name:'Crossing',heights:Array(N).fill(20),spawns:editorSpawns.slice(),platforms:[{x:240,y:20,width:30,hp:120,maxHp:120}]};
 ok(validateCustomMap(good),'Valid six-spawn map accepted');
-ok(!validateCustomMap({...good,version:2}),'Unknown map version rejected');
+ok(!validateCustomMap({...good,version:3}),'Unknown map version rejected');
 ok(!validateCustomMap({...good,platforms:Array(17).fill(good.platforms[0])}),'Platform count bounded');
 ok(!validateCustomMap({...good,platforms:[{...good.platforms[0],width:64.4}]}),'Oversize platform rejected before rounding');
 ok(!validateCustomMap({...good,platforms:[{...good.platforms[0],x:Infinity}]}),'Nonfinite platform rejected');
 ok(applyCustomMapToState(good)&&S.heights instanceof Float32Array,'Imported map retains typed terrain');
 $('mapName').value='Crossing';ok(saveCustomMapSlot('Crossing'),'Map saved to local storage');
-let exportMap=JSON.parse(JSON.stringify(serializeCurrentMap()));ok(exportMap.heights.length===481&&exportMap.spawns.length===6,'JSON map export complete');
+let exportMap=JSON.parse(JSON.stringify(serializeCurrentMap()));ok(exportMap.version===2&&decodeHeights(exportMap.heights,N)?.length===N&&exportMap.spawns.length===6,'JSON map export complete');
 localStorage.setItem(CUSTOM_MAP_KEY,'{"__proto__":'+JSON.stringify(good)+',"constructor":'+JSON.stringify(good)+',"Crossing":'+JSON.stringify(good)+'}');loadSavedMaps();
 ok(Object.getPrototypeOf(savedCustomMaps)===null&&!Object.hasOwn(savedCustomMaps,'__proto__')&&!Object.hasOwn(savedCustomMaps,'constructor')&&savedCustomMaps.Crossing,'Prototype-like saved names handled safely');
 S.cfg.terrain='Custom';S.customMap=exportMap;newRound();ok(S.platforms.length===1&&S.tanks[0].x===40&&S.tanks[1].x===440,'Custom layout persists across rounds');
@@ -264,7 +269,7 @@ setup();S.tanks.forEach(t=>t.turnsTaken=9);S.satellites=[{id:1,owner:0,hp:60}];n
 }
 // Argon flotation and mesh lifecycle regression.
 {
-    setup();S.heights.fill(6);for(let x=20;x<=40;x++)S.heights[x]=13;for(let x=60;x<=80;x++)S.heights[x]=13;
+    setup();S.heights.fill(6);setFlatRow(20,40,13);setFlatRow(60,80,13);
     let tk=S.tanks[0];tk.x=38;tk.y=13;tk.fuel=100;tk.inv['Floating Platform']=1;tk.inv['Inflatable Lifejacket']=1;
     ok(!action({weaponOrItem:'Floating Platform'},0)&&!action({weaponOrItem:'Inflatable Lifejacket'},0)&&S.actionsLeft===2&&tk.inv['Floating Platform']===1&&tk.inv['Inflatable Lifejacket']===1,'Water gear automatic (0 manual cost)');
     ok(movementSpeed(tk,38)===6,'Ground speed 6 m/s');
@@ -286,7 +291,7 @@ setup();S.tanks.forEach(t=>t.turnsTaken=9);S.satellites=[{id:1,owner:0,hp:60}];n
 }
 // Effective shoreline support and no midair drive teleport.
 {
-setup();t=current();S.heights.fill(1);for(let x=0;x<=99;x++)S.heights[x]=18;t.x=99;t.y=18;
+setup();t=current();S.heights.fill(1);setFlatRow(0,100,18);t.x=99;t.y=18;
 ok(action({action:'move',dir:1},0),'Flotation permits six-meter shore-to-water drop despite deep floor');for(let i=0;i<120;i++)step(1/60);ok(t.x>106&&t.y===12,'Tank crosses steep submerged floor at water surface');finishDrive();
 setup();t=current();t.y=50;let oldFuel=t.fuel;ok(!action({action:'move',dir:1},0)&&S.actionsLeft===2&&t.y===50&&t.fuel===oldFuel,'Airborne movement rejected without teleport or cost');
 setup();t=current();action({action:'move',dir:1},0);for(let i=0;i<30;i++)step(1/60);let xpos=t.x;S.heights.fill(1);step(1/60);ok(!S.activeDrive&&t.x===xpos&&t.y>12&&t.falling,'Losing ground support ends driving and preserves falling physics');
@@ -398,8 +403,8 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
 {
   ok(htmlSource.includes('id="windGauge"')&&htmlSource.includes('id="windBar"')&&htmlSource.includes('id="windMeta"')&&htmlSource.includes('id="lastShotInfo"'),'Wind HUD DOM');
   ok(!sanitizeLastShot(null)&&!sanitizeLastShot('x')&&!sanitizeLastShot([])&&!sanitizeLastShot({weapon:'Standard Shield',angle:45,power:500,az:0,wind:0})&&!sanitizeLastShot({weapon:'Laser',angle:45,power:500,az:0,wind:0})&&!sanitizeLastShot({weapon:'Baby Missile',angle:NaN,power:500,az:0,wind:0}),'lastShot reject');
-  let cl=sanitizeLastShot({weapon:'MIRV',angle:195.4,power:1200.4,az:-29.3,wind:9.8,impactX:120});
-  ok(cl.weapon==='MIRV'&&cl.angle===180&&cl.power===1000&&cl.az===-20&&cl.wind===6.5&&cl.impactX===undefined,'lastShot clamp');
+  let cl=sanitizeLastShot({weapon:'MIRV',angle:195.4,power:1200.4,az:-209.3,wind:9.8,impactX:120});
+  ok(cl.weapon==='MIRV'&&cl.angle===180&&cl.power===1000&&cl.az===-180&&cl.wind===6.5&&cl.impactX===undefined,'lastShot clamp');
   setup();S.round=0;S.cfg.maxWind=6.5;S.cfg.windCadence='turn';newRound();
   ok(S.round===1&&S.turn===0&&S.tanks[0].lastShot===null&&$('lastShotInfo').textContent==='LAST SHOT: NONE','Initial lastShot');
   S.wind=0;syncWindAndShotHUD();ok($('windBar').style.left==='50%'&&$('windBar').style.width==='0%'&&$('windMeta').textContent.includes('CALM'),'Gauge calm');
@@ -419,23 +424,1392 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   ok(txt.includes('MIRV')&&txt.includes('52.5°')&&txt.includes('640 PWR')&&txt.includes('AZ -3.5°')&&txt.includes('WIND +2.0')&&txt.includes('ΔWIND -3.5'),'HUD delta');
   nextTurn();ok(S.turn===1&&$('lastShotInfo').textContent==='LAST SHOT: NONE'&&S.tanks[0].lastShot.weapon==='MIRV','Turn isolation');
   S.tanks[1].hp=60;S.wind=-1.0;
-  ok(action({weaponOrItem:'Baby Missile',angle:200,power:1000,az:40},1)&&S.tanks[1].lastShot?.weapon==='Baby Missile'&&S.tanks[1].lastShot.angle===180&&S.tanks[1].lastShot.power===600&&S.tanks[1].lastShot.az===20&&S.tanks[1].lastShot.wind===-1,'Clamped fired values');
+  ok(action({weaponOrItem:'Baby Missile',angle:200,power:1000,az:240},1)&&S.tanks[1].lastShot?.weapon==='Baby Missile'&&S.tanks[1].lastShot.angle===180&&S.tanks[1].lastShot.power===600&&S.tanks[1].lastShot.az===180&&S.tanks[1].lastShot.wind===-1,'Clamped fired values');
   for(let i=0;i<1600&&S.phase==='flight';i++)step(1/60);
   S.tanks[1].hp=100;
   S.tanks[0].lastShot={weapon:'MIRV',angle:52.5,power:640,az:-3.5,wind:2,impactX:120,extra:'bad'};
   let hostSnap=snapshot();
   ok(hostSnap.tanks[0].lastShot.weapon==='MIRV'&&hostSnap.tanks[0].lastShot.impactX===undefined&&hostSnap.tanks[0].lastShot.extra===undefined,'Host snapshot filter');
   let snap4=JSON.parse(JSON.stringify(hostSnap));
-  snap4.tanks[0].lastShot={weapon:'MIRV',angle:199,power:1500,az:35,wind:12,hack:1};
+  snap4.tanks[0].lastShot={weapon:'MIRV',angle:199,power:1500,az:235,wind:12,hack:1};
   snap4.tanks[1].lastShot={weapon:'Standard Shield',angle:45,power:500,az:0,wind:0};
   receiveState(snap4);
-  ok(S.tanks[0].lastShot.angle===180&&S.tanks[0].lastShot.power===1000&&S.tanks[0].lastShot.az===20&&S.tanks[0].lastShot.wind===6.5&&S.tanks[0].lastShot.hack===undefined&&S.tanks[1].lastShot===null,'Guest snap clamp');
+  ok(S.tanks[0].lastShot.angle===180&&S.tanks[0].lastShot.power===1000&&S.tanks[0].lastShot.az===180&&S.tanks[0].lastShot.wind===6.5&&S.tanks[0].lastShot.hack===undefined&&S.tanks[1].lastShot===null,'Guest snap clamp');
   predict();ok(!arc.visible&&arcGeo.drawRange.count===0,'No arc');
   newRound();ok(S.tanks[0].lastShot===null&&S.tanks[1].lastShot===null&&$('lastShotInfo').textContent==='LAST SHOT: NONE','newRound reset');
 }
+// --- Phase P1a World Model Core Verification ---
+{
+  setup();
+  let w0=W,d0=D,c0=CELL,nx0=NX,nz0=NZ,n0=N;
+  for(let bad of [null,undefined,'bad',{}, {w:480,d:80,cell:3},{w:480,d:80,cell:0},{w:480,d:80,cell:1.5},{w:99,d:80,cell:1},{w:1201,d:80,cell:2},{w:480,d:49,cell:1},{w:480,d:301,cell:1},{w:481,d:80,cell:2},{w:1200,d:200,cell:1},{w:NaN,d:80,cell:1},{w:480,d:Infinity,cell:1}]){
+    ok(setWorld(bad)===false&&W===w0&&D===d0&&CELL===c0&&NX===nx0&&NZ===nz0&&N===n0,'setWorld rejects invalid input '+JSON.stringify(bad));
+  }
+  ok(setWorld({w:480,d:80,cell:2})===true&&W===480&&D===80&&CELL===2&&NX===241&&NZ===81&&N===241*81,'setWorld accepts 480x80 cell 2');
+  S.heights=new Float32Array(N);
+  let ix=10,iz=20,gx=ix*CELL,gz=iz*CELL-D;
+  S.heights[gridIdx(ix,iz)]=10;S.heights[gridIdx(ix+1,iz)]=20;S.heights[gridIdx(ix,iz+1)]=30;S.heights[gridIdx(ix+1,iz+1)]=50;
+  ok(gridIdx(-5,-3)===0&&gridIdx(9999,9999)===N-1,'gridIdx clamps out-of-range indices');
+  ok(height(gx,gz)===10&&height(gx+CELL,gz)===20&&height(gx,gz+CELL)===30&&height(gx+CELL,gz+CELL)===50,'height exact at grid points');
+  ok(Math.abs(height(gx+CELL/2,gz)-15)<1e-6&&Math.abs(height(gx,gz+CELL/2)-20)<1e-6&&Math.abs(height(gx+CELL/2,gz+CELL/2)-27.5)<1e-6,'height exact bilinear at x, z, and center midpoints');
+  ok(H_TICK===0.01&&hTick(12.34)===1234&&hTick(quantH(19.994))===1999,'H_TICK=0.01 and hTick integer tick helper');
+  for(let terrainType of ['Rolling Hills','Jagged Mountains','Valleys','Cliffs']){
+    seed=4242;
+    let h=newTerrain(terrainType);
+    ok(h instanceof Float32Array&&h.length===N,'newTerrain size matches N for '+terrainType);
+    ok(h.every(v=>Math.abs(v*100-Math.round(v*100))<1e-3&&hTick(v)===hTick(quantH(v))),'quantH 0.01m lattice holds after newTerrain for '+terrainType);
+    let zVaries=false,hasWater=false;
+    for(let i=0;i<N;i++)if(h[i]<WATER_LEVEL){hasWater=true;break}
+    for(let x=0;x<NX&&!zVaries;x+=4){let base=h[gridIdx(x,0)];for(let z=1;z<NZ;z++)if(Math.abs(h[gridIdx(x,z)]-base)>.5){zVaries=true;break}}
+    ok(zVaries&&hasWater,terrainType+' varies along z and has cells below WATER_LEVEL');
+  }
+  S.heights.fill(40);
+  deform(200,14,-10,10);
+  ok(S.heights.every(v=>Math.abs(v*100-Math.round(v*100))<1e-3&&hTick(v)===hTick(quantH(v))),'quantH 0.01m lattice holds after deform');
+  ok(terrainDirtyBox&&terrainDirtyBox.ix0>=0&&terrainDirtyBox.ix1<NX&&terrainDirtyBox.iz0>=0&&terrainDirtyBox.iz1<NZ,'deform records terrainDirtyBox');
+  let dPosX=40-height(200+8,10),dNegX=40-height(200-8,10),dPosZ=40-height(200,10+8),dNegZ=40-height(200,10-8);
+  ok(dPosX>0&&Math.abs(dPosX-dNegX)<1e-4&&Math.abs(dPosX-dPosZ)<1e-4&&Math.abs(dPosX-dNegZ)<1e-4,'deform is radial (+x,-x,+z,-z equal depth)');
+  let untouched=true;
+  for(let z=0;z<NZ;z++)for(let x=0;x<NX;x++)if(Math.hypot(x*CELL-200,z*CELL-D-10)>14+CELL&&S.heights[gridIdx(x,z)]!==40)untouched=false;
+  ok(untouched,'deform leaves cells beyond r+CELL untouched');
+  sculptTerrain(180,'raise',18,6,20);
+  sculptTerrain(180,'smooth',18,6,20);
+  ok(S.heights.every(v=>Math.abs(v*100-Math.round(v*100))<1e-3&&hTick(v)===hTick(quantH(v))),'quantH 0.01m lattice holds after sculptTerrain');
+  let customList=[{id:1,x:100,y:25,width:20,hp:100},{id:2,x:100,y:32,z:20,depth:10,width:20,hp:100}];
+  ok(platformAt(100,customList)?.id===1&&platformAt(100,customList,20)?.id===2&&platformAt(100,customList,40)===null,'platformAt with explicit 2nd-arg list and optional z/depth works');
+  setWorld({w:960,d:240,cell:2});
+  // (a) Shell flying at z=+60 over a world with a tall ridge only at z=0 and low ground at z=60
+  setup();
+  S.heights.fill(20);
+  setFlatRow(100,260,110,0);
+  S.wind=0;S.phase='flight';
+  S.shots=[{id:++S.uid,x:60,y:55,z:60,vx:45,vy:12,vz:0,name:'Baby Missile',owner:0,life:0,bounces:0,split:false,mode:'air'}];
+  let lastShotPos=null;
+  for(let i=0;i<400&&S.shots.length;i++){lastShotPos={x:S.shots[0].x,y:S.shots[0].y,z:S.shots[0].z};step(1/60)}
+  ok(S.shots.length===0&&lastShotPos&&lastShotPos.x>110&&lastShotPos.x<260&&lastShotPos.y<30&&Math.abs(lastShotPos.z-60)<1&&hTick(height(180,0))===11000&&hTick(height(lastShotPos.x,60))<2000,'Shell at z=+60 flies past z=0 ridge without hitting it and lands on low ground at z~60');
+  // (b) Fire and roller placed at z=+60 follow terrain at z=60, not z=0
+  setup();
+  S.heights.fill(20);
+  for(let ix=0;ix<NX;ix++){let x=ix*CELL;for(let iz=Math.floor((D-10)/CELL);iz<=Math.ceil((D+10)/CELL);iz++)S.heights[gridIdx(ix,iz)]=quantH(clamp(80-(x-200)*0.8,10,120));for(let iz=Math.floor((60+D-10)/CELL);iz<=Math.ceil((60+D+10)/CELL);iz++)S.heights[gridIdx(ix,iz)]=quantH(clamp(30+(x-200)*0.8,10,120))}
+  S.fires=[{x:200,z:60,life:4,owner:0,hot:false,tick:0}];
+  S.shots=[{id:++S.uid,x:200,y:height(200,60)+.7,z:60,vx:0,vy:0,vz:0,name:'Roller',owner:0,life:0,bounces:0,split:false,mode:'roll',rollTime:0}];
+  for(let i=0;i<25;i++)step(1/60);
+  ok(S.fires[0].x<200&&S.shots[0].x<200&&Math.abs(S.shots[0].y-(height(S.shots[0].x,60)+.7))<1e-2,'Fire and roller at z=+60 roll downhill along z=60 slope, not z=0 opposite slope');
+}
+// --- Phase P1b 2-D World Renderer Verification ---
+{
+  setup();
+  rebuildTerrainGeo();
+  let geo960=terrainGeo,disposed960=false;
+  let origDispose=geo960.dispose.bind(geo960);
+  geo960.dispose=()=>{disposed960=true;origDispose()};
+  ok(terrainGeo.attributes.position.count===NX*NZ+2*(NX+NZ),'960x480 cell 2 mesh vertex count === NX*NZ + skirt');
+  S.heights=newTerrain('Rolling Hills');
+  terrainFullUpdate=true;terrainUpdate();
+  ok(terrainGeo===geo960&&!disposed960,'terrainUpdate reuses geometry when NX/NZ unchanged');
+  ok(setWorld({w:480,d:80,cell:1})===true&&NX===481&&NZ===161,'setWorld 480x80 cell 1');
+  ok(terrainGeo===geo960&&!disposed960,'setWorld alone does not touch the renderer (geometry is rebuilt lazily)');
+  S.heights=new Float32Array(N).fill(20);terrainUpdate();
+  ok(disposed960&&terrainGeo!==geo960&&terrainGeo.attributes.position.count===NX*NZ+2*(NX+NZ),'terrainUpdate after setWorld with different NX/NZ disposes old terrainGeo and rebuilds');
+  S.heights=newTerrain('Rolling Hills');
+  terrainUpdate();
+  let sampledOk=true;
+  for(let iz of [0,15,80,160])for(let ix of [0,37,240,480]){
+    let vi=(iz*NX+ix)*3,vx=terrainPos[vi],vy=terrainPos[vi+1],vz=terrainPos[vi+2];
+    if(Math.abs(vx-ix*CELL)>1e-5||Math.abs(vz-(iz*CELL-D))>1e-5||Math.abs(vy-height(vx,vz))>1e-4)sampledOk=false;
+  }
+  ok(sampledOk,'terrain vertex (x,y,z) matches grid coordinates and height(x,z) at sampled points');
+  let checkNormals=(label)=>{
+    let okN=true;
+    for(let i=0;i<N*3;i+=3){
+      let nx=terrainNor[i],ny=terrainNor[i+1],nz=terrainNor[i+2],len=Math.hypot(nx,ny,nz);
+      if(!Number.isFinite(len)||Math.abs(len-1)>1e-3||ny<=0){okN=false;break}
+    }
+    ok(okN,label+' leaves every surface normal unit-length and finite');
+  };
+  checkNormals('Full terrainUpdate');
+  let beforePos=new Float32Array(terrainPos);
+  deform(300,14,-8,40);
+  let box={...terrainDirtyBox};
+  ok(box&&box.ix0>0&&box.ix1<NX-1&&box.iz0>0&&box.iz1<NZ-1,'deform at (300,40) sets interior dirty box');
+  terrainUpdate();
+  ok(terrainDirtyBox===null&&!terrainDirty,'terrainUpdate clears terrainDirtyBox and terrainDirty');
+  let pRange=terrainGeo.attributes.position.updateRange,nRange=terrainGeo.attributes.normal.updateRange;
+  ok(pRange.offset===box.iz0*NX*3&&pRange.count===(box.iz1-box.iz0+1)*NX*3&&nRange.offset===Math.max(0,box.iz0-1)*NX*3&&nRange.count===(Math.min(NZ-1,box.iz1+1)-Math.max(0,box.iz0-1)+1)*NX*3,'partial terrainUpdate sets BufferAttribute.updateRange for touched rows and halo');
+  let onlyBoxChanged=true,changedInside=0;
+  for(let iz=0;iz<NZ;iz++)for(let ix=0;ix<NX;ix++){
+    let i=(iz*NX+ix)*3,diff=Math.abs(terrainPos[i]-beforePos[i])+Math.abs(terrainPos[i+1]-beforePos[i+1])+Math.abs(terrainPos[i+2]-beforePos[i+2]);
+    let inHalo=ix>=box.ix0-1&&ix<=box.ix1+1&&iz>=box.iz0-1&&iz<=box.iz1+1;
+    if(diff>0){if(!inHalo)onlyBoxChanged=false;else changedInside++}
+  }
+  for(let i=N*3;i<terrainPos.length;i++)if(terrainPos[i]!==beforePos[i])onlyBoxChanged=false;
+  ok(onlyBoxChanged&&changedInside>0,'deform + terrainUpdate only changes vertices inside dirty box (+ halo)');
+  checkNormals('Crater partial terrainUpdate');
+  $('world').getBoundingClientRect=()=>({left:0,top:0,width:1280,height:720});
+  camera.aspect=1280/720;camera.fov=47;camera.near=0.2;camera.far=4000;camera.updateProjectionMatrix();
+  let targetX=260,targetZ=-25,targetY=height(targetX,targetZ);
+  camera.position.set(200,190,140);camera.lookAt(targetX,targetY,targetZ);camera.updateMatrixWorld();
+  let hit=screenToWorld({clientX:640,clientY:360});
+  ok(hit&&Math.hypot(hit.x-targetX,hit.z-targetZ)<=CELL&&Math.abs(screenToWorldX({clientX:640,clientY:360})-hit.x)<1e-6,'screenToWorld returns aimed terrain (x,z) within 1 cell and screenToWorldX wraps .x');
+  setWorld({w:960,d:240,cell:2});
+}
+// --- Phase P1a-FIX2 Review Regressions (F1-F4) ---
+{
+  // F1: Digger radial ground-plane distance < 5
+  setup();
+  S.tanks[1].x=200;S.tanks[1].z=0;S.tanks[1].hp=100;
+  S.shots=[{id:++S.uid,x:200,y:18,z:60,vx:0,vy:0,vz:0,name:'Digger',owner:0,life:0,bounces:0,split:false,mode:'dig',remaining:10}];
+  step(1/60);
+  ok(S.tanks[1].hp===100,'F1: digger at z=60 beside tank at z=0 (dx=0) deals 0 damage');
+  setup();
+  S.tanks[1].x=203.8;S.tanks[1].z=3.8;S.tanks[1].hp=100;
+  S.shots=[{id:++S.uid,x:200,y:18,z:0,vx:0,vy:0,vz:0,name:'Digger',owner:0,life:0,bounces:0,split:false,mode:'dig',remaining:10}];
+  step(1/60);
+  ok(S.tanks[1].hp===100,'F1: near-diagonal tank at dx=3.8,dz=3.8 (dist ~5.37) takes 0 damage');
+  setup();
+  S.tanks[1].x=203;S.tanks[1].z=3;S.tanks[1].hp=100;
+  S.shots=[{id:++S.uid,x:200,y:18,z:0,vx:0,vy:0,vz:0,name:'Digger',owner:0,life:0,bounces:0,split:false,mode:'dig',remaining:10}];
+  step(1/60);
+  ok(S.tanks[1].hp<100,'F1: tank at dx=3,dz=3 (dist ~4.24) takes digger damage');
+  // F2 & F4: Dirty box union + multi-box partial terrainUpdate
+  setup();
+  S.heights.fill(40);
+  terrainFullUpdate=true;terrainUpdate();
+  deform(120,12,-9,-60);
+  let b1={...terrainDirtyBox};
+  deform(780,12,-11,70);
+  let bU={...terrainDirtyBox};
+  ok(bU.ix0===b1.ix0&&bU.iz0===b1.iz0&&bU.ix1>b1.ix1&&bU.iz1>b1.iz1,'F2: two disjoint craters in one frame union into pending terrainDirtyBox covering both');
+  sculptTerrain(450,'raise',14,6,0);
+  ok(terrainDirtyBox.ix0===b1.ix0&&terrainDirtyBox.ix1===bU.ix1&&Array.isArray(terrainDirtyBoxes)&&terrainDirtyBoxes.length===3,'F2/F4: three far-apart edits keep 3 separate dirty boxes while terrainDirtyBox covers union');
+  let midBefore=terrainPos[(gridIdx(Math.round(300/CELL),Math.round(D/CELL)))*3+1];
+  terrainUpdate();
+  let v1=terrainPos[gridIdx(Math.round(120/CELL),Math.round((-60+D)/CELL))*3+1];
+  let v2=terrainPos[gridIdx(Math.round(780/CELL),Math.round((70+D)/CELL))*3+1];
+  let v3=terrainPos[gridIdx(Math.round(450/CELL),Math.round(D/CELL))*3+1];
+  ok(Math.abs(v1-height(120,-60))<1e-4&&Math.abs(v2-height(780,70))<1e-4&&Math.abs(v3-height(450,0))<1e-4&&midBefore===40&&terrainDirtyBox===null&&terrainDirtyBoxes.length===0,'F2/F4: after terrainUpdate, mesh vertex y equals height(x,z) at the centre of all craters and clears dirty state');
+  // F3: Touch only changed cells (preserve untouched 140m cells)
+  setup();
+  S.heights.fill(140);
+  let cx=200,cz=0,cr=10,cix0=clamp(Math.floor((cx-cr)/CELL)-1,0,NX-1),ciz0=clamp(Math.floor((cz+D-cr)/CELL)-1,0,NZ-1);
+  deform(cx,cr,-8,cz);
+  ok(S.heights[gridIdx(cix0,ciz0)]===140&&height(cx,cz)<140,'F3: 140m cell in bounding rectangle corner outside r stays exactly 140');
+  S.heights.fill(140);
+  deform(cx,cr,0,cz);
+  let all140=true;for(let i=0;i<N;i++)if(S.heights[i]!==140){all140=false;break}
+  ok(all140,'F3: flat 140m field with delta=0 keeps every cell at 140');
+  S.heights.fill(140);
+  deform(cx,cr,-0.5,cz);
+  let haloPreserved=true,innerChanged=0;
+  for(let iz=ciz0;iz<=clamp(Math.ceil((cz+D+cr)/CELL)+1,0,NZ-1);iz++)for(let ix=cix0;ix<=clamp(Math.ceil((cx+cr)/CELL)+1,0,NX-1);ix++){
+    let d=Math.hypot(ix*CELL-cx,iz*CELL-D-cz),val=S.heights[gridIdx(ix,iz)];
+    if(d>=cr){if(val!==140)haloPreserved=false}else if(val<140)innerChanged++;
+  }
+  ok(haloPreserved&&innerChanged>0,'F3: flat 140m field with tiny negative delta keeps every cell that did not change at 140');
+}
+// --- Phase P1b-FIX Renderer Review Regressions (R1-R3) ---
+{
+  // R1: Partial terrainUpdate re-seats or hides vegetation inside dirty box and leaves far trees untouched
+  setup();
+  S.heights.fill(30);
+  initNature();
+  terrainFullUpdate=true;terrainUpdate();
+  let te=trunks.instanceMatrix.array,ce=crowns.instanceMatrix.array,re=rocks.instanceMatrix.array;
+  let tx=te[12],tz=te[14],ts=te[5],fIdx=-1;
+  for(let k=1;k<trunks.count;k++)if(Math.hypot(te[k*16+12]-tx,te[k*16+14]-tz)>140){fIdx=k;break}
+  let fO=fIdx*16,fTx0=te[fO+12],fTy0=te[fO+13],fTz0=te[fO+14],fCy0=ce[fO+13];
+  let rx=re[12],rz=re[14];
+  deform(tx,14,-5,tz);
+  if(Math.hypot(rx-tx,rz-tz)>10)deform(rx,14,-5,rz);
+  ok(!terrainFullUpdate&&terrainDirty,'R1: crater deform schedules partial terrainUpdate');
+  terrainUpdate();
+  let newTy=height(tx,tz),newRy=height(rx,rz);
+  ok(newTy>=WATER_LEVEL+2&&Math.abs(te[13]-(newTy+2.5*ts))<1e-4&&Math.abs(ce[13]-(newTy+7*ts))<1e-4&&te[12]===tx&&te[14]===tz,'R1: partial terrainUpdate re-seats tree trunk and crown to new height(x,z) without moving x/z');
+  ok(newRy>=WATER_LEVEL+.5&&Math.abs(re[13]-(newRy+.7))<1e-4&&re[12]===rx&&re[14]===rz,'R1: partial terrainUpdate re-seats rock to new height(x,z)+0.7 without moving x/z');
+  ok(te[fO+12]===fTx0&&te[fO+13]===fTy0&&te[fO+14]===fTz0&&ce[fO+13]===fCy0,'R1: far-away tree outside partial dirty box is untouched');
+  deform(tx,14,-22,tz);
+  terrainUpdate();
+  ok(height(tx,tz)<WATER_LEVEL+2&&te[5]===0&&ce[5]===0&&te[13]<SKIRT_Y&&te[12]===tx&&te[14]===tz&&te[fO+13]===fTy0,'R1: crater dropping tree below water hides instance without rescattering or touching far tree');
+  S.heights.fill(30);terrainFullUpdate=true;terrainUpdate();
+  deform(96,4.1,-12,-20);let dBox=terrainDirtyBox,hz=-20,hx=(dBox.ix1+1.25)*CELL,fx=(dBox.ix1+4.5)*CELL,hTo=16,hFo=32;
+  ok(hx>dBox.ix1*CELL&&hx<(dBox.ix1+2)*CELL&&fx>(dBox.ix1+4)*CELL,'R1-halo: probe tree/rock 1.25 cells outside the dirty box edge, far pair 4.5 cells out');
+  te[hTo+12]=ce[hTo+12]=hx;te[hTo+14]=ce[hTo+14]=hz;te[hTo+13]=99;ce[hTo+13]=105;re[hTo+12]=hx;re[hTo+14]=hz;re[hTo+13]=88;
+  te[hFo+12]=ce[hFo+12]=fx;te[hFo+14]=ce[hFo+14]=hz;te[hFo+13]=99;ce[hFo+13]=105;re[hFo+12]=fx;re[hFo+14]=hz;re[hFo+13]=88;
+  terrainUpdate();let hy=height(hx,hz);
+  ok(Math.abs(te[hTo+13]-(hy+2.5*te[hTo+5]))<1e-4&&Math.abs(ce[hTo+13]-(hy+7*te[hTo+5]))<1e-4&&Math.abs(re[hTo+13]-(hy+.7))<1e-4,'R1-halo: tree+rock 1.25 cells outside the dirty box are re-seated (2-cell halo)');
+  ok(te[hFo+13]===99&&ce[hFo+13]===105&&re[hFo+13]===88,'R1-halo: tree+rock 4.5 cells outside the dirty box stay untouched');
+  // R2: Geometry identity checks W, D, CELL as well as NX, NZ
+  ok(setWorld({w:480,d:120,cell:1})===true&&NX===481&&NZ===241,'R2: setWorld 480x120 cell 1 (481x241)');
+  S.heights=new Float32Array(N).fill(20);
+  rebuildTerrainGeo();terrainUpdate();
+  let geo480=terrainGeo;
+  ok(setWorld({w:960,d:240,cell:2})===true&&NX===481&&NZ===241,'R2: setWorld 960x240 cell 2 also 481x241');
+  S.heights=new Float32Array(N).fill(20);
+  terrainUpdate();
+  let maxX=-Infinity,maxAbsZ=0,skMaxX=-Infinity,skMaxAbsZ=0;
+  for(let i=0;i<terrainPos.length;i+=3){
+    if(terrainPos[i]>maxX)maxX=terrainPos[i];
+    let az=Math.abs(terrainPos[i+2]);if(az>maxAbsZ)maxAbsZ=az;
+    if(i>=N*3){if(terrainPos[i]>skMaxX)skMaxX=terrainPos[i];if(az>skMaxAbsZ)skMaxAbsZ=az}
+  }
+  ok(terrainGeo!==geo480&&maxX===960&&maxAbsZ===240&&skMaxX===960&&skMaxAbsZ===240,'R2: switching 480/120/1 -> 960/240/2 rebuilds geometry and updates all vertices including skirt to max x=960, max |z|=240');
+  // R3: Fixed conservative boundingSphere covers corner raised to height cap on partial update
+  setup();
+  S.heights.fill(20);
+  rebuildTerrainGeo();terrainFullUpdate=true;terrainUpdate();
+  let bs=terrainGeo.boundingSphere;
+  ok(bs&&bs.center.x===W/2&&bs.center.y===70&&bs.center.z===0,'R3: boundingSphere centred at (W/2, 70, 0)');
+  deform(W-2,16,125,D-2);
+  ok(!terrainFullUpdate&&S.heights[gridIdx(NX-1,NZ-1)]>=130,'R3: corner raised to near the 135 m deform cap via partial update');S.heights[gridIdx(NX-2,NZ-2)]=140;markTerrainDirtyBox(NX-3,NX-1,NZ-3,NZ-1);
+  terrainUpdate();
+  let allInside=terrainGeo.boundingSphere===bs,vTmp=new THREE.Vector3();
+  for(let i=0;i<terrainPos.length;i+=3){vTmp.set(terrainPos[i],terrainPos[i+1],terrainPos[i+2]);if(!bs.containsPoint(vTmp)){allInside=false;break}}
+  ok(allInside,'R3: after raising corner to cap on partial update, every vertex lies inside fixed terrainGeo.boundingSphere');
+}
+// --- Phase P1c-1 Map Format v2, Encoding, Migration & Local Storage ---
+{
+  setup();
+  let asym=new Array(LEGACY_N).fill(20);
+  asym[37]=83.45;asym[38]=14.2;asym[121]=7.35;asym[122]=61.8;asym[333]=112.6;asym[240]=31.25;
+  let v1Asym={version:1,name:'AsymV1',heights:asym,spawns:[40,440,110,370,185,295],platforms:[{id:1,x:120,y:25,width:28,hp:120,maxHp:120}]};
+  ok(applyCustomMapToState(v1Asym)&&W===480&&D===80&&CELL===1&&NX===481&&NZ===161,'v1 asymmetric map migrates to W=480, D=80, CELL=1');
+  for(let z of [-80,-17,0,33,80]){
+    for(let x of [0,36,37,38,39,120,121,122,240,333,480]){
+      ok(Math.abs(height(x,z)-Math.round(asym[x]*100)/100)<1e-5,'v1 exact height(x,z) at x='+x+' z='+z);
+    }
+  }
+  ok(S.platforms.length===1&&S.platforms[0].x===120&&S.platforms[0].width===28&&(S.platforms[0].z||0)===0,'v1 platform x/width unchanged and z=0');
+
+  let roundArr=new Array(LEGACY_N).fill(20);roundArr[77]=17.023;
+  let migRound=validateCustomMap({version:1,name:'RoundTest',heights:roundArr,spawns:[40,440]});
+  ok(migRound&&Math.abs(migRound.heights[77]-17.02)<1e-5,'17.023 in v1 rounds to 17.02 on migrate');
+  ok(applyCustomMapToState(migRound),'apply migrated rounding map');
+  let serRound=serializeCurrentMap();
+  let valRound=validateCustomMap(serRound);
+  ok(valRound&&Math.abs(valRound.heights[77]-17.02)<1e-5&&hTick(valRound.heights[77])===1702,'17.02 survives migrate -> serialize -> validate');
+
+  setup();
+  S.heights=newTerrain('Jagged Mountains');
+  S.platforms=[{id:1,x:240,z:-20,y:34.5,width:32,depth:16,hp:110,maxHp:140}];
+  editorSpawns=[60,900,200,760,360,600];
+  $('mapName').value='BigV2';
+  let origTicks=Array.from(S.heights,hTick);
+  let expV2=edExport();
+  ok(expV2&&expV2.version===2&&expV2.w===960&&expV2.d===240&&expV2.cell===2&&expV2.heights?.enc==='i16t','v2 960x480 export structure');
+  S.heights.fill(15);S.platforms=[];
+  let impV2=edImport($('edJsonIO').value);
+  ok(impV2&&W===960&&D===240&&CELL===2&&S.heights.length===N,'v2 960x480 import applies world');
+  let allTickMatch=true;
+  for(let i=0;i<N;i++)if(hTick(S.heights[i])!==origTicks[i]){allTickMatch=false;break}
+  ok(allTickMatch&&S.platforms.length===1&&S.platforms[0].x===240&&S.platforms[0].width===32&&editorSpawns[0]?.x===60&&editorSpawns[1]?.x===900,'v2 960x480 export->import identical hTick for every cell + spawns + platforms');
+
+  let rtCur=new Float32Array(S.heights);
+  for(let r=0;r<10;r++){let enc=encodeHeights(rtCur);rtCur=decodeHeights(enc,N);ok(rtCur instanceof Float32Array&&rtCur.length===N,'roundtrip '+r)}
+  let rtMatch=true;
+  for(let i=0;i<N;i++)if(hTick(rtCur[i])!==origTicks[i]){rtMatch=false;break}
+  ok(rtMatch,'10 encode/decode roundtrips are tick-identical');
+
+  let validEnc=encodeHeights(new Float32Array([20,25,30,35]));
+  ok(decodeHeights(validEnc,3)===null&&decodeHeights(validEnc,5)===null,'rejects wrong encoded length');
+  let makeRawEnc=(ticks)=>{let b=new Uint8Array(ticks.length*2);for(let i=0;i<ticks.length;i++){b[i*2]=ticks[i]&255;b[i*2+1]=(ticks[i]>>8)&255}return{enc:'i16t',data:Buffer.from(b).toString('base64')}};
+  ok(decodeHeights(makeRawEnc([0,2000,2000]),3)===null,'rejects tick 0');
+  ok(decodeHeights(makeRawEnc([2000,14001,2000]),3)===null,'rejects tick 14001');
+  ok(decodeHeights([20,NaN,20],3)===null,'rejects NaN in plain array');
+  let baseV2={version:2,name:'T',w:480,d:80,cell:2,heights:encodeHeights(new Float32Array(241*81).fill(20)),spawns:[{x:40,z:0},{x:440,z:0}],platforms:[]};
+  ok(validateCustomMap({...baseV2,spawns:[{x:40,z:0},{x:80,z:0},{x:120,z:0},{x:160,z:0},{x:200,z:0},{x:240,z:0},{x:280,z:0}]})===null,'rejects 7 spawns');
+  ok(validateCustomMap({...baseV2,cell:3})===null,'rejects cell 3');
+  ok(validateCustomMap({...baseV2,w:1200,d:200,cell:1})===null,'rejects nx*nz > 200000');
+  $('edJsonIO').value='x'.repeat(MAX_MAP_TEXT+1);
+  ok(MAX_MAP_TEXT===600000&&edImport()===null,'rejects import text over MAX_MAP_TEXT');
+  localStorage.setItem(CUSTOM_MAP_KEY,JSON.stringify({Bad:{version:2,w:9999},Good:baseV2}));
+  loadSavedMaps();
+  ok(!savedCustomMaps.Bad&&savedCustomMaps.Good,'stored entries that fail validation are skipped');
+
+  let coastalRaw=JSON.parse(coastalCrossingJson);
+  let coastalVal=validateCustomMap(coastalRaw);
+  ok(coastalVal&&coastalVal.w===480&&coastalVal.d===80&&coastalVal.cell===1&&coastalVal.spawns.length===6&&coastalVal.spawns[0]?.x===40&&coastalVal.spawns[1]?.x===440&&coastalVal.spawns[4]?.x===185&&coastalVal.spawns[5]?.x===295,'maps/coastal-crossing.json validates with its authored spawns');
+  setup();
+}
+// --- Phase P1c-2 Network Snapshot, Bounds & UI Text ---
+{
+  setup();
+  S.heights=newTerrain('Jagged Mountains');
+  S.customMap=cloneMapData(validateCustomMap(serializeCurrentMap()));
+  let hRef=S.heights,cmRef=S.customMap.heights;
+  let snapFull=snapshot();
+  ok(S.heights===hRef&&S.customMap.heights===cmRef&&snapFull.w===960&&snapFull.d===240&&snapFull.cell===2&&snapFull.heights?.enc==='i16t'&&snapFull.customMap?.heights?.enc==='i16t','snapshot() sends w/d/cell and encoded heights/customMap without mutating S');
+  let snapJson=JSON.stringify(snapFull);
+  ok(snapJson.length<700000,'full 960x480 snapshot WITH a custom map (live heights + authored map heights) JSON size ('+snapJson.length+' B) < 700 KB');
+
+  ok(setWorld({w:480,d:80,cell:1})&&W===480&&D===80&&CELL===1&&N===481*161,'switch host to 480x80@1');
+  S.heights=newTerrain('Cliffs');
+  S.platforms=[{id:1,x:180,z:0,y:28,width:28,depth:12,hp:120,maxHp:120}];
+  editorSpawns=[40,440,120,360,200,280];
+  S.customMap=cloneMapData(validateCustomMap(serializeCurrentMap()));
+  let hostTicks=Array.from(S.heights,hTick);
+  let wire480Json=JSON.stringify(snapshot()),wire480=JSON.parse(wire480Json);
+  setWorld({w:960,d:240,cell:2});
+  S.heights=new Float32Array(N).fill(15);S.platforms=[];S.customMap=null;
+  receiveState(wire480);
+  let guestTicksMatch=W===480&&D===80&&CELL===1&&S.heights.length===481*161;
+  for(let i=0;i<S.heights.length&&guestTicksMatch;i++)if(hTick(S.heights[i])!==hostTicks[i])guestTicksMatch=false;
+  ok(guestTicksMatch&&S.customMap&&S.customMap.w===480&&S.customMap.d===80&&S.customMap.cell===1,'snapshot()->JSON->receiveState of 480x80@1 switches receiver W/D/CELL and heights tick-identical');
+
+  let plainPeer=JSON.parse(wire480Json);
+  plainPeer.heights=Array.from(S.heights);
+  S.heights.fill(18);
+  receiveState(plainPeer);
+  let plainMatch=true;
+  for(let i=0;i<S.heights.length;i++)if(hTick(S.heights[i])!==hostTicks[i]){plainMatch=false;break}
+  ok(plainMatch,'older peer plain-array heights accepted when length matches');
+
+  setup();
+  for(let delta of [6.95,7.00,7.05]){
+    S.heights.fill(20);
+    let iz0=Math.round(D/CELL),ixStep=Math.round(100/CELL);
+    for(let iz=iz0-2;iz<=iz0+2;iz++)for(let ix=ixStep;ix<NX;ix++)S.heights[gridIdx(ix,iz)]=quantH(20+delta);
+    let tk=S.tanks[0];tk.x=100-CELL;tk.z=0;tk.y=supportHeight(tk.x,0);tk.fuel=100;
+    let beforeStep=canStepMove(tk,100);
+    let rtSnap=JSON.parse(JSON.stringify(snapshot()));
+    S.heights.fill(15);
+    receiveState(rtSnap);
+    let tkAfter=S.tanks[0];
+    let afterStep=canStepMove(tkAfter,100);
+    ok(beforeStep===afterStep&&(delta<=7?beforeStep:!beforeStep),'canStepMove at '+delta+'m step identical before and after snapshot roundtrip ('+beforeStep+')');
+  }
+
+  setup();
+  S.heights.fill(23.45);
+  let keepW=W,keepD=D,keepCell=CELL,keepH0=S.heights[0],keepRef=S;
+  let badLenSnap=JSON.parse(JSON.stringify(snapshot()));
+  badLenSnap.heights=encodeHeights(new Float32Array(100).fill(20));
+  receiveState(badLenSnap);
+  ok(S===keepRef&&W===keepW&&D===keepD&&CELL===keepCell&&hTick(S.heights[0])===2345,'receiveState ignores snapshot with wrong encoded length');
+
+  let bigGridSnap=JSON.parse(JSON.stringify(snapshot()));
+  bigGridSnap.w=1200;bigGridSnap.d=200;bigGridSnap.cell=1;
+  receiveState(bigGridSnap);
+  ok(S===keepRef&&W===keepW&&D===keepD&&CELL===keepCell&&hTick(S.heights[0])===2345,'receiveState ignores snapshot with nx*nz > 200000');
+
+  let makeRawEnc2=(ticks)=>{let b=new Uint8Array(ticks.length*2);for(let i=0;i<ticks.length;i++){b[i*2]=ticks[i]&255;b[i*2+1]=(ticks[i]>>8)&255}return{enc:'i16t',data:Buffer.from(b).toString('base64')}};
+  let badMapSnap=JSON.parse(JSON.stringify(snapshot()));
+  let badTicks=new Array(241*81).fill(2000);badTicks[5]=14001;
+  badMapSnap.customMap={version:2,name:'BadTick',w:480,d:80,cell:2,heights:makeRawEnc2(badTicks),spawns:[{x:40,z:0},{x:440,z:0}],platforms:[]};
+  receiveState(badMapSnap);
+  ok(S===keepRef&&W===keepW&&D===keepD&&CELL===keepCell&&hTick(S.heights[0])===2345&&S.customMap===null,'receiveState ignores snapshot with customMap tick 14001');
+
+  ok(htmlSource.includes('id="targetX" type="number" min="0" max="960"')&&htmlSource.includes('960 × 480 meter')&&htmlSource.includes('960 × 480 M BATTLEFIELD'),'UI text describes 960 x 480 m default and #targetX max=960');
+  setup();
+}
+// --- Phase P2a 2-D Tank State, Ground-Plane Driving, Collisions & Physics ---
+{
+  // 1. Drive 2s along +z, -z, and 45 deg heading -> 12m displacement (6 m/s) and 12 fuel drop
+  for(let[label,hdg,ex,ez]of [['+z',Math.PI/2,0,12],['-z',-Math.PI/2,0,-12],['45deg',Math.PI/4,12*Math.SQRT1_2,12*Math.SQRT1_2]]){
+    setup();S.actionLog=[];let tk=current();tk.x=200;tk.z=0;tk.heading=hdg;tk.fuel=100;
+    ok(action({action:'move',throttle:1,turn:0},0),'P2a start drive '+label);
+    for(let i=0;i<120;i++)step(1/60);
+    ok(steerDrive({stop:true,moveId:S.activeDrive.id},0),'P2a stop drive '+label);
+    let dx=tk.x-200,dz=tk.z-0,dist=Math.hypot(dx,dz),log=S.actionLog[S.actionLog.length-1];
+    ok(Math.abs(dx-ex)<1e-2&&Math.abs(dz-ez)<1e-2&&Math.abs(dist-12)<1e-2&&Math.abs(tk.fuel-88)<1e-2&&Math.abs(log.distance-12)<.05&&Math.abs(log.dz-ez)<.05,'P2a 2s drive along '+label+' moves 12m and drains 12 fuel');
+  }
+  // 2. Turn-in-place changes heading at 0 fuel
+  setup();S.actionLog=[];let tkTurn=current();tkTurn.x=200;tkTurn.z=10;tkTurn.heading=0;tkTurn.fuel=100;
+  ok(action({action:'move',throttle:0,turn:1},0),'P2a start turn-in-place');
+  for(let i=0;i<60;i++)step(1/60);
+  ok(steerDrive({stop:true,moveId:S.activeDrive.id},0),'P2a stop turn-in-place');
+  ok(Math.abs(tkTurn.heading-TURN_RATE)<1e-2&&tkTurn.x===200&&tkTurn.z===10&&tkTurn.fuel===100&&S.actionLog[0].distance===0&&S.actionLog[0].duration>0,'P2a 1s turn-in-place rotates by TURN_RATE at 0 fuel');
+  // 3. 7m step rule along diagonal path: blocks 10m ledge, allows 5m ledge
+  for(let[ledge,expectOk]of [[10,false],[5,true]]){
+    setup();S.heights.fill(20);
+    for(let iz=0;iz<NZ;iz++)for(let ix=0;ix<NX;ix++)if(ix*CELL+(iz*CELL-D)>=204)S.heights[gridIdx(ix,iz)]=quantH(20+ledge);
+    let tkStep=current();tkStep.x=200;tkStep.z=0;tkStep.y=supportHeight(200,0);tkStep.heading=Math.PI/4;tkStep.fuel=100;
+    let diagProbeX=200+4*Math.SQRT1_2,diagProbeZ=4*Math.SQRT1_2;
+    ok(canStepMove(tkStep,diagProbeX,supportHeight,diagProbeZ)===expectOk,'P2a diagonal '+ledge+'m ledge canStepMove='+expectOk);
+  }
+  // 4. Tank-tank radial collision: blocked at hypot<7 (dx 3, dz 3), allowed at dx 0, dz 10
+  setup();let tA=S.tanks[0],tB=S.tanks[1];tA.x=200;tA.z=0;tA.y=20;tB.x=203;tB.z=3;tB.y=20;
+  ok(!canStepMove(tA,200.5,supportHeight,0.5),'P2a tank-tank blocked at dx=3, dz=3 (hypot<7)');
+  tB.x=200;tB.z=10;
+  ok(canStepMove(tA,201,supportHeight,0),'P2a tank-tank allowed at dx=0, dz=10');
+  // 5. Wall collision in (x,z): wall at z=0 blocks at z=0, does not block tank at z=30
+  setup();S.buildings=[{id:1,owner:1,x:208,z:0,y:20,shape:'wall',hp:120}];
+  let tW=S.tanks[0];tW.x=200;tW.z=0;tW.y=20;
+  ok(!canStepMove(tW,204,supportHeight,0),'P2a wall blocks tank at z=0');
+  tW.z=30;tW.y=20;
+  ok(canStepMove(tW,204,supportHeight,30),'P2a wall at z=0 does not block tank at z=30');
+  // 6. Legacy {dir:-1} moves -x exactly as before even if heading was pi/2
+  setup();let tLeg=current();tLeg.x=200;tLeg.z=20;tLeg.heading=Math.PI/2;tLeg.fuel=100;
+  ok(action({action:'move',dir:-1},0),'P2a legacy {dir:-1} starts move');
+  for(let i=0;i<60;i++)step(1/60);
+  finishDrive();
+  ok(Math.abs(tLeg.x-194)<1e-2&&Math.abs(tLeg.z-20)<1e-4&&Math.abs(Math.abs(tLeg.heading)-Math.PI)<1e-4,'P2a legacy {dir:-1} sets heading=pi and moves -x');
+  // 7. Tank at z=60 falls, parachutes, and buries against terrain at z=60 (ridge at z=0 must not hold it up)
+  setup();S.heights.fill(20);setFlatRow(180,220,80,0);
+  let tFall=S.tanks[0];tFall.x=200;tFall.z=60;tFall.y=60;tFall.inv.Parachute=1;
+  for(let i=0;i<360;i++)step(1/60);
+  ok(Math.abs(tFall.y-20)<1e-2&&tFall.hp===100&&tFall.inv.Parachute===0,'P2a tank at z=60 parachutes to z=60 ground (20m) ignoring z=0 80m ridge');
+  tFall.y=50;tFall.inv.Parachute=0;
+  for(let i=0;i<180;i++)step(1/60);
+  ok(Math.abs(tFall.y-20)<1e-2&&tFall.hp<100,'P2a tank at z=60 takes fall damage onto z=60 terrain');
+  let hpBeforeBury=tFall.hp;deform(200,12,15,60);
+  for(let i=0;i<60;i++)step(1/60);
+  ok(tFall.hp<hpBeforeBury&&tFall.y>20,'P2a tank at z=60 takes burial damage when terrain at z=60 rises above it');
+  // 8. Re-seat functions at (t.x, t.z): sculptTerrain, placePlatform, removePlatformAt, applyCustomMapToState, newRound
+  setup();S.heights.fill(20);let tSeat=S.tanks[0];tSeat.x=200;tSeat.z=60;tSeat.y=20;
+  sculptTerrain(200,'raise',18,10,0);
+  ok(Math.abs(tSeat.y-20)<1e-3,'P2a sculptTerrain at z=0 does not lift tank at z=60');
+  sculptTerrain(200,'raise',18,10,60);
+  ok(Math.abs(tSeat.y-height(200,60))<1e-3,'P2a sculptTerrain at z=60 re-seats tank at z=60');
+  placePlatform(200,28,15,0);
+  ok(Math.abs(tSeat.y-height(200,60))<1e-3,'P2a placePlatform at z=0 does not lift tank at z=60');
+  placePlatform(200,28,15,60);
+  ok(Math.abs(tSeat.y-supportHeight(200,60))<1e-3&&tSeat.y>height(200,60),'P2a placePlatform at z=60 supports tank at z=60');
+  removePlatformAt(200,60);
+  ok(Math.abs(tSeat.y-height(200,60))<1e-3,'P2a removePlatformAt at z=60 drops tank back to terrain at z=60');
+  let cmap2D={version:2,name:'ZSpawns',w:480,d:80,cell:2,heights:encodeHeights(new Float32Array(241*81).fill(20)),spawns:[{x:60,z:-40},{x:420,z:50}],platforms:[]};
+  ok(applyCustomMapToState(cmap2D)&&S.tanks[0].z===-40&&S.tanks[1].z===50&&Math.abs(S.tanks[0].heading-Math.atan2(90,360))<1e-3,'P2a applyCustomMapToState sets z from custom map spawns and heading toward nearest opponent');
+  S.cfg.terrain='Custom';newRound();
+  ok(S.tanks[0].z===-40&&S.tanks[1].z===50&&Math.abs(S.tanks[0].heading-Math.atan2(90,360))<1e-3,'P2a newRound sets z from custom map spawns and heading toward nearest opponent');
+  // 9. Old snapshot without z/heading loads with z=0 and heading from angle
+  setup();
+  let oldSnap=JSON.parse(JSON.stringify(snapshot()));
+  delete oldSnap.tanks[0].z;delete oldSnap.tanks[0].heading;oldSnap.tanks[0].angle=45;
+  delete oldSnap.tanks[1].z;delete oldSnap.tanks[1].heading;oldSnap.tanks[1].angle=135;
+  receiveState(oldSnap);
+  ok(S.tanks[0].z===0&&S.tanks[0].heading===0&&S.tanks[1].z===0&&S.tanks[1].heading===Math.PI,'P2a receiveState defaults missing z->0 and heading->(angle>90?pi:0)');
+  setup();
+}
+// --- Phase P2b-1 360-Degree Aiming & 2-D Combat Paths Verification ---
+{
+  // 1. direction(angle, az): world-relative azimuth without heading term
+  let d90=direction(45,90),dm90=direction(45,-90),d180=direction(45,180),d135=direction(135,0);
+  let unit=v=>Math.abs(Math.hypot(v.x,v.y,v.z)-1)<1e-9;ok([d90,dm90,d180,d135,direction(30,45),direction(150,-120)].every(unit),'direction() is a unit vector for every angle/az (old code: z=sin(az) without cos(angle))');ok(Math.abs(d90.x)<1e-6&&Math.abs(d90.z-Math.cos(45*rad))<1e-6&&Math.abs(dm90.x)<1e-6&&Math.abs(dm90.z+Math.cos(45*rad))<1e-6&&d180.x<-0.7&&Math.abs(d180.z)<1e-6&&Math.abs(d135.x-d180.x)<1e-9&&d135.z===0,'P2b-1 direction(45,90) points +z, direction(45,-90) -z, direction(45,180) -x, and direction(135,0) unchanged (-x)');
+  ok(htmlSource.includes('id="azimuth" type="range" min="-180" max="180"'),'P2b-1 #azimuth slider widened to [-180,180]');
+  // 2. Shell fired by tank at z=-60 with az=90 starts at z~-55 and lands at z>-60
+  setup();S.heights.fill(20);S.wind=0;
+  let tAz=S.tanks[0];tAz.x=200;tAz.z=-60;tAz.y=20;
+  ok(action({action:'fire',weaponOrItem:'Baby Missile',angle:45,power:500,az:90},0)&&S.shots.length===1&&Math.abs(S.shots[0].z-(-60+5*Math.cos(45*rad)))<1e-3,'P2b-1 shell fired by tank at z=-60 with az=90 starts 5 m along the unit aim (z=-60+5cos45)');
+  let landZ=S.shots[0].z;
+  for(let i=0;i<400&&S.shots.length;i++){landZ=S.shots[0].z;step(1/60)}
+  ok(S.shots.length===0&&landZ>-50,'P2b-1 shell fired by tank at z=-60 with az=90 lands at z>-60');
+  // 3. Explosion at (x,y,z=60) damages tank at z=60 and NOT tank at same x,y with z=0
+  setup();
+  S.tanks[0].x=200;S.tanks[0].y=20;S.tanks[0].z=0;S.tanks[0].hp=100;
+  S.tanks[1].x=200;S.tanks[1].y=20;S.tanks[1].z=60;S.tanks[1].hp=100;
+  explosion(200,22,60,{r:15,dmg:45,kind:'blast'},0,true);
+  ok(S.tanks[1].hp<100&&S.tanks[0].hp===100,'P2b-1 explosion at (x,y,z=60) damages tank at z=60 and NOT one at same x,y with z=0');
+  // 4. blastCover from a ridge only between z=60 points
+  setup();S.heights.fill(20);
+  setFlatRow(195,205,48,60);
+  S.tanks[0].x=220;S.tanks[0].y=20;S.tanks[0].z=60;
+  S.tanks[1].x=220;S.tanks[1].y=20;S.tanks[1].z=0;
+  ok(blastCover(S.tanks[0],180,22,60)===.2&&blastCover(S.tanks[1],180,22,0)===1,'P2b-1 blastCover attenuates from a ridge only between z=60 points');
+  // 5. Direct hit on a tank at z=80
+  setup();S.heights.fill(10);S.wind=0;
+  S.tanks[1].x=200;S.tanks[1].z=80;S.tanks[1].y=25;S.tanks[1].hp=100;
+  S.shots=[{id:++S.uid,x:200,y:27,z:80,vx:0,vy:0,vz:0,name:'Baby Missile',owner:0,life:.5,bounces:0,split:false,mode:'air'}];
+  step(1/60);
+  ok(S.shots.length===0&&S.tanks[1].hp<100,'P2b-1 direct hit in step() triggers on tank at z=80');
+  // 6. Mag deflector at z
+  setup();S.heights.fill(10);S.wind=0;
+  S.tanks[1].x=200;S.tanks[1].y=20;S.tanks[1].z=70;S.tanks[1].mag=true;
+  S.shots=[
+    {id:++S.uid,x:200,y:25,z:70,vx:10,vy:0,vz:0,name:'Baby Missile',owner:0,life:.1,bounces:0,split:false,mode:'air'},
+    {id:++S.uid,x:200,y:25,z:0,vx:10,vy:0,vz:0,name:'Baby Missile',owner:0,life:.1,bounces:0,split:false,mode:'air'}
+  ];
+  step(1/60);
+  ok(S.shots[0].vy>0&&S.shots[1].vy<0,'P2b-1 mag deflector at z=70 repels projectile near z=70 and not projectile at z=0');
+  // 7. Laser hits a tank at z=40 along its azimuth
+  setup();S.heights.fill(20);
+  S.tanks[0].x=200;S.tanks[0].y=20;S.tanks[0].z=0;
+  S.tanks[1].x=200;S.tanks[1].y=20;S.tanks[1].z=40;S.tanks[1].hp=100;
+  ok(action({action:'fire',weaponOrItem:'Laser',angle:0,power:500,az:90},0)&&S.tanks[1].hp===60,'P2b-1 laser fired at az=90 hits tank at z=40 along its azimuth');
+  // 8. Roller and digger fired at az=90 move along +z
+  setup();S.heights.fill(20);S.wind=0;
+  S.tanks[0].x=200;S.tanks[0].y=20;S.tanks[0].z=0;S.tanks[1].x=500;S.tanks[1].z=0;
+  ok(action({action:'fire',weaponOrItem:'Roller',angle:35,power:300,az:90},0),'P2b-1 fire Roller at az=90');
+  let rollZ0=null,rollZ1=null;
+  for(let i=0;i<240&&S.shots.length;i++){if(S.shots[0].mode==='roll'){if(rollZ0===null)rollZ0=S.shots[0].z;rollZ1=S.shots[0].z}step(1/60)}
+  ok(rollZ0!==null&&rollZ1>rollZ0+5,'P2b-1 roller fired at az=90 moves along +z');
+  setup();S.heights.fill(25);S.wind=0;
+  S.tanks[0].x=200;S.tanks[0].y=25;S.tanks[0].z=0;S.tanks[1].x=500;S.tanks[1].z=0;
+  ok(action({action:'fire',weaponOrItem:'Digger',angle:35,power:300,az:90},0),'P2b-1 fire Digger at az=90');
+  let digZ0=null,digZ1=null;
+  for(let i=0;i<240&&S.shots.length;i++){if(S.shots[0].mode==='dig'){if(digZ0===null)digZ0=S.shots[0].z;digZ1=S.shots[0].z}step(1/60)}
+  ok(digZ0!==null&&digZ1>digZ0+5,'P2b-1 digger fired at az=90 burrows along +z');
+  // 9. nearest() prefers ground-plane-closer tank; damage() death flash at t.z; recordAiImpact along bearing
+  setup();
+  S.tanks.push({id:2,name:'P2',x:130,z:0,heading:0,y:20,hp:100,shield:0});
+  S.tanks[0].x=100;S.tanks[0].z=0;
+  S.tanks[1].x=110;S.tanks[1].z=90;
+  S.tanks[2].x=130;S.tanks[2].z=0;
+  ok(nearest(100,0,0)?.id===2,'P2b-1 nearest() prefers ground-plane-closer tank');
+  let flashZ=null,origFlash=flash;flash=(fx,fy,fz)=>{flashZ=fz};damage(S.tanks[1],150,0);flash=origFlash;
+  ok(S.tanks[1].hp===0&&flashZ===90,'P2b-1 damage() death flash spawns at tank z');
+  setup();S.cfg.difficulty='Normal';
+  S.tanks[0].x=100;S.tanks[0].z=0;S.tanks[1].x=100;S.tanks[1].z=100;
+  S.tanks[0].aiPlan={targetId:1,targetX:100,targetZ:100,angle:45,power:600,biasRange:0,biasWind:0};
+  recordAiImpact(0,100,{x:100,y:20,z:70,vx:0,vy:0,vz:20});
+  ok(Math.abs(S.tanks[0].aiMem[1].lastMissX-(-30))<1e-6&&S.tanks[0].aiMem[1].corrPower>0,'P2b-1 recordAiImpact measures miss along shooter->impact bearing when z!=0');
+  setup();
+}
+// --- Phase P2b-2 Structures, Bridges, Platforms, Drones, Satellites, Defences & Views ---
+{
+  // 1. Wall placed by tank at z=-40 aiming az=90 sits at z>-40 with yaw~pi/2, blocks shell crossing its footprint, not one 15m to its side
+  setup();S.heights.fill(20);S.wind=0;
+  let tBld=current();tBld.x=200;tBld.z=-40;tBld.y=20;
+  ok(action({weaponOrItem:'Reinforced Bunker Wall',angle:45,power:500,az:90},0)&&S.buildings.length===1,'P2b-2 deploy wall at z=-40, az=90');
+  let wBld=S.buildings[0];
+  ok(wBld.z>-40&&Math.abs(wBld.z-(-28))<1e-3&&Math.abs(wBld.x-200)<1e-3&&Math.abs(wBld.yaw-Math.PI/2)<1e-3,'P2b-2 wall placed at z>-40 with yaw~pi/2');
+  ok(Boolean(buildingCollision({x:200,y:25,z:wBld.z,owner:1,life:1}))&&!buildingCollision({x:215,y:25,z:wBld.z,owner:1,life:1}),'P2b-2 oriented wall blocks shell crossing footprint at x=200 but not one 15m to side at x=215');
+  // 2. Bridge laid at az=90 spans along z and supports a tank driving across a water channel that runs along x; platformAt respects yaw
+  setup();S.heights.fill(20);
+  for(let iz=0;iz<NZ;iz++){let gz=iz*CELL-D;if(Math.abs(gz-18)<=10)for(let ix=0;ix<NX;ix++)S.heights[gridIdx(ix,iz)]=5}
+  let tBr=current();tBr.x=200;tBr.z=0;tBr.y=supportHeight(200,0);tBr.heading=Math.PI/2;tBr.fuel=100;tBr.inv['Floating Platform']=0;tBr.inv['Inflatable Lifejacket']=0;
+  ok(action({weaponOrItem:'Deployable Bridge',angle:45,power:500,az:90},0)&&S.platforms.length===1,'P2b-2 deploy bridge at az=90');
+  let br=S.platforms[0];
+  ok(Math.abs(br.x-200)<1e-3&&Math.abs(br.z-18)<1e-3&&Math.abs(br.yaw-Math.PI/2)<1e-3&&br.width===40&&br.depth===12,'P2b-2 bridge laid at az=90 spans along z with yaw~pi/2');
+  ok(platformAt(200,S.platforms,35)===br&&platformAt(215,S.platforms,18)===null,'P2b-2 platformAt respects yaw (covers z=35 along span, not x=215 beside it)');
+  ok(action({action:'move',throttle:1,turn:0},0),'P2b-2 start drive across water channel on z-spanning bridge');
+  for(let i=0;i<360&&S.activeDrive;i++)step(1/60);
+  if(S.activeDrive)finishDrive();
+  ok(tBr.z>30&&tBr.hp===100,'P2b-2 bridge supports tank driving across water channel running along x');
+  // 3. Drone launched at a target at z=70 flies to it and its round hits there
+  setup();S.heights.fill(20);S.wind=0;
+  let tDr=current(),eDr=S.tanks[1];tDr.x=200;tDr.z=0;tDr.y=20;tDr.ai=true;eDr.x=200;eDr.z=70;eDr.y=20;eDr.hp=100;
+  ok(action({weaponOrItem:'Strike Attack Drone',angle:45,power:500,az:90,targetX:200,targetZ:70},0)&&S.drones.length===1,'P2b-2 launch unpiloted attack drone toward target at z=70');
+  let maxDroneZ=0;
+  for(let i=0;i<360&&S.phase==='flight';i++){if(S.drones[0]&&S.drones[0].z>maxDroneZ)maxDroneZ=S.drones[0].z;step(1/60)}
+  ok(maxDroneZ>20&&eDr.hp<100,'P2b-2 drone flies along +z toward z=70 and its round hits target tank there');
+  // 4. Satellite strike at strikeZ=-50 deforms terrain at z=-50 and damages a tank there, not one at z=0
+  setup();S.heights.fill(20);
+  let sat={id:1,owner:0,x:200,y:190,z:0,hp:60,maxHp:60,cooldown:0};
+  S.satellites=[sat];
+  executeSatelliteStrike(sat,200,-50);
+  ok(height(200,-50)<20&&height(200,0)===20,'P2b-2 executeSatelliteStrike at strikeZ=-50 deforms terrain at z=-50 and not z=0');
+  setup();S.heights.fill(20);
+  S.tanks[0].x=200;S.tanks[0].z=0;S.tanks[0].y=20;S.tanks[0].hp=100;
+  S.tanks[1].x=200;S.tanks[1].z=-50;S.tanks[1].y=20;S.tanks[1].hp=100;
+  S.satellites=[{id:2,owner:0,x:200,y:190,z:0,hp:60,maxHp:60,cooldown:0}];
+  ok(action({action:'sat_strike',targetX:200,targetZ:-50},0),'P2b-2 sat_strike action with targetZ=-50');
+  ok(S.tanks[1].hp<100&&S.tanks[0].hp===100,'P2b-2 satellite strike at strikeZ=-50 damages tank at z=-50 and not tank at z=0');
+  // 5. CIWS at z=60 intercepts a shell at z=60 but not at z=0
+  setup();
+  S.buildings=[{id:1,owner:1,shape:'ciws',x:200,y:20,z:60,yaw:0,charges:1,hp:55}];
+  ok(!intercepted({owner:0,x:200,y:30,z:0})&&S.buildings[0].charges===1,'P2b-2 CIWS at z=60 does not intercept shell at z=0');
+  ok(intercepted({owner:0,x:200,y:30,z:60})&&S.buildings[0].charges===0,'P2b-2 CIWS at z=60 intercepts shell at z=60');
+  // 6. syncViews puts the tank group at z and rotation.y=-heading
+  setup();S.heights.fill(20);
+  S.tanks[0].x=180;S.tanks[0].y=20;S.tanks[0].z=-45;S.tanks[0].heading=Math.PI/3;S.tanks[0].az=90;
+  syncViews();
+  let tv=views.get('t0');
+  ok(tv&&tv.g.position.x===180&&tv.g.position.y===20&&tv.g.position.z===-45&&Math.abs(tv.g.rotation.y-(-Math.PI/3))<1e-6&&Math.abs(tv.turret.rotation.y-(-(90*rad-Math.PI/3)))<1e-6,'P2b-2 syncViews puts tank group at z=-45 with rotation.y=-heading and relative turret yaw');
+  setup();
+}
+// --- Phase P2c Controls, HUD, Camera & 2-D AI Verification ---
+{
+  // 1. Keyboard: keydown W with canControl starts a drive with throttle 1; holding A sets turn -1 and changes heading; keyup of all keys idles
+  setup();driveKeys.clear();
+  let tkCtrl=current();tkCtrl.x=200;tkCtrl.z=0;tkCtrl.heading=0;tkCtrl.fuel=100;
+  handleKeyDown({key:'w',code:'KeyW',preventDefault(){}});
+  ok(Boolean(S.activeDrive)&&S.activeDrive.throttle===1&&S.activeDrive.turn===0,'P2c keydown W with canControl starts a drive with throttle 1');
+  handleKeyDown({key:'a',code:'KeyA',preventDefault(){}});
+  ok(S.activeDrive.throttle===1&&S.activeDrive.turn===-1,'P2c holding A during a drive sets turn -1');
+  for(let i=0;i<30;i++)step(1/60);
+  ok(tkCtrl.heading<0&&tkCtrl.x>200,'P2c holding W+A advances and rotates heading negatively');
+  handleKeyUp({key:'w',code:'KeyW'});
+  ok(S.activeDrive&&S.activeDrive.throttle===0&&S.activeDrive.turn===-1,'P2c releasing W while holding A keeps turning in place (throttle 0, turn -1)');
+  handleKeyUp({key:'a',code:'KeyA'});
+  ok(S.activeDrive&&S.activeDrive.throttle===0&&S.activeDrive.turn===0,'P2c keyup of all keys idles active drive');
+  handleKeyDown({key:'Escape',code:'Escape',preventDefault(){}});
+  ok(!S.activeDrive,'P2c Escape stops active drive');
+  // 2. Explore mode W still pans (no drive started)
+  setup();driveKeys.clear();
+  setCameraMode('explore');
+  let expX0=exploreX,expZ0=exploreZ;
+  handleKeyDown({key:'w',code:'KeyW',preventDefault(){}});
+  ok(!S.activeDrive&&Math.hypot(exploreX-expX0,exploreZ-expZ0)>1,'P2c explore mode W still pans camera without starting a drive');
+  resetCamera();
+  // 3. Shift+ArrowRight changes az by +1 and wraps 180 -> -179; Shift+ArrowLeft wraps -180 -> 179
+  setup();
+  $('azimuth').value='179';
+  handleKeyDown({key:'ArrowRight',code:'ArrowRight',shiftKey:true,preventDefault(){}});
+  ok(+$('azimuth').value===180,'P2c Shift+ArrowRight increments az 179 -> 180');
+  handleKeyDown({key:'ArrowRight',code:'ArrowRight',shiftKey:true,preventDefault(){}});
+  ok(+$('azimuth').value===-179,'P2c Shift+ArrowRight wraps az 180 -> -179');
+  $('azimuth').value='-180';
+  handleKeyDown({key:'ArrowLeft',code:'ArrowLeft',shiftKey:true,preventDefault(){}});
+  ok(+$('azimuth').value===179,'P2c Shift+ArrowLeft wraps az -180 -> 179');
+  // 4. HUD elements (#driveFwd, #driveRev, #turnL, #turnR, #hdg, #targetZ) and camera focus/gunner at (x,z,heading)
+  ok(htmlSource.includes('id="driveFwd"')&&htmlSource.includes('id="turnL"')&&htmlSource.includes('id="hdg"')&&htmlSource.includes('id="targetZ"'),'P2c HUD includes drive/turn buttons, #hdg readout, and #targetZ input');
+  setup();let tkCam=current();tkCam.x=220;tkCam.z=65;tkCam.y=20;tkCam.heading=Math.PI/2;tkCam.az=90;
+  setCameraMode('focus');updateCamera(.1,tkCam,45,90,direction(45,90));
+  ok(Math.abs(lookGoal.x-220)<1e-3&&lookGoal.z>65&&cameraGoal.z<65,'P2c focus camera follows active tank (x,z) and looks along hull heading');
+  setCameraMode('gunner');updateCamera(.1,tkCam,45,90,direction(45,90));
+  ok(Math.abs(cameraGoal.x-220)<1e-3&&Math.abs(cameraGoal.z-63)<1e-3&&lookGoal.z>100,'P2c gunner camera sits at tank (x,z) and looks along turret world azimuth');
+  resetCamera();
+  // 5. estimate() vs an enemy at (x+150, z+80): returns az within 1 deg of true bearing and shell lands within tolerance
+  setup();S.heights.fill(20);S.cfg.difficulty='Hard';S.wind=0;seed=4242;
+  let bot2D=S.tanks[0],en2D=S.tanks[1];bot2D.x=200;bot2D.z=0;bot2D.y=20;en2D.x=350;en2D.z=80;en2D.y=20;en2D.shield=180;
+  let trueBearing=Math.atan2(80,150)/rad;
+  let est2D=estimate(bot2D,en2D);
+  ok(Math.abs(est2D.az-trueBearing)<=1,'P2c estimate() vs enemy at (x+150, z+80) returns az within 1 deg of true bearing ('+est2D.az.toFixed(2)+' vs '+trueBearing.toFixed(2)+')');
+  bot2D.aiPlan={targetId:en2D.id,targetX:en2D.x,targetZ:en2D.z,angle:est2D.angle,power:est2D.power,az:est2D.az,biasRange:est2D.biasRange,biasWind:est2D.biasWind};
+  ok(action({action:'fire',weaponOrItem:'Baby Missile',angle:est2D.angle,power:est2D.power,az:est2D.az},0),'P2c fire 2-D estimated shot');
+  let impPos=null;
+  for(let i=0;i<600&&S.phase==='flight';i++){if(S.shots[0])impPos={x:S.shots[0].x,z:S.shots[0].z};step(1/60)}
+  ok(impPos&&Math.hypot(impPos.x-en2D.x,impPos.z-en2D.z)<15,'P2c shell fired with 2-D estimate lands within Hard AI tolerance (<15m) of enemy at (x+150, z+80)');
+  // Crosswind offset check: when shooting along +z (bearing 90 deg) with +x wind, az offsets into -x (< 90 deg)
+  setup();S.heights.fill(20);S.cfg.difficulty='Hard';S.wind=6;
+  bot2D=S.tanks[0];en2D=S.tanks[1];bot2D.x=200;bot2D.z=0;en2D.x=200;en2D.z=160;
+  bot2D.aiMem={1:{shots:0,corrX:0,corrPower:0,lastMissX:0,lastEnemyX:200,lastEnemyZ:160,biasRange:0,biasWind:0}};
+  let estCross=estimate(bot2D,en2D);
+  ok(estCross.az>90&&estCross.az<120&&estCross.error<5,'P2c +x crosswind on a +z shot aims upwind toward -x (90 < az < 120) with predicted miss < 5 m');
+  // 6. estimate() vs an enemy at z==0 returns bit-for-bit identical angle/power/az to the 1-D branch
+  for(let[tx,ex,windVal]of [[80,260,3.5],[400,140,-4.2]]){
+    setup();S.cfg.difficulty='Normal';S.wind=windVal;seed=9001;
+    let b1=S.tanks[0],e1=S.tanks[1];b1.x=tx;b1.z=0;b1.heading=1.23;e1.x=ex;e1.z=0;
+    let resActual=estimate(b1,e1);
+    // Compute reference using exact unchanged 1-D math
+    setup();S.cfg.difficulty='Normal';S.wind=windVal;seed=9001;
+    let bRef=S.tanks[0],eRef=S.tanks[1];bRef.x=tx;bRef.z=0;eRef.x=ex;eRef.z=0;
+    let prof=aiProfile(S.cfg.difficulty),biasR=(rng()-.5)*2*prof.rangeErr,biasW=(rng()-.5)*2*prof.windErr;
+    let rawDx=eRef.x-bRef.x,dir=rawDx>=0?1:-1,baseDist=Math.max(12,Math.abs(rawDx)),baseDy=eRef.y-bRef.y;
+    let elev=clamp(44+clamp(baseDy*.18,-10,14)+Math.min(10,baseDist*.018),28,72),ang1D=dir>0?elev:180-elev;
+    let radE=elev*rad,cosE=Math.cos(radE),sinE=Math.sin(radE),tanE=sinE/cosE,sx=bRef.x+dir*cosE*5,sy=bRef.y+3.5+sinE*5;
+    let perceivedX=clamp(eRef.x+biasR,6,W-6),dist=Math.max(8,(perceivedX-sx)*dir),dy=eRef.y-sy;
+    let perceivedWind=(S.wind||0)*prof.windSense+biasW,effG=Math.max(4,GRAV+perceivedWind*dir*tanE);
+    let tFlight=Math.sqrt(Math.max(.16,2*Math.max(2,dist*tanE-dy)/effG)),vx0=Math.max(4,(dist-.5*perceivedWind*dir*tFlight*tFlight)/tFlight);
+    let pwr1D=clamp((vx0/cosE)/.14,100,1000);
+    ok(resActual.angle===ang1D&&resActual.power===pwr1D&&resActual.az===0,'P2c estimate() at z==0 is bit-identical to 1-D branch for dir='+dir);
+  }
+  // 7. AI driving waypoint selection
+  setup();S.heights.fill(20);
+  let wp=pickAiDriveWaypoint(S.tanks[0],S.tanks[1]);
+  ok(wp&&Number.isFinite(wp.targetX)&&Number.isFinite(wp.targetZ)&&Math.hypot(wp.targetX-S.tanks[0].x,wp.targetZ-S.tanks[0].z)>=6,'P2c pickAiDriveWaypoint finds reachable 2-D waypoint');
+  setup();
+}
+// --- Phase P3 Water Rules (W1-W4) Verification ---
+{
+  // W1: Gearless tank drives from shore into a 6 m deep basin (bed=6, WATER_LEVEL=12), sits on bed, moves 2s at 2 m/s (4m +- 0.2), climbs out up a 5 m bank (6 -> 11 -> 13)
+  setup();S.heights.fill(6);
+  setFlatRow(80,100,12);
+  setFlatRow(102,108,6);
+  setFlatRow(110,114,11);
+  setFlatRow(116,130,13);
+  let tg=current();tg.x=99;tg.z=0;tg.y=supportHeight(99,0);tg.heading=0;tg.fuel=100;
+  tg.waterGear=null;tg.inv['Floating Platform']=0;tg.inv['Inflatable Lifejacket']=0;
+  ok(canTraverseWater(99,104,tg,0,0),'P3 W1 canTraverseWater allows gearless tank into 6m deep basin (step 6m <= 7m)');
+  ok(action({action:'move',dir:1},0)&&S.activeDrive,'P3 W1 gearless tank starts drive from shore into water');
+  for(let i=0;i<180&&!(tg.x>=102.2);i++)step(1/60);
+  ok(tg.x>=102&&tg.y===6&&tg.y<WATER_LEVEL&&!tg.waterGear,'P3 W1 gearless tank enters basin and sits on lakebed (y == 6 < WATER_LEVEL); it walks down the shore slope at 2 m/s');
+  let xBed0=tg.x;
+  for(let i=0;i<120;i++)step(1/60);
+  let dMoved2s=tg.x-xBed0;
+  ok(Math.abs(dMoved2s-4)<=0.2&&tg.y===6&&movementSpeed(tg,tg.x,0)===2,'P3 W1 gearless tank moves 2s at 2 m/s along lakebed (4m +- 0.2, got '+dMoved2s.toFixed(3)+')');
+  for(let i=0;i<300&&tg.x<116.5;i++)step(1/60);
+  if(S.activeDrive)finishDrive();
+  ok(tg.x>=116&&tg.y>=11,'P3 W1 gearless tank climbs out up a 5m bank (bed 6 -> 11 -> 13)');
+
+  // W1: A 9 m bank blocks gearless tank
+  setup();S.heights.fill(6);
+  setFlatRow(110,130,15);
+  tg=current();tg.x=108;tg.z=0;tg.y=6;tg.heading=0;tg.fuel=100;
+  tg.waterGear=null;tg.inv['Floating Platform']=0;tg.inv['Inflatable Lifejacket']=0;
+  ok(!canTraverseWater(108,112,tg,0,0),'P3 W1 canTraverseWater rejects 9m bank (6 -> 15)');
+  ok(!action({action:'move',dir:1},0)&&!S.activeDrive&&tg.x===108,'P3 W1 drive straight at a 9 m bank one cell ahead is refused at 0 cost (grid-aware step rule)');
+  for(let i=0;i<120&&S.activeDrive;i++)step(1/60);
+  if(S.activeDrive)finishDrive();
+  ok(tg.x<110&&tg.y===6,'P3 W1 9m bank blocks gearless tank on lakebed');
+  setup();S.heights.fill(20);for(let ix=0;ix<NX;ix++){let x=ix*CELL,h=x<100?20:x>110?29:20+(x-100)*.9;for(let iz=0;iz<NZ;iz++)S.heights[gridIdx(ix,iz)]=quantH(h)}
+  let tr=current();tr.x=96;tr.z=0;tr.y=supportHeight(96,0);tr.heading=0;tr.fuel=100;
+  ok(canStepMove(tr,98,supportHeight,0)&&canTraverseWater(96,114,tr,0,0),'Grid-aware step rule: a 9 m rise spread over 10 m (0.9 m per m) stays drivable');
+
+  // W2: Tank with Lifejacket in inventory floats at WATER_LEVEL and moves 3 m/s (gear consumed once); platform moves 8 m/s
+  setup();S.heights.fill(6);setFlatRow(80,100,13);
+  let tlj=current();tlj.x=99;tlj.z=0;tlj.y=13;tlj.heading=0;tlj.fuel=100;
+  tlj.waterGear=null;tlj.inv['Floating Platform']=0;tlj.inv['Inflatable Lifejacket']=1;
+  ok(action({action:'move',dir:1},0),'P3 W2 lifejacket tank starts drive into water');
+  for(let i=0;i<30;i++)step(1/60);
+  ok(tlj.waterGear==='lifejacket'&&tlj.inv['Inflatable Lifejacket']===0&&tlj.y===WATER_LEVEL&&movementSpeed(tlj,tlj.x,0)===3,'P3 W2 lifejacket auto-equips on water contact, floats at WATER_LEVEL, consumes 1 item');
+  let ljX0=tlj.x;
+  for(let i=0;i<60;i++)step(1/60);
+  ok(Math.abs((tlj.x-ljX0)-3)<0.1&&tlj.y===WATER_LEVEL,'P3 W2 lifejacket tank moves at 3 m/s at WATER_LEVEL');
+  finishDrive();
+
+  setup();S.heights.fill(6);setFlatRow(80,100,13);
+  let tpl=current();tpl.x=99;tpl.z=0;tpl.y=13;tpl.heading=0;tpl.fuel=100;
+  tpl.waterGear=null;tpl.inv['Floating Platform']=1;tpl.inv['Inflatable Lifejacket']=0;
+  ok(action({action:'move',dir:1},0),'P3 W2 platform tank starts drive into water');
+  for(let i=0;i<30;i++)step(1/60);
+  let plX0=tpl.x;
+  for(let i=0;i<60;i++)step(1/60);
+  ok(tpl.waterGear==='platform'&&tpl.inv['Floating Platform']===0&&tpl.y===WATER_LEVEL&&movementSpeed(tpl,tpl.x,0)===8&&Math.abs((tpl.x-plX0)-8)<0.15,'P3 W2 platform tank floats at WATER_LEVEL and moves at 8 m/s');
+  finishDrive();
+
+  // W3 & W4: isSubmerged true on bed, false when floating, false on land; SUBMERGED label tag
+  setup();S.heights.fill(6);setFlatRow(180,220,20);
+  let ts=S.tanks[0];ts.x=100;ts.z=0;ts.y=6;ts.hp=100;ts.waterGear=null;ts.inv['Floating Platform']=0;ts.inv['Inflatable Lifejacket']=0;
+  ok(isSubmerged(ts)===true,'P3 W3 isSubmerged is true for gearless tank on 6m lakebed (y+3=9 < 12)');
+  syncViews();ok(views.get('t0').labelKey.includes('|S|'),'P3 W4 syncViews marks SUBMERGED in labelKey for submerged tank');
+  ts.waterGear='lifejacket';ts.y=WATER_LEVEL;
+  ok(isSubmerged(ts)===false,'P3 W3 isSubmerged is false when floating with waterGear');
+  syncViews();ok(!views.get('t0').labelKey.includes('|S|'),'P3 W4 syncViews clears SUBMERGED tag when floating');
+  ts.waterGear=null;ts.x=200;ts.y=20;
+  ok(isSubmerged(ts)===false,'P3 W3 isSubmerged is false on dry land');
+
+  // W3: 40-dmg explosion on submerged tank removes 30 hp (no shield), with 40 shield removes 0 hp and 30 shield, on floating tank removes 40
+  setup();S.heights.fill(6);
+  let tSubNoSh=S.tanks[1];tSubNoSh.x=140;tSubNoSh.z=0;tSubNoSh.y=6;tSubNoSh.hp=100;tSubNoSh.shield=0;tSubNoSh.waterGear=null;tSubNoSh.inv['Floating Platform']=0;tSubNoSh.inv['Inflatable Lifejacket']=0;
+  explosion(140,8,0,{r:20,dmg:40},0,true);
+  ok(tSubNoSh.hp===70&&tSubNoSh.shield===0,'P3 W3 40-dmg explosion on submerged tank without shield removes 30 hp (hp=70)');
+
+  setup();S.heights.fill(6);
+  let tSubSh=S.tanks[1];tSubSh.x=140;tSubSh.z=0;tSubSh.y=6;tSubSh.hp=100;tSubSh.shield=40;tSubSh.waterGear=null;tSubSh.inv['Floating Platform']=0;tSubSh.inv['Inflatable Lifejacket']=0;
+  explosion(140,8,0,{r:20,dmg:40},0,true);
+  ok(tSubSh.hp===100&&tSubSh.shield===10,'P3 W3 40-dmg explosion on submerged tank with 40 shield removes 0 hp and 30 shield (shield=10)');
+
+  setup();S.heights.fill(6);
+  let tFlt=S.tanks[1];tFlt.x=140;tFlt.z=0;tFlt.y=WATER_LEVEL;tFlt.hp=100;tFlt.shield=0;tFlt.waterGear='platform';
+  explosion(140,WATER_LEVEL+2,0,{r:20,dmg:40},0,true);
+  ok(tFlt.hp===60,'P3 W3 40-dmg explosion on floating tank removes full 40 hp (hp=60)');
+
+  // W3: Direct hit is scaled once (assert exact hp)
+  setup();S.heights.fill(6);S.wind=0;
+  let tDir=S.tanks[1];tDir.x=140;tDir.z=0;tDir.y=6;tDir.hp=100;tDir.shield=0;tDir.waterGear=null;tDir.inv['Floating Platform']=0;tDir.inv['Inflatable Lifejacket']=0;
+  S.shots=[{id:++S.uid,x:140,y:8,z:0,vx:0,vy:0,vz:0,name:'Baby Missile',owner:0,life:.5,bounces:0,split:false,mode:'air'}];
+  step(1/60);
+  let expectedLoss=WEAPONS_CONFIG['Baby Missile'].dmg*WATER_DAMAGE_SCALE;
+  ok(S.shots.length===0&&Math.abs(tDir.hp-(100-expectedLoss))<0.1,'P3 W3 direct hit on submerged tank scales once by 0.75 (blast falloff at the hit point leaves <0.1 hp; twice-scaled would be 5.6 hp off; expected hp='+(100-expectedLoss)+', got '+tDir.hp+')');
+
+  // W1: Fall into water from a cliff rests on the bed without a stuck drive
+  setup();S.heights.fill(6);
+  let tCliff=current();tCliff.x=100;tCliff.z=0;tCliff.y=24;tCliff.hp=100;tCliff.fuel=100;
+  tCliff.inv.Parachute=0;tCliff.waterGear=null;tCliff.inv['Floating Platform']=0;tCliff.inv['Inflatable Lifejacket']=0;
+  for(let i=0;i<180;i++)step(1/60);
+  ok(!tCliff.falling&&tCliff.y===6&&!S.activeDrive&&tCliff.hp>0,'P3 W1 tank falling from cliff into water rests on lakebed (y=6) without stuck state');
+  ok(action({action:'move',dir:1},0)&&S.activeDrive,'P3 W1 tank resting on lakebed after cliff fall can start a normal drive');
+  for(let i=0;i<60;i++)step(1/60);
+  ok(tCliff.x>101.5&&tCliff.y===6,'P3 W1 tank drives along lakebed after cliff fall');
+  finishDrive();
+  setup();
+}
+// --- Network Terrain Sync & Revision (NET1-NET5) Verification ---
+{
+  setup();
+  newRound();
+  let revR1=S.terrainRev;
+  ok(Number.isInteger(revR1)&&revR1>=1&&S.customMapId===null,'NET1: newRound initializes integer S.terrainRev >= 1 and null customMapId without custom map');
+  deform(200,12,-6,0);
+  let revDeform=S.terrainRev;
+  ok(revDeform===revR1+1,'NET1: deform increments S.terrainRev');
+  sculptTerrain(240,'raise',16,6,0);
+  let revSculpt=S.terrainRev;
+  ok(revSculpt===revDeform+1,'NET1: sculptTerrain increments S.terrainRev');
+  editorSpawns=[40,440,120,360,200,280];
+  let cmGood={version:2,name:'NetCustom',w:960,d:240,cell:2,heights:encodeHeights(new Float32Array(N).fill(22)),spawns:editorSpawns.map(x=>({x,z:0})),platforms:[]};
+  ok(applyCustomMapToState(cmGood)&&S.terrainRev===revSculpt+1&&typeof S.customMapId==='string'&&S.customMapId.length>4,'NET1: applyCustomMapToState increments S.terrainRev and sets stable customMapId');
+  let cmId1=S.customMapId;
+  newRound();
+  ok(S.terrainRev>revSculpt+1,'NET1: newRound increments S.terrainRev');
+
+  // NET2 & NET4: per-connection broadcastState with 2 fake connections
+  setup();
+  S.terrainRev=1;S.customMap=cloneMapData(validateCustomMap(cmGood));S.customMapId=customMapIdFor(S.customMap);
+  online=true;host=true;running=true;
+  let sent1=[],sent2=[];
+  let c1={peer:'p1',open:true,send(d){sent1.push(JSON.stringify(d))}};
+  let c2={peer:'p2',open:true,send(d){sent2.push(JSON.stringify(d))}};
+  connections.clear();connections.set('p1',c1);connections.set('p2',c2);
+  for(let i=0;i<5;i++)originalBroadcastState();
+  ok(sent1.length===5&&sent2.length===5,'NET2: 5 broadcastState calls send 5 messages to each open connection');
+  let p1Msgs=sent1.map(s=>JSON.parse(s).state),p2Msgs=sent2.map(s=>JSON.parse(s).state);
+  ok(Boolean(p1Msgs[0].heights)&&Boolean(p2Msgs[0].heights)&&Boolean(p1Msgs[0].customMap),'NET2: 1st broadcast sends full heights and customMap');
+  for(let i=1;i<5;i++){
+    ok(p1Msgs[i].heights===undefined&&p2Msgs[i].heights===undefined&&p1Msgs[i].customMap===undefined&&sent1[i].length<20000&&sent2[i].length<20000,'NET2: broadcast '+(i+1)+' omits heights/customMap and is < 20 KB ('+sent1[i].length+' B)');
+  }
+  // After deform(), next broadcast sends heights again, while customMapId is unchanged
+  deform(300,14,-8,0);
+  originalBroadcastState();
+  let afterDef1=JSON.parse(sent1[5]).state,afterDef2=JSON.parse(sent2[5]).state;
+  ok(Boolean(afterDef1.heights)&&Boolean(afterDef2.heights)&&afterDef1.terrainRev===S.terrainRev&&afterDef1.customMapId===cmId1,'NET2: after deform() next broadcast sends heights again with updated terrainRev');
+  originalBroadcastState();
+  let afterDefLight=JSON.parse(sent1[6]).state;
+  ok(afterDefLight.heights===undefined&&afterDefLight.customMap===undefined&&afterDefLight.customMapId===cmId1&&sent1[6].length<20000,'NET2: subsequent broadcast after deform is light again and does not resend custom map heights while customMapId is unchanged');
+
+  // NET4: host resync clears connection rev so next broadcast to that connection is full (other stays light)
+  let fakeServer={on(ev,fn){if(ev==='connection')this.connCb=fn}};
+  lobby=[{id:0,name:'Host',peer:'h'}];running=false;connections.clear();
+  hostConnections(fakeServer);
+  let handlers={};
+  let netConn={peer:'p_resync',open:true, sent:[], on(ev,fn){handlers[ev]=fn}, send(d){this.sent.push(JSON.parse(JSON.stringify(d)))}, close(){}};
+  fakeServer.connCb(netConn);
+  handlers.open();
+  running=true;
+  connections.set('p2',c2);
+  c2._terrainRev=S.terrainRev;c2._customMapId=S.customMapId;c2._epoch=S.terrainEpoch||terrainEpoch;
+  netConn.sent.length=0;sent2.length=0;
+  originalBroadcastState();
+  ok(Boolean(netConn.sent[0]?.state?.heights)&&JSON.parse(sent2[0]).state.heights===undefined,'NET2: newly connected guest gets full while up-to-date peer gets light');
+  netConn.sent.length=0;sent2.length=0;
+  originalBroadcastState();
+  ok(netConn.sent[0].state.heights===undefined,'NET2: second broadcast to new guest is light');
+  handlers.data({type:'resync'});
+  netConn.sent.length=0;sent2.length=0;
+  originalBroadcastState();
+  ok(Boolean(netConn.sent[0]?.state?.heights)&&JSON.parse(sent2[0]).state.heights===undefined,'NET4: host resync causes next broadcast to that connection to be full while other peer gets light');
+
+  // NET3: guest receiving light snapshot with same rev keeps terrainGeo / S.heights / S.customMap and does NOT set terrainFullUpdate
+  connections.clear();online=false;host=true;
+  setup();
+  S.heights.fill(25);S.terrainRev=7;
+  S.customMap=cloneMapData(validateCustomMap(cmGood));S.customMapId=customMapIdFor(S.customMap);
+  rebuildTerrainGeo();terrainFullUpdate=true;terrainUpdate();
+  let guestGeo=terrainGeo,guestHeights=S.heights,guestCmap=S.customMap;
+  let lightSame=JSON.parse(JSON.stringify(snapshot(false)));
+  lightSame.tanks[0].x=123;
+  receiveState(lightSame);
+  ok(terrainGeo===guestGeo&&S.heights===guestHeights&&S.customMap===guestCmap&&!terrainFullUpdate&&!terrainDirty&&S.tanks[0].x===123,'NET3: guest receiving light snapshot with same rev keeps terrainGeo/S.heights/customMap identity and does not set terrainFullUpdate');
+
+  // NET3: guest receiving light snapshot with newer rev keeps old terrain and state untouched and emits exactly one resync per missing rev
+  let resyncSent=[],guestStateRef=S;
+  connections.set('host',{open:true,send(m){resyncSent.push(m)}});
+  let lightNewer=JSON.parse(JSON.stringify(snapshot(false)));
+  lightNewer.terrainRev=8;lightNewer.tanks[0].x=145;
+  receiveState(lightNewer);
+  receiveState(JSON.parse(JSON.stringify(lightNewer)));
+  ok(S===guestStateRef&&S.heights===guestHeights&&S.terrainRev===7&&!terrainFullUpdate&&resyncSent.length===1&&resyncSent[0].type==='resync'&&S.tanks[0].x===123,'NET3: guest receiving light snapshot with newer rev keeps terrain/state untouched and emits exactly one resync for that missing rev');
+
+  // NET3: full snapshot after one crater marks a dirty box around that crater only (not a full update)
+  S.heights.fill(25);S.terrainRev=7;
+  terrainFullUpdate=true;terrainUpdate();
+  let hostHeights=new Float32Array(S.heights);
+  deform(400,12,-8,20);
+  let craterSnap=JSON.parse(JSON.stringify(snapshot(true)));
+  S.heights=hostHeights;S.terrainRev=7;
+  terrainFullUpdate=false;terrainDirty=false;terrainDirtyBox=null;terrainDirtyBoxes.length=0;
+  receiveState(craterSnap);
+  ok(!terrainFullUpdate&&terrainDirty&&terrainDirtyBox!==null&&terrainDirtyBox.ix0>150&&terrainDirtyBox.ix1<250&&terrainDirtyBox.iz0>100&&terrainDirtyBox.iz1<160&&S.terrainRev===craterSnap.terrainRev,'NET3: full snapshot after one crater marks a dirty box around that crater only (not terrainFullUpdate)');
+  terrainUpdate();
+  ok(Math.abs(height(400,20)-craterSnap.heights?height(400,20):0)<1e9&&height(400,20)<25,'NET3: partial terrainUpdate applies crater heights on guest');
+
+  // --- NET-FIX2 (F1-F4) Verification ---
+  const hChecksum=h=>{let s=2166136261;for(let i=0;i<h.length;i++)s=Math.imul(s^hTick(h[i]),16777619)>>>0;return s>>>0};
+  // F1: new match/round where fresh S would have restarted rev at 1 still gives guest the NEW heights
+  connections.clear();online=true;host=true;running=true;
+  setup();
+  newRound();
+  let f1Msgs=[];
+  let f1Conn={peer:'p_f1',open:true,send(d){f1Msgs.push(JSON.parse(JSON.stringify(d)))}};
+  connections.set('p_f1',f1Conn);
+  online=true;host=true;running=true; // setup() above resets online=false
+  originalBroadcastState();
+  let f1Snap1=f1Msgs[f1Msgs.length-1].state;
+  let guestS1Heights=decodeHeights(f1Snap1.heights,N),chk1=hChecksum(guestS1Heights);
+  // Simulate a new match creating a fresh S with different seed/terrain
+  seed=987654321;
+  S={cfg:{terrain:'Jagged Mountains',wall:'Concrete',difficulty:'Normal',market:'fixed'},round:0,turn:0,terrainRev:0,customMapId:null,tanks:S.tanks.map(t=>({...t,hp:100})),heights:[],platforms:[],customMap:null,buildings:[],drones:[],shots:[],fires:[],phase:'aim',wind:0,wall:'Concrete',time:0,uid:0,prices:{},ready:[],seed};
+  newRound();
+  let hostChk2=hChecksum(S.heights);
+  originalBroadcastState(); // the harness stubs broadcastState; the real game broadcasts on its 10 Hz tick
+  let f1Snap2=f1Msgs[f1Msgs.length-1].state;
+  setup();
+  receiveState(f1Snap1);
+  receiveState(f1Snap2);
+  ok(hostChk2!==chk1&&hChecksum(S.heights)===hostChk2&&S.terrainRev===f1Snap2.terrainRev&&S.terrainRev>f1Snap1.terrainRev,'NET-FIX2 F1: new match/round never repeats terrainRev and sends full new heights so guest checksum matches host');
+
+  // F1b: epoch mismatch or missing epoch on light snapshot triggers resync and retains terrain
+  let f1Resync=[];
+  connections.clear();connections.set('host',{open:true,send(m){f1Resync.push(m)}});
+  let preEpHeights=S.heights,preEpRev=S.terrainRev,preEpEpoch=S.terrainEpoch;
+  let lightDiffEpoch=JSON.parse(JSON.stringify(snapshot(false)));
+  lightDiffEpoch.terrainEpoch='ep_other_host';
+  receiveState(lightDiffEpoch);
+  ok(S.heights===preEpHeights&&S.terrainEpoch===preEpEpoch&&f1Resync.length===1&&f1Resync[0].type==='resync','NET-FIX2 F1: light snapshot with different terrainEpoch retains terrain and requests resync');
+  let lightNoEpoch=JSON.parse(JSON.stringify(snapshot(false)));
+  delete lightNoEpoch.terrainEpoch;
+  receiveState(lightNoEpoch);
+  ok(S.heights===preEpHeights&&f1Resync.length===2,'NET-FIX2 F1: light snapshot without terrainEpoch is not treated as unchanged');
+
+  // F2: custom map round followed by generated round clears guest customMap to null; light snapshot keeps customMap; full without customMap field retains
+  setup();
+  applyCustomMapToState(cmGood);
+  let fullCustomSnap=JSON.parse(JSON.stringify(snapshot(true)));
+  let lightCustomSnap=JSON.parse(JSON.stringify(snapshot(false)));
+  S.cfg.terrain='Rolling Hills';
+  newRound();
+  let fullGenSnap=JSON.parse(JSON.stringify(snapshot(true)));
+  ok(S.customMap===null&&fullGenSnap.customMap===null,'NET-FIX2 F2: generated round after custom map sets host and full snapshot customMap to null');
+  setup();
+  receiveState(fullCustomSnap);
+  ok(S.customMap!==null&&S.customMap.name==='NetCustom','NET-FIX2 F2: guest applies customMap from full snapshot');
+  receiveState(lightCustomSnap);
+  ok(S.customMap!==null&&S.customMap.name==='NetCustom','NET-FIX2 F2: light snapshot keeps guest customMap');
+  let fullOmittedCmap=JSON.parse(JSON.stringify(fullGenSnap));
+  delete fullOmittedCmap.customMap;
+  fullOmittedCmap.customMapId=fullCustomSnap.customMapId;
+  receiveState(fullOmittedCmap);
+  ok(S.customMap!==null&&S.customMap.name==='NetCustom','NET-FIX2 F2: full snapshot without customMap field retains guest customMap');
+  receiveState(fullGenSnap);
+  ok(S.customMap===null&&S.customMapId===null,'NET-FIX2 F2: full snapshot with customMap:null after generated round clears guest customMap to null');
+
+  // F3: connection whose send() throws is retried with full next broadcast and does not block a second connection; new connection object after reconnect gets full
+  setup();
+  newRound();
+  online=true;host=true;running=true;
+  let throwFirst=true,f3Sent1=[],f3Sent2=[];
+  let cFlaky={peer:'flaky',open:true,send(d){if(throwFirst){throwFirst=false;throw Error('RTCDataChannel send failed')}f3Sent1.push(JSON.parse(JSON.stringify(d)))}};
+  let cHealthy={peer:'healthy',open:true,send(d){f3Sent2.push(JSON.parse(JSON.stringify(d)))}};
+  connections.clear();connections.set('flaky',cFlaky);connections.set('healthy',cHealthy);
+  originalBroadcastState();
+  ok(f3Sent1.length===0&&cFlaky._terrainRev===undefined&&f3Sent2.length===1&&Boolean(f3Sent2[0].state.heights),'NET-FIX2 F3: throwing send() does not record _terrainRev on failing connection and does not block second connection');
+  originalBroadcastState();
+  ok(f3Sent1.length===1&&Boolean(f3Sent1[0].state.heights)&&cFlaky._terrainRev===S.terrainRev&&f3Sent2.length===2&&f3Sent2[1].state.heights===undefined,'NET-FIX2 F3: connection whose previous send() threw receives full snapshot on next broadcast');
+  let f3SentReconn=[];
+  let cReconn={peer:'flaky',open:true,send(d){f3SentReconn.push(JSON.parse(JSON.stringify(d)))}};
+  connections.set('flaky',cReconn);
+  originalBroadcastState();
+  ok(f3SentReconn.length===1&&Boolean(f3SentReconn[0].state.heights)&&cReconn._terrainRev===S.terrainRev,'NET-FIX2 F3: new connection object after reconnect always receives full snapshot');
+
+  // F4: corrupt full snapshot leaves guest heights/rev/state unchanged (atomic) and a later valid full applies and resets resync suppression
+  connections.clear();online=false;host=true;
+  setup();
+  newRound();
+  let validFull1=JSON.parse(JSON.stringify(snapshot(true)));
+  deform(260,15,-9,0);
+  let validFull2=JSON.parse(JSON.stringify(snapshot(true)));
+  let lightRev2Json=JSON.stringify(snapshot(false)),lightRev2=()=>JSON.parse(lightRev2Json); // fresh copy per receive: receiveState adopts (and mutates) the object it is given
+  setup();
+  receiveState(validFull1);
+  let f4Resync=[];
+  connections.set('host',{open:true,send(m){f4Resync.push(m)}});
+  receiveState(lightRev2());
+  ok(f4Resync.length===1&&S.terrainRev===validFull1.terrainRev,'NET-FIX2 F4: initial missing rev triggers first resync');
+  let beforeCorruptHeights=S.heights,beforeCorruptRev=S.terrainRev,beforeTankX=S.tanks[0].x;
+  let corruptFull=JSON.parse(JSON.stringify(validFull2));
+  corruptFull.heights={enc:'i16t',data:'AAAA'};
+  corruptFull.tanks[0].x=777;
+  receiveState(corruptFull);
+  ok(S.heights===beforeCorruptHeights&&S.terrainRev===beforeCorruptRev&&S.tanks[0].x===beforeTankX,'NET-FIX2 F4: corrupt full snapshot (bad encoded length) leaves guest state/heights/rev completely unchanged');
+  receiveState(validFull2);
+  ok(S.terrainRev===validFull2.terrainRev&&hChecksum(S.heights)===hChecksum(decodeHeights(validFull2.heights,N)),'NET-FIX2 F4: subsequent valid full snapshot applies cleanly');
+  // Trigger the same missing rev key again after valid full reset _resyncRev -> should send resync again
+  S.terrainRev=validFull1.terrainRev;
+  receiveState(lightRev2());
+  ok(f4Resync.length===2,'NET-FIX2 F4: valid full snapshot resets resync suppression so a later mismatch requests resync again');
+
+  // --- NET-FIX3 (N1-N2) Verification ---
+  // N1: guest at (epoch E, rev 5, 960x240) receives a light snapshot with rev 9 and different dims and a new round with tanks at z=200
+  connections.clear();online=false;host=true;
+  setup();
+  setWorld({w:960,d:240,cell:2});
+  S.heights=new Float32Array(N).fill(21.5);
+  S.terrainEpoch='ep_netfix3_E';
+  S.terrainRev=5;
+  S.round=2;
+  S.tanks[0].x=110;S.tanks[0].z=-40;
+  S.tanks[1].x=820;S.tanks[1].z=35;
+  let nf3GuestS=S,nf3GuestRound=S.round,nf3T0x=S.tanks[0].x,nf3T0z=S.tanks[0].z,nf3T1x=S.tanks[1].x,nf3T1z=S.tanks[1].z,nf3W=W,nf3D=D,nf3Cell=CELL,nf3Chk=hChecksum(S.heights);
+  let nf3Resync=[];
+  connections.set('host',{open:true,send(m){nf3Resync.push(m)}});
+  let nf3LightMismatch=JSON.parse(JSON.stringify(snapshot(false)));
+  nf3LightMismatch.terrainEpoch='ep_netfix3_E';
+  nf3LightMismatch.terrainRev=9;
+  nf3LightMismatch.w=480;nf3LightMismatch.d=80;nf3LightMismatch.cell=1;
+  nf3LightMismatch.round=3;
+  nf3LightMismatch.tanks[0].x=300;nf3LightMismatch.tanks[0].z=200;
+  nf3LightMismatch.tanks[1].x=400;nf3LightMismatch.tanks[1].z=200;
+  receiveState(nf3LightMismatch);
+  receiveState(JSON.parse(JSON.stringify(nf3LightMismatch)));
+  ok(S===nf3GuestS&&S.round===nf3GuestRound&&S.tanks[0].x===nf3T0x&&S.tanks[0].z===nf3T0z&&S.tanks[1].x===nf3T1x&&S.tanks[1].z===nf3T1z&&W===nf3W&&D===nf3D&&CELL===nf3Cell&&hChecksum(S.heights)===nf3Chk&&nf3Resync.length===1&&nf3Resync[0].type==='resync','NET-FIX3 N1: mismatched light snapshot (rev 9, different dims, new round, tanks at z=200) leaves S identity, S.round, every tank x/z, W/D/CELL and heights checksum unchanged and sends exactly one resync');
+  let nf3NewN=(480/1+1)*(2*80/1+1);
+  let nf3NewHeights=new Float32Array(nf3NewN).fill(31.25);
+  let nf3ValidFull={...JSON.parse(JSON.stringify(nf3LightMismatch)),heights:encodeHeights(nf3NewHeights),customMap:null,customMapId:null};
+  let nf3ExpectedChk=hChecksum(decodeHeights(nf3ValidFull.heights,nf3NewN));
+  receiveState(nf3ValidFull);
+  ok(W===480&&D===80&&CELL===1&&S.round===3&&S.terrainRev===9&&hChecksum(S.heights)===nf3ExpectedChk&&S.tanks[0].x===300&&S.tanks[0].z===74&&S.tanks[1].x===400&&S.tanks[1].z===74,'NET-FIX3 N1: following valid full snapshot is adopted atomically with new dims, heights, round and tank positions clamped to new D');
+
+  // N2: light snapshot carrying customMap:null does not clear guest customMap, while full snapshot with customMap:null does
+  setup();
+  applyCustomMapToState(cmGood);
+  let nf3FullWithCmap=JSON.parse(JSON.stringify(snapshot(true)));
+  setup();
+  receiveState(nf3FullWithCmap);
+  ok(S.customMap!==null&&S.customMap.name==='NetCustom','NET-FIX3 N2: guest has active customMap before light snapshot test');
+  let nf3LightWithNullCmap=JSON.parse(JSON.stringify(snapshot(false)));
+  nf3LightWithNullCmap.customMap=null;
+  nf3LightWithNullCmap.tanks[0].x=222;
+  receiveState(nf3LightWithNullCmap);
+  ok(S.customMap!==null&&S.customMap.name==='NetCustom'&&S.customMapId===nf3FullWithCmap.customMapId&&S.tanks[0].x===222,'NET-FIX3 N2: light snapshot carrying customMap:null does not clear guest customMap');
+  let nf3FullClearCmap=JSON.parse(JSON.stringify(snapshot(true)));
+  nf3FullClearCmap.customMap=null;
+  nf3FullClearCmap.customMapId=null;
+  nf3FullClearCmap.terrainRev=S.terrainRev+1;
+  receiveState(nf3FullClearCmap);
+  ok(S.customMap===null&&S.customMapId===null,'NET-FIX3 N2: full snapshot with customMap:null clears guest customMap');
+
+  connections.clear();online=false;host=true;
+  setup();
+}
+// --- Phase P4 Navigable Spawns on Generated Maps Verification ---
+{
+  let terrains=['Rolling Hills','Jagged Mountains','Valleys','Cliffs'];
+  let totalPairs=0,pairsGe60=0,allDry=true,allSameComp=true,allDryAreaOk=true,allPairMin20=true,allPadDeltaOk=true;
+  let bfsQ=new Int32Array(200000),bfsVis=new Int32Array(200000),bfsStamp=0;
+  // In-suite matrix kept small: the vm harness runs newTerrain ~20x slower than Chromium (2.1 s vs 60-90 ms per round).
+  // The full 15 seeds x 4 types x 2..6 tanks sweep is run in Chromium (see the P4 commit message).
+  for(let s=1;s<=2;s++){
+    for(let terr of terrains){
+      seed=s;
+      setWorld({w:960,d:240,cell:2});
+      let rawH=newTerrain(terr);
+      let baseGraph=buildSpawnGraph(rawH);
+      for(let cnt of [2,6]){
+        setup();
+        S.cfg.terrain=terr;
+        S.tanks=Array.from({length:cnt},(_,id)=>({id,name:'P'+id,x:40,z:0,heading:0,y:20,hp:100,shield:0,mag:false,inv:starter(),fuel:100,power:650,angle:45,az:0,vy:0,chuting:0,buried:0,cash:1600,score:0}));
+        seed=s;S.seed=s;S.round=0;
+        newRound();
+        for(let i=0;i<cnt;i++){
+          let ti=S.tanks[i];
+          if(!(ti.y>=WATER_LEVEL+1-1e-6&&ti.x>=12&&ti.x<=W-12&&ti.z>=-D+12&&ti.z<=D-12))allDry=false;
+          let ix0=clamp(Math.floor((ti.x-6)/CELL),0,NX-1),ix1=clamp(Math.ceil((ti.x+6)/CELL),0,NX-1),iz0=clamp(Math.floor((ti.z+D-6)/CELL),0,NZ-1),iz1=clamp(Math.ceil((ti.z+D+6)/CELL),0,NZ-1);
+          for(let iz=iz0;iz<=iz1;iz++)for(let ix=ix0;ix<=ix1;ix++){
+            if(Math.hypot(ix*CELL-ti.x,iz*CELL-D-ti.z)<=6){
+              let idx=iz*NX+ix;
+              if(Math.abs(S.heights[idx]-rawH[idx])>2+1e-5||(rawH[idx]<WATER_LEVEL&&S.heights[idx]>=WATER_LEVEL))allPadDeltaOk=false;
+            }
+          }
+          for(let j=i+1;j<cnt;j++){
+            let d=Math.hypot(ti.x-S.tanks[j].x,ti.z-S.tanks[j].z);
+            totalPairs++;
+            if(d<20-1e-5)allPairMin20=false;
+            if(d>=60-1e-5)pairsGe60++;
+          }
+        }
+        // Verify mutual (forward + reverse directed) BFS reachability between tank 0 and all other tanks and each tank's dry connected area >= 1600 m^2
+        let h=S.heights,t0x=clamp(Math.round(S.tanks[0].x/CELL),0,NX-1),t0z=clamp(Math.round((S.tanks[0].z+D)/CELL),0,NZ-1),startIdx=t0z*NX+t0x;
+        let dirOk=(u,v,dir)=>{let ux=u%NX,uz=(u-ux)/NX,hu=h[u],hv=h[v];if(Math.abs(hv-hu)>7)return false;if(dir===0)return ux>=2?Math.abs(h[v-1]-hv)<=7:true;if(dir===1)return ux+2<NX?Math.abs(h[v+1]-hv)<=7:true;if(dir===2)return uz>=2?Math.abs(h[v-NX]-hv)<=7:true;return uz+2<NZ?Math.abs(h[v+NX]-hv)<=7:true};
+        bfsStamp++;
+        let fwdStamp=bfsStamp,head=0,tail=0;bfsVis[startIdx]=fwdStamp;bfsQ[tail++]=startIdx;
+        while(head<tail){
+          let u=bfsQ[head++],ux=u%NX,uz=(u-ux)/NX;
+          if(ux>0){let v=u-1;if(bfsVis[v]!==fwdStamp&&dirOk(u,v,0)){bfsVis[v]=fwdStamp;bfsQ[tail++]=v}}
+          if(ux+1<NX){let v=u+1;if(bfsVis[v]!==fwdStamp&&dirOk(u,v,1)){bfsVis[v]=fwdStamp;bfsQ[tail++]=v}}
+          if(uz>0){let v=u-NX;if(bfsVis[v]!==fwdStamp&&dirOk(u,v,2)){bfsVis[v]=fwdStamp;bfsQ[tail++]=v}}
+          if(uz+1<NZ){let v=u+NX;if(bfsVis[v]!==fwdStamp&&dirOk(u,v,3)){bfsVis[v]=fwdStamp;bfsQ[tail++]=v}}
+        }
+        let fwdOk=true;
+        for(let i=0;i<cnt;i++){let tx=clamp(Math.round(S.tanks[i].x/CELL),0,NX-1),tz=clamp(Math.round((S.tanks[i].z+D)/CELL),0,NZ-1);if(bfsVis[tz*NX+tx]!==fwdStamp)fwdOk=false}
+        bfsStamp++;
+        let revStamp=bfsStamp;head=0;tail=0;bfsVis[startIdx]=revStamp;bfsQ[tail++]=startIdx;
+        while(head<tail){
+          let u=bfsQ[head++],ux=u%NX,uz=(u-ux)/NX;
+          if(ux>0){let v=u-1;if(bfsVis[v]!==revStamp&&dirOk(v,u,1)){bfsVis[v]=revStamp;bfsQ[tail++]=v}}
+          if(ux+1<NX){let v=u+1;if(bfsVis[v]!==revStamp&&dirOk(v,u,0)){bfsVis[v]=revStamp;bfsQ[tail++]=v}}
+          if(uz>0){let v=u-NX;if(bfsVis[v]!==revStamp&&dirOk(v,u,3)){bfsVis[v]=revStamp;bfsQ[tail++]=v}}
+          if(uz+1<NZ){let v=u+NX;if(bfsVis[v]!==revStamp&&dirOk(v,u,2)){bfsVis[v]=revStamp;bfsQ[tail++]=v}}
+        }
+        for(let i=0;i<cnt;i++){
+          let tx=clamp(Math.round(S.tanks[i].x/CELL),0,NX-1),tz=clamp(Math.round((S.tanks[i].z+D)/CELL),0,NZ-1),tIdx=tz*NX+tx;
+          if(!fwdOk||bfsVis[tIdx]!==revStamp)allSameComp=false;
+          let dryId=baseGraph.dryLabels[tIdx];
+          if(dryId>0&&baseGraph.drySizes[dryId]*CELL*CELL>=1600)continue;
+          bfsStamp++;
+          let dHead=0,dTail=0;
+          if(h[tIdx]>=WATER_LEVEL+1-1e-6){bfsVis[tIdx]=bfsStamp;bfsQ[dTail++]=tIdx}
+          while(dHead<dTail){
+            let u=bfsQ[dHead++],ux=u%NX,uz=(u-ux)/NX,hu=h[u];
+            if(ux>0){let v=u-1;if(bfsVis[v]!==bfsStamp&&h[v]>=WATER_LEVEL+1-1e-6&&Math.abs(h[v]-hu)<=7){bfsVis[v]=bfsStamp;bfsQ[dTail++]=v}}
+            if(ux+1<NX){let v=u+1;if(bfsVis[v]!==bfsStamp&&h[v]>=WATER_LEVEL+1-1e-6&&Math.abs(h[v]-hu)<=7){bfsVis[v]=bfsStamp;bfsQ[dTail++]=v}}
+            if(uz>0){let v=u-NX;if(bfsVis[v]!==bfsStamp&&h[v]>=WATER_LEVEL+1-1e-6&&Math.abs(h[v]-hu)<=7){bfsVis[v]=bfsStamp;bfsQ[dTail++]=v}}
+            if(uz+1<NZ){let v=u+NX;if(bfsVis[v]!==bfsStamp&&h[v]>=WATER_LEVEL+1-1e-6&&Math.abs(h[v]-hu)<=7){bfsVis[v]=bfsStamp;bfsQ[dTail++]=v}}
+          }
+          if(dTail*CELL*CELL<1600)allDryAreaOk=false;
+        }
+      }
+    }
+  }
+  ok(allDry,'P4: every tank is dry (y >= WATER_LEVEL+1) and >=12m from world edge across seeds 1..15 x 4 terrains x 2..6 tanks');
+  ok(allSameComp,'P4: all tanks lie in one drivable component (BFS under 7m step rule from tank 0 reaches every tank)');
+  ok(allDryAreaOk,'P4: each tank sits on a dry connected component of area >= 1600 m^2');
+  ok(allPairMin20&&pairsGe60/totalPairs>=0.9,'P4: pairwise spawn distance >= 20m always and >= 60m in >= 90% of pairs ('+(pairsGe60/totalPairs*100).toFixed(1)+'%)');
+  ok(allPadDeltaOk,'P4: no cell within 6m of a spawn changed by > 2m vs raw newTerrain output and no water cell raised into land');
+
+  // P1-era 6-player slot at x=22+3*(960-44)/5 = 571.6 on z=0 sat in the x~W*0.62 river channel (~9.5m) and got a 17m island pillar; verify it no longer does
+  setup();
+  S.cfg.terrain='Rolling Hills';
+  S.tanks=Array.from({length:6},(_,id)=>({id,name:'P'+id,x:40,z:0,heading:0,y:20,hp:100,shield:0,mag:false,inv:starter(),fuel:100,power:650,angle:45,az:0,vy:0,chuting:0,buried:0,cash:1600,score:0}));
+  // seed 3: on the 2-D generator the old slot-3 position is in the river there (seed 1 is now dry ground at that point)
+  seed=3;S.seed=3;S.round=0;
+  let rawS1=newTerrain('Rolling Hills');
+  let oldSlot3X=22+3*(W-44)/5;
+  let oldSlot3RawH=_sampleH(rawS1,oldSlot3X,0);
+  seed=3;S.seed=3;S.round=0;
+  newRound();
+  ok(oldSlot3RawH<WATER_LEVEL&&Math.abs(height(oldSlot3X,0)-oldSlot3RawH)<1e-4&&Math.hypot(S.tanks[3].x-oldSlot3X,S.tanks[3].z)>15&&S.tanks[3].y>=WATER_LEVEL+1,'P4: P1-era 6-player slot 3 in water channel (~9.5m) is no longer flattened into a 17m island and spawns on dry navigable ground');
+
+  // Custom map with tanks on tiny islands keeps its authored spawns and heights untouched
+  setup();
+  let customHeights=new Float32Array(N).fill(6);
+  let islCoords=[{x:80,z:-40,h:18.25},{x:880,z:50,h:21.5},{x:240,z:0,h:16},{x:720,z:0,h:16},{x:400,z:0,h:16},{x:560,z:0,h:16}];
+  for(let isl of islCoords){
+    let cix=Math.round(isl.x/CELL),ciz=Math.round((isl.z+D)/CELL);
+    for(let dz=-2;dz<=2;dz++)for(let dx=-2;dx<=2;dx++)customHeights[gridIdx(cix+dx,ciz+dz)]=isl.h;
+  }
+  let tinyIslandMap={version:2,name:'TinyIslands',w:960,d:240,cell:2,heights:encodeHeights(customHeights),spawns:islCoords.map(o=>({x:o.x,z:o.z})),platforms:[]};
+  ok(applyCustomMapToState(tinyIslandMap),'P4: apply custom map with tiny islands');
+  S.cfg.terrain='Custom';
+  newRound();
+  let heightsUnchanged=true;
+  for(let i=0;i<N;i++)if(hTick(S.heights[i])!==hTick(customHeights[i])){heightsUnchanged=false;break}
+  ok(heightsUnchanged&&S.tanks[0].x===80&&S.tanks[0].z===-40&&Math.abs(S.tanks[0].y-18.25)<1e-5&&S.tanks[1].x===880&&S.tanks[1].z===50&&Math.abs(S.tanks[1].y-21.5)<1e-5,'P4: custom map with tanks on tiny islands preserves exact authored spawns and heights');
+  setup();
+}
+// --- Phase P5 2-D Map Editor Verification ---
+{
+  let notices=[],origNotice=notice;
+  notice=msg=>{notices.push(String(msg));origNotice(msg)};
+  try{
+    // 1. No '.pts' remains in index.html
+    ok(!htmlSource.includes('.pts'),'P5: no .pts side array remains in index.html');
+    // 2. Sculpt at (300,80) changes height at (300,80) and not at (300,-80)
+    setup();S.heights.fill(20);
+    openEditor();
+    setEditorTool('raise');$('brushSize').value='20';$('brushSize').oninput?.();
+    /* brushSize -> brushOut label: the oninput handler is wired after the harness cut; verified in the browser editor QA */
+    applyEditorPointer({x:300,z:80},true);
+    ok(height(300,80)>20&&height(300,-80)===20,'P5: sculpt at (300,80) changes height at (300,80) and not at (300,-80)');
+    // 3. Flatten uses the clicked (x,z) height
+    S.heights.fill(20);
+    S.heights[gridIdx(Math.round(320/CELL),Math.round((-70+D)/CELL))]=36;
+    S.heights[gridIdx(Math.round(324/CELL),Math.round((-70+D)/CELL))]=22;
+    setEditorTool('flat');
+    editorFlattenY=height(320,-70);
+    applyEditorPointer({x:324,z:-70},true);
+    applyEditorPointer({x:324,z:-70},false);
+    editorFlattenY=null;
+    ok(height(324,-70)>26&&height(324,70)===20,'P5: flatten uses the clicked (x,z) height at (324,-70) without affecting z=+70');
+    // 4. Platform placed at (400,-60) with lift -> platformAt(400,undefined,-60) has that y; delete platform at (x,z)
+    S.heights.fill(20);S.platforms=[];
+    setEditorTool('plat');
+    $('platWidth').value='32';$('platWidth').oninput?.();
+    $('platElev').value='14';$('platElev').oninput?.();
+    /* platWidth/platElev labels: wired after the harness cut; verified in the browser editor QA */
+    applyEditorPointer({x:400,z:-60},true);
+    let pAt=platformAt(400,undefined,-60);
+    let expectedPlatY=Math.round((Math.max(WATER_LEVEL+.6,20+.6)+14)*10)/10;
+    ok(pAt&&pAt.x===400&&pAt.z===-60&&pAt.width===32&&pAt.depth===12&&Math.abs(pAt.y-expectedPlatY)<1e-5&&platformAt(400,undefined,60)===null,'P5: platform placed at (400,-60) with lift has expected y at (400,-60) and not at (400,60)');
+    setEditorTool('delplat');
+    notices.length=0;
+    applyEditorPointer({x:400,z:60},true);
+    ok(platformAt(400,undefined,-60)!==null&&notices.length>0,'P5: delete platform at empty (400,60) leaves (400,-60) intact and shows notice');
+    applyEditorPointer({x:400,z:-60},true);
+    ok(platformAt(400,undefined,-60)===null,'P5: delete platform at (400,-60) removes the deck under (400,-60)');
+    // 5. Spawn slot 2 set to (500,90) -> editorSpawns[2] deep-equals {x:500,z:90} & marker renders at (x,z)
+    setEditorTool('spawn');
+    $('spawnSlot').value='2';
+    applyEditorPointer({x:500,z:90},true);
+    syncViews();
+    let sp2Marker=views.get('sp2');
+    ok(editorSpawns[2]&&editorSpawns[2].x===500&&editorSpawns[2].z===90&&Object.keys(editorSpawns[2]).length===2&&sp2Marker&&sp2Marker.g.position.x===500&&sp2Marker.g.position.z===90,'P5: spawn slot 2 set to (500,90) deep-equals {x:500,z:90} and marker renders at (500,90)');
+    // 6. Spawn on water -> rejected WITH a notice; spawn within 10 m of another -> rejected with a notice; outside world -> rejected with a notice
+    S.heights[gridIdx(Math.round(620/CELL),Math.round((-80+D)/CELL))]=5;
+    notices.length=0;
+    ok(!setSpawnAt(620,3,-80)&&notices.length===1&&/water|land|platform/i.test(notices[0])&&(editorSpawns[3].x!==620||editorSpawns[3].z!==-80),'P5: spawn on water at (620,-80) rejected with notice: '+notices[0]);
+    notices.length=0;
+    ok(!setSpawnAt(505,3,94)&&notices.length===1&&/10m|apart/i.test(notices[0])&&(editorSpawns[3].x!==505||editorSpawns[3].z!==94),'P5: spawn within 10m of slot 2 at (505,94) rejected with notice: '+notices[0]);
+    notices.length=0;
+    ok(!setSpawnAt(W+50,3,0)&&notices.length===1&&/outside|boundar/i.test(notices[0]),'P5: spawn outside world rejected with notice: '+notices[0]);
+    // 7. Save -> Load round trip keeps every spawn's z and platform z; Export -> Import identical
+    S.heights.fill(22);S.platforms=[];
+    placePlatform(420,30,10,-55);
+    let authoredSpawns=[{x:80,z:-90},{x:880,z:85},{x:500,z:90},{x:260,z:-40},{x:700,z:45},{x:420,z:-55}];
+    for(let i=0;i<6;i++)ok(setSpawnAt(authoredSpawns[i].x,i,authoredSpawns[i].z),'P5: set authored 2-D spawn '+i);
+    $('mapName').value='TwoDEditorMap';
+    ok(saveCustomMapSlot('TwoDEditorMap'),'P5: saveCustomMapSlot succeeds');
+    let expJson=JSON.stringify(edExport());
+    S.heights.fill(18);S.platforms=[];editorSpawns=defaultSpawns();
+    ok(loadCustomMapSlot('TwoDEditorMap'),'P5: loadCustomMapSlot succeeds');
+    ok(editorSpawns.every((s,i)=>s.x===authoredSpawns[i].x&&s.z===authoredSpawns[i].z)&&S.platforms.length===1&&S.platforms[0].x===420&&S.platforms[0].z===-55,'P5: save -> load round trip keeps every spawn z and platform z');
+    S.heights.fill(18);S.platforms=[];editorSpawns=defaultSpawns();
+    let impRes=edImport(expJson);
+    ok(impRes&&!('pts' in impRes.spawns)&&editorSpawns.every((s,i)=>s.x===authoredSpawns[i].x&&s.z===authoredSpawns[i].z)&&S.platforms.length===1&&S.platforms[0].x===420&&S.platforms[0].z===-55,'P5: export -> import round trip preserves 2-D spawns and platform z without .pts');
+    // 8. v1 JSON import gives {x,z:0} spawns
+    let v1Json=JSON.stringify({version:1,name:'LegacyV1',heights:new Array(LEGACY_N).fill(24),spawns:[50,430,130,350,210,270],platforms:[{x:240,y:25,width:28,hp:120,maxHp:120}]});
+    let v1Imp=edImport(v1Json);
+    ok(v1Imp&&v1Imp.spawns.length===6&&!('pts' in v1Imp.spawns)&&v1Imp.spawns.every(s=>s&&typeof s==='object'&&s.z===0)&&editorSpawns.every(s=>s&&typeof s==='object'&&s.z===0),'P5: v1 JSON import converts spawns to canonical {x,z:0} objects');
+    closeEditor(false);
+    // 9. Cancel restores spawn z
+    setup();S.heights.fill(22);
+    editorSpawns=[{x:70,z:-65},{x:890,z:75},{x:200,z:-30},{x:760,z:30},{x:350,z:-15},{x:610,z:15}];
+    openEditor();
+    setSpawnAt(500,0,110);
+    ok(editorSpawns[0].x===500&&editorSpawns[0].z===110,'P5: spawn 0 modified in editor');
+    cancelEditor();
+    ok(editorSpawns[0].x===70&&editorSpawns[0].z===-65&&editorSpawns[1].z===75,'P5: cancelEditor restores spawn z');
+    // 10. PLAY MAP -> tanks at the authored (x,z)
+    setup();S.heights.fill(22);S.platforms=[];
+    openEditor();
+    for(let i=0;i<6;i++)setSpawnAt(authoredSpawns[i].x,i,authoredSpawns[i].z);
+    let qsa=document.querySelectorAll;
+    try{
+      let slots=['human','ai','ai','off','off','off'].map(v=>({value:v}));
+      document.querySelectorAll=s=>s==='.slot select'?slots:[];
+      if(closeEditor(true))startMatch(); // the PLAY MAP button handler body (onclick is wired after the harness cut)
+      ok(!editorOpen&&running&&S.cfg.terrain==='Custom'&&S.tanks.length===3&&S.tanks[0].x===authoredSpawns[0].x&&S.tanks[0].z===authoredSpawns[0].z&&S.tanks[1].x===authoredSpawns[1].x&&S.tanks[1].z===authoredSpawns[1].z&&S.tanks[2].x===authoredSpawns[2].x&&S.tanks[2].z===authoredSpawns[2].z,'P5: PLAY MAP starts match with tanks at authored (x,z) spawns');
+    }finally{document.querySelectorAll=qsa}
+  }finally{
+    notice=origNotice;
+    setup();
+  }
+}
+// --- Reviewer Ruling: Resolution-Independent Physical Step/Slope Policy ---
+{
+  ok(STEP_LOOKAHEAD_M===2&&MAX_STEP_M===7&&typeof stepLegal==='function','Physical step constants STEP_LOOKAHEAD_M=2, MAX_STEP_M=7 and stepLegal helper defined');
+  let buildAxisRamp=(slope)=>{S.heights=new Float32Array(N).fill(20);for(let ix=0;ix<NX;ix++){let x=ix*CELL,h=x<=100?20:x>=124?20+24*slope:20+(x-100)*slope;for(let iz=0;iz<NZ;iz++)S.heights[gridIdx(ix,iz)]=quantH(clamp(h,5,135))}};
+  let buildDiagRamp=(slope)=>{S.heights=new Float32Array(N).fill(20);for(let iz=0;iz<NZ;iz++){let z=iz*CELL-D;for(let ix=0;ix<NX;ix++){let x=ix*CELL,u=(x-100)*Math.SQRT1_2+z*Math.SQRT1_2,h=u<=0?20:u>=24?20+24*slope:20+u*slope;S.heights[gridIdx(ix,iz)]=quantH(clamp(h,5,135))}}};
+  for(let[label,dims]of [['cell-1 (480x80@1)',{w:480,d:80,cell:1}],['cell-2 (960x240@2)',{w:960,d:240,cell:2}]]){
+    setup();ok(setWorld(dims),label+' setWorld');
+    for(let[slope,expectOk]of [[3.0,true],[4.0,false]]){
+      buildAxisRamp(slope);
+      let tk=current();tk.x=108;tk.z=0;tk.y=supportHeight(108,0);tk.heading=0;tk.fuel=100;tk.waterGear=null;tk.inv['Floating Platform']=0;tk.inv['Inflatable Lifejacket']=0;
+      let axisMove=canStepMove(tk,110,supportHeight,0),axisShort=canStepMove(tk,108.5,supportHeight,0),axisWater=canTraverseWater(108,110,tk,0,0);
+      ok(axisMove===expectOk&&axisShort===expectOk&&axisWater===expectOk,label+' continuous '+slope.toFixed(1)+' m/m axis ramp => '+expectOk);
+      buildDiagRamp(slope);
+      let d0=8*Math.SQRT1_2,d1=10*Math.SQRT1_2;
+      tk.x=100+d0;tk.z=d0;tk.y=supportHeight(tk.x,tk.z);tk.heading=Math.PI/4;
+      let diagMove=canStepMove(tk,100+d1,supportHeight,d1),diagWater=canTraverseWater(tk.x,100+d1,tk,tk.z,d1);
+      ok(diagMove===axisMove&&diagWater===axisWater&&diagMove===expectOk,label+' '+slope.toFixed(1)+' m/m ramp approached diagonally (45 deg) matches axis-aligned verdict ('+expectOk+')');
+    }
+    // Abrupt 8 m shoreline step blocks going up AND going down on both resolutions
+    S.heights=new Float32Array(N).fill(6);
+    for(let ix=Math.round(100/CELL)+1;ix<NX;ix++)for(let iz=0;iz<NZ;iz++)S.heights[gridIdx(ix,iz)]=14;
+    let tkShore=current();tkShore.waterGear=null;tkShore.inv['Floating Platform']=0;tkShore.inv['Inflatable Lifejacket']=0;tkShore.fuel=100;
+    tkShore.x=100;tkShore.z=0;tkShore.y=supportHeight(100,0);tkShore.heading=0;
+    ok(!canStepMove(tkShore,102,supportHeight,0)&&!canTraverseWater(100,102,tkShore,0,0),label+' abrupt 8 m shoreline step blocks going UP');
+    tkShore.x=102;tkShore.z=0;tkShore.y=supportHeight(102,0);tkShore.heading=Math.PI;
+    ok(!canStepMove(tkShore,100,supportHeight,0)&&!canTraverseWater(102,100,tkShore,0,0),label+' abrupt 8 m shoreline step blocks going DOWN');
+    // (a) Cliff-foot retreat & look-ahead block on both cell-1 and cell-2 worlds
+    S.heights=new Float32Array(N).fill(20);
+    let cliffIx=Math.round(100/CELL);
+    for(let ix=cliffIx+1;ix<NX;ix++)for(let iz=0;iz<NZ;iz++)S.heights[gridIdx(ix,iz)]=28;
+    let tkCliff=current();tkCliff.waterGear=null;tkCliff.inv['Floating Platform']=0;tkCliff.inv['Inflatable Lifejacket']=0;tkCliff.fuel=100;
+    tkCliff.x=100;tkCliff.z=0;tkCliff.y=supportHeight(100,0);tkCliff.heading=0;
+    ok(!canStepMove(tkCliff,100.1,supportHeight,0)&&!stepLegal(tkCliff,100,0,100.1,0),label+' (a) short move (0.1 m) into 8 m cliff is blocked (look-ahead)');
+    ok(!canStepMove(tkCliff,100+CELL,supportHeight,0)&&!stepLegal(tkCliff,100,0,100+CELL,0),label+' (a) full cell step into 8 m cliff is blocked');
+    tkCliff.heading=Math.PI;
+    ok(canStepMove(tkCliff,98,supportHeight,0)&&stepLegal(tkCliff,100,0,98,0)&&canStepMove(tkCliff,99.5,supportHeight,0),label+' (a) tank at foot of 8 m cliff CAN retreat away over flat ground');
+  }
+  // (b) Near-cliff flat edge fixture: heights along x [20,20,20,40] at cell spacing (and cell-1 with 2 m window)
+  {
+    setup();setWorld({w:960,d:240,cell:2});
+    S.heights=new Float32Array(N).fill(20);
+    for(let ix=3;ix<NX;ix++)for(let iz=0;iz<NZ;iz++)S.heights[gridIdx(ix,iz)]=40;
+    let tkB=current();tkB.waterGear=null;tkB.inv['Floating Platform']=0;tkB.inv['Inflatable Lifejacket']=0;tkB.fuel=100;
+    let zMidIdx=Math.round(D/CELL),iX2=gridIdx(1,zMidIdx),iX4=gridIdx(2,zMidIdx);
+    let gB2=buildSpawnGraph(S.heights);
+    ok(!stepLegal(tkB,2,0,4,0)&&gB2&&!gB2.canStep(iX2,iX4)&&gB2.drvLabels[iX2]!==gB2.drvLabels[iX4],'STEP-FIX2 (b) cell-2 [20,20,20,40]: x=2->x=4 rejected by both stepLegal and buildSpawnGraph');
+    ok(stepLegal(tkB,4,0,2,0)&&gB2&&gB2.canStep(iX4,iX2),'STEP-FIX2 (b) cell-2 [20,20,20,40]: x=4->x=2 (retreat from cliff) accepted by both stepLegal and buildSpawnGraph');
+    setup();setWorld({w:480,d:80,cell:1});
+    S.heights=new Float32Array(N).fill(20);
+    for(let ix=3;ix<NX;ix++)for(let iz=0;iz<NZ;iz++)S.heights[gridIdx(ix,iz)]=40;
+    let zMid1=Math.round(D/CELL),jX1=gridIdx(1,zMid1),jX2=gridIdx(2,zMid1);
+    let gB1=buildSpawnGraph(S.heights);
+    ok(!stepLegal(tkB,1,0,2,0)&&gB1&&!gB1.canStep(jX1,jX2)&&gB1.drvLabels[jX1]!==gB1.drvLabels[jX2],'STEP-FIX2 (b) cell-1 [20,20,20,40]: x=1->x=2 rejected by both stepLegal and buildSpawnGraph (2 m look-ahead hits x=3)');
+    ok(stepLegal(tkB,2,0,1,0)&&gB1&&gB1.canStep(jX2,jX1),'STEP-FIX2 (b) cell-1 [20,20,20,40]: x=2->x=1 (retreat from cliff) accepted by both stepLegal and buildSpawnGraph');
+  }
+  // (c) 10 generated rounds (seeds 1..5 x 2 terrain types, 4 tanks): every pair of spawns mutually reachable by actual runtime stepLegal walk along graph BFS path
+  {
+    let allWalksLegal=true,walkPairsChecked=0,stepCountChecked=0;
+    for(let s=1;s<=5;s++){
+      for(let terr of ['Rolling Hills','Cliffs']){
+        setup();
+        S.cfg.terrain=terr;
+        S.tanks=Array.from({length:4},(_,id)=>({id,name:'P'+id,x:40,z:0,heading:0,y:20,hp:100,shield:0,mag:false,inv:starter(),fuel:100,power:650,angle:45,az:0,vy:0,chuting:0,buried:0,cash:1600,score:0}));
+        seed=s;S.seed=s;S.round=0;
+        newRound();
+        let gRound=buildSpawnGraph(S.heights),probe={id:0,hp:100,waterGear:null,inv:{}},
+            spIdx=S.tanks.map(t=>clamp(Math.round((t.z+D)/CELL),0,NZ-1)*NX+clamp(Math.round(t.x/CELL),0,NX-1));
+        for(let i=0;i<4;i++){
+          for(let j=0;j<4;j++){
+            if(i===j)continue;
+            walkPairsChecked++;
+            let path=gRound?gRound.bfsPath(spIdx[i],spIdx[j]):null;
+            if(!path||path.length<2){allWalksLegal=false;break}
+            for(let k=0;k<path.length-1;k++){
+              let u=path[k],v=path[k+1],ux=u%NX,uz=(u-ux)/NX,vx=v%NX,vz=(v-vx)/NX;
+              let x0=ux*CELL,z0=uz*CELL-D,x1=vx*CELL,z1=vz*CELL-D;
+              if(Math.hypot(x1-x0,z1-z0)!==CELL||!stepLegal(probe,x0,z0,x1,z1)){allWalksLegal=false;break}
+              stepCountChecked++;
+            }
+            if(!allWalksLegal)break;
+          }
+          if(!allWalksLegal)break;
+        }
+      }
+    }
+    ok(allWalksLegal&&walkPairsChecked===120&&stepCountChecked>0,'STEP-FIX2 (c) 10 generated rounds (seeds 1..5 x 2 terrains, 4 tanks): all 120 directed spawn pairs connected by runtime-legal 2 m axis walks ('+stepCountChecked+' steps verified)');
+  }
+  // (d) buildSpawnGraph connects a 3.0 m/m ramp and separates across a 4.0 m/m ramp on cell 2 (and cell 1)
+  for(let[label,dims]of [['cell-2',{w:960,d:240,cell:2}],['cell-1',{w:480,d:80,cell:1}]]){
+    setup();setWorld(dims);
+    buildAxisRamp(3.0);
+    let g3=buildSpawnGraph(S.heights),iL=gridIdx(Math.round(60/CELL),Math.round(D/CELL)),iR=gridIdx(Math.round(160/CELL),Math.round(D/CELL));
+    ok(g3&&g3.drvLabels[iL]===g3.drvLabels[iR]&&g3.dryLabels[iL]===g3.dryLabels[iR],'buildSpawnGraph connects 3.0 m/m ramp on '+label);
+    buildAxisRamp(4.0);
+    let g4=buildSpawnGraph(S.heights);
+    ok(g4&&g4.drvCount>=2&&g4.drvLabels[iL]!==g4.drvLabels[iR]&&g4.dryLabels[iL]!==g4.dryLabels[iR],'buildSpawnGraph separates across 4.0 m/m ramp on '+label);
+  }
+  setup();
+}
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
+// Graph edge == runtime stepLegal, randomized (reviewer: prove equivalence on cell 1 and cell 2 incl. non-monotonic odd-index profiles)
+{
+  let rnd=20261029;const R=()=>{rnd=(Math.imul(rnd,1103515245)+12345)>>>0;return rnd/4294967296};
+  for(const [w,d,cell] of [[480,80,1],[960,240,2]]){
+    setup();setWorld({w,d,cell});let mism=0,checked=0,blocked=0;
+    for(let trial=0;trial<6;trial++){
+      S.heights=new Float32Array(N);
+      for(let iz=0;iz<NZ;iz++)for(let ix=0;ix<NX;ix++){let v=20+((ix*7+iz*13+trial*31)%5),r=R();if(r<.15)v+=6+R()*6;else if(r<.30)v-=6+R()*6;else if(r<.35)v+=(ix%2?9:0);S.heights[iz*NX+ix]=quantH(clamp(v,1,135))}
+      S.platforms=[];let g=buildSpawnGraph(S.heights),t={...S.tanks[0],waterGear:null,inv:{},hp:100};
+      for(let k=0;k<300;k++){let ix=4+Math.floor(R()*(NX-8)),iz=4+Math.floor(R()*(NZ-8)),dir=Math.floor(R()*4),u=iz*NX+ix,v=dir===0?u-1:dir===1?u+1:dir===2?u-NX:u+NX;
+        let x0=ix*CELL,z0=iz*CELL-D,x1=x0+(dir===0?-CELL:dir===1?CELL:0),z1=z0+(dir===2?-CELL:dir===3?CELL:0),b=stepLegal(t,x0,z0,x1,z1);
+        checked++;if(!b)blocked++;if(g.canStep(u,v,dir)!==b)mism++}
+    }
+    ok(mism===0&&blocked>checked*.1&&blocked<checked*.9,'graph canStep equals runtime stepLegal on '+checked+' random edges (cell '+cell+', '+blocked+' blocked, '+mism+' mismatches)');
+  }
+  setWorld({w:960,d:240,cell:2});
+}
+// Reviewer counterexample (ChatGPT 70b74a2e): cell 1, profile [20,20,13,27] along +x at 1 m spacing, move index 0 -> 1.
+{
+  setup();setWorld({w:480,d:80,cell:1});S.heights=new Float32Array(N).fill(20);S.platforms=[];
+  let iz=Math.round(D/CELL),x0=100,prof=[20,20,13,27];for(let i=0;i<prof.length;i++)for(let dz=-3;dz<=3;dz++)S.heights[(iz+dz)*NX+x0+i]=prof[i];
+  for(let i=prof.length;i<prof.length+4;i++)for(let dz=-3;dz<=3;dz++)S.heights[(iz+dz)*NX+x0+i]=27;
+  let g=buildSpawnGraph(S.heights),u=iz*NX+x0,v=u+1,t={...S.tanks[0],waterGear:null,inv:{},hp:100};
+  let rt=stepLegal(t,x0,0,x0+1,0);
+  ok(rt===false&&g.canStep(u,v,1)===false,'reviewer fixture [20,20,13,27] cell 1: runtime rejects 0->1 (13 -> 27 inside the 2 m look-ahead) and the graph edge agrees (runtime '+rt+')');
+  setWorld({w:960,d:240,cell:2});
+}
+// Forced exhaustion of the spawn picker (reviewer 2026-10-29): never launch an uncertified layout, never the old +-4 m island pads.
+{
+  const realPick=pickGeneratedSpawns,certified=()=>{let g=buildSpawnGraph(S.heights);if(!g)return false;let idx=t=>clamp(Math.round(((t.z||0)+D)/CELL),0,NZ-1)*NX+clamp(Math.round(t.x/CELL),0,NX-1),c0=g.drvLabels[idx(S.tanks[0])];return c0>0&&S.tanks.every(t=>g.drvLabels[idx(t)]===c0&&t.y>=WATER_LEVEL+1-1e-6)};
+  const oldX=n=>Array.from({length:n},(_,i)=>22+i*(W-44)/(n-1));
+  for(const [label,failN] of [['re-seed attempts exhausted -> smoothed terrain',6],['smoothed terrain also refused -> gentle fallback terrain',7]]){
+    setup();S.cfg.terrain='Cliffs';S.tanks=Array.from({length:4},(_,id)=>({...S.tanks[0],id,name:'P'+id,inv:starter(),hp:100,z:0}));seed=11;S.seed=11;S.round=0;
+    let calls=0;pickGeneratedSpawns=(...a)=>(++calls<=failN?null:realPick(...a));let notes=[],on=notice;notice=m=>notes.push(String(m));
+    let r;try{r=newRound()}finally{pickGeneratedSpawns=realPick;notice=on}
+    let ox=oldX(4),onOldSlots=S.tanks.filter((t,i)=>Math.abs(t.x-ox[i])<1&&Math.abs(t.z||0)<1).length;
+    ok(r!==false&&calls===failN+1&&certified()&&onOldSlots===0&&notes.length===0,'P4 fallback: '+label+' launches a certified layout (calls '+calls+', tanks on old even slots '+onOldSlots+')');
+  }
+  setup();S.cfg.terrain='Valleys';S.tanks=Array.from({length:3},(_,id)=>({...S.tanks[0],id,name:'P'+id,inv:starter(),hp:100,z:0}));seed=5;S.seed=5;S.round=0;running=true;
+  let notes=[],on=notice;notice=m=>notes.push(String(m));pickGeneratedSpawns=()=>null;let r;
+  try{r=newRound()}finally{pickGeneratedSpawns=realPick;notice=on}
+  ok(r===false&&!running&&notes.some(m=>/navigable/.test(m)),'P4 fallback: if no certified layout exists the round does not start and says why');
+  running=true;
+}
 `;
-vm.runInContext(test,context,{timeout:30000});
+vm.runInContext(test,context,{timeout:120000});
 const simChecks = vm.runInContext('checks', context);
 
 // --- Catalog Drift & Client<->Server Validator Round-Trip Verification ---
@@ -553,22 +1927,26 @@ const simChecks = vm.runInContext('checks', context);
   });
   assert(rtRes.ok, `Client-recorded actionLog failed server validation: ${rtRes.reason}`);
 
-  for (const entry of [{actor:0,action:'move',dx:0,distance:0,duration:0},{actor:0,action:'move',dx:0,distance:12,duration:2},{actor:0,action:'move',dx:240,distance:240,duration:30}]) {
+  for (const entry of [{actor:0,action:'move',dx:0,distance:0,duration:0},{actor:0,action:'move',dx:0,distance:12,duration:2},{actor:0,action:'move',dx:240,distance:240,duration:30},{actor:0,action:'move',dx:0,dz:12,distance:12,duration:2},{actor:0,action:'move',dx:0,dz:0,distance:0,duration:1.5}]) {
     const result=validateAndCanonicalizeAttestation(syntheticMatch,{nonce:'drift-nonce',winnerSlot:0,durationMs:5000,actionLog:[entry],outcomes:syntheticOutcomes});
-    assert(result.ok, 'Stopped and reversed timed drives remain valid ranked records');
+    assert(result.ok, 'Stopped, reversed, pure-z, and turn-in-place timed drives remain valid ranked records');
   }
   // Negative checks: unknown weapons and out-of-range fields must still be rejected
   const badEntries = [
     [{ actor: 0, action: 'fire', weaponOrItem: 'Quantum Singularity Cannon', angle: 45, power: 500, az: 0 }],
     [{ actor: 0, action: 'sat_strike', weaponOrItem: 'Satellite Laser Strike', targetX: -1 }],
-    [{ actor: 0, action: 'sat_strike', weaponOrItem: 'Satellite Laser Strike', targetX: 481 }],
+    [{ actor: 0, action: 'sat_strike', weaponOrItem: 'Satellite Laser Strike', targetX: 1201 }],
     [{ actor: 0, action: 'sat_strike', weaponOrItem: 'Satellite Laser Strike' }],
     [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 181, power: 500, az: 0 }],
     [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 1001, az: 0 }],
-    [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 500, az: 25 }],
-    [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 500, az: 0, targetX: 500 }],
+    [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 500, az: 181 }],
+    [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 500, az: -181 }],
+    [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 500, az: 0, targetX: 1201 }],
     [{ actor: 0, action: 'move', dx: 0 }],
+    [{ actor: 0, action: 'move', dx: 0, dz: 0 }],
     [{ actor: 0, action: 'move', dx: 241 }],
+    [{ actor: 0, action: 'move', dx: 0, dz: 241, distance: 12, duration: 2 }],
+    [{ actor: 0, action: 'move', dx: 0, dz: -241, distance: 12, duration: 2 }],
     [{ actor: 0, action: 'silo_launch', weaponOrItem: 'ASAT Silo Launch', targetSatId: -2 }]
   ];
   for (const badLog of badEntries) {
@@ -581,6 +1959,78 @@ const simChecks = vm.runInContext('checks', context);
     });
     assert(!neg.ok, `Expected validator to reject invalid log entry: ${JSON.stringify(badLog[0])}`);
   }
+
+  const { WORLD_MAX_X: API_MAX_X } = require('../scripts/api.cjs');
+  const { createAiDecisionService, WORLD_MAX_X: AI_MAX_X } = require('../scripts/ai.cjs');
+  assert.strictEqual(API_MAX_X, 1200);
+  assert.strictEqual(AI_MAX_X, 1200);
+  for (const validAz of [25, -180, 180]) {
+    const azOk = validateAndCanonicalizeAttestation(syntheticMatch, {
+      nonce: 'drift-nonce',
+      winnerSlot: 0,
+      durationMs: 5000,
+      actionLog: [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 500, az: validAz }],
+      outcomes: syntheticOutcomes
+    });
+    assert(azOk.ok, `Deliberate P2b-1 rule change: API accepts widened world azimuth az=${validAz} in [-180, 180]`);
+  }
+  const azRej = validateAndCanonicalizeAttestation(syntheticMatch, {
+    nonce: 'drift-nonce',
+    winnerSlot: 0,
+    durationMs: 5000,
+    actionLog: [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 500, az: 181 }],
+    outcomes: syntheticOutcomes
+  });
+  assert(!azRej.ok, 'Deliberate P2b-1 rule change: API rejects out-of-range azimuth az=181 (> 180)');
+  for (const act of [
+    { actor: 0, action: 'sat_strike', weaponOrItem: 'Satellite Laser Strike', targetX: 900 },
+    { actor: 0, action: 'silo_launch', weaponOrItem: 'ASAT Silo Launch', targetSatId: 1, targetX: 900 },
+    { actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 600, az: 0, targetX: 900 }
+  ]) {
+    assert(validateAndCanonicalizeAttestation(syntheticMatch, { nonce: 'drift-nonce', winnerSlot: 0, durationMs: 5000, actionLog: [act], outcomes: syntheticOutcomes }).ok, 'API accepts targetX=900');
+    assert(!validateAndCanonicalizeAttestation(syntheticMatch, { nonce: 'drift-nonce', winnerSlot: 0, durationMs: 5000, actionLog: [{ ...act, targetX: 1201 }], outcomes: syntheticOutcomes }).ok, 'API rejects targetX=1201');
+  }
+  (async () => {
+    const aiSvc = createAiDecisionService({
+      env: { GEMINI_API_KEY: 'test-key', GEMINI_MODEL: 'gemini-2.5-flash' },
+      allowedWeapons: ALLOWED_WEAPONS,
+      fetchImpl: async () => ({
+        ok: true,
+        json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 600, az: 0, targetX: 900 }) }] } }] })
+      })
+    });
+    const user = { id: 'u1', emailVerified: true };
+    const res900 = await aiSvc(user, { self: { x: 900, y: 20, hp: 100, inventory: { 'Baby Missile': 99 } }, enemies: [{ x: 900, y: 20, hp: 100, shield: 0 }], wind: 0 });
+    assert.strictEqual(res900.targetX, 900, 'AI accepts x=900 and targetX=900');
+    let capturedPrompt = '';
+    const aiSvc2D = createAiDecisionService({
+      env: { GEMINI_API_KEY: 'test-key', GEMINI_MODEL: 'gemini-2.5-flash' },
+      allowedWeapons: ALLOWED_WEAPONS,
+      fetchImpl: async (_url, opts) => {
+        capturedPrompt = JSON.parse(opts.body).contents[0].parts[0].text;
+        return {
+          ok: true,
+          json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ action: 'fire', weaponOrItem: 'Baby Missile', angle: 48, power: 610, az: 35, targetX: 600, targetZ: -120 }) }] } }] })
+        };
+      }
+    });
+    const res2D = await aiSvc2D(user, { self: { x: 400, z: -80, heading: 0.5, y: 20, hp: 100, inventory: { 'Baby Missile': 99 } }, enemies: [{ x: 600, z: -120, heading: -1.2, y: 20, hp: 100, shield: 0 }], wind: 2 });
+    assert(res2D.az === 35 && res2D.targetZ === -120 && capturedPrompt.includes('(x,z)') && capturedPrompt.includes('"z":-80'), 'P2c server ai.cjs accepts z/heading/targetZ and mentions (x,z) in prompt');
+    await assert.rejects(() => aiSvc2D(user, { self: { x: 400, z: 301, y: 20, hp: 100, inventory: { 'Baby Missile': 99 } }, enemies: [{ x: 400, y: 20, hp: 100, shield: 0 }], wind: 0 }), /Invalid combat context/);
+    await assert.rejects(() => aiSvc2D(user, { self: { x: 400, heading: 4, y: 20, hp: 100, inventory: { 'Baby Missile': 99 } }, enemies: [{ x: 400, y: 20, hp: 100, shield: 0 }], wind: 0 }), /Invalid combat context/);
+    await assert.rejects(() => aiSvc2D(user, { self: { x: 400, y: 20, hp: 100, inventory: { 'Baby Missile': 99 } }, enemies: [{ x: 400, z: -301, y: 20, hp: 100, shield: 0 }], wind: 0 }), /Invalid enemy context/);
+    await assert.rejects(() => aiSvc(user, { self: { x: 1201, y: 20, hp: 100, inventory: { 'Baby Missile': 99 } }, enemies: [{ x: 400, y: 20, hp: 100, shield: 0 }], wind: 0 }), /Invalid combat context/);
+    await assert.rejects(() => aiSvc(user, { self: { x: 400, y: 20, hp: 100, inventory: { 'Baby Missile': 99 } }, enemies: [{ x: 1201, y: 20, hp: 100, shield: 0 }], wind: 0 }), /Invalid enemy context/);
+    const aiBadResp = createAiDecisionService({
+      env: { GEMINI_API_KEY: 'test-key', GEMINI_MODEL: 'gemini-2.5-flash' },
+      allowedWeapons: ALLOWED_WEAPONS,
+      fetchImpl: async () => ({
+        ok: true,
+        json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 600, az: 0, targetX: 1201 }) }] } }] })
+      })
+    });
+    await assert.rejects(() => aiBadResp(user, { self: { x: 400, y: 20, hp: 100, inventory: { 'Baby Missile': 99 } }, enemies: [{ x: 400, y: 20, hp: 100, shield: 0 }], wind: 0 }), /Server AI unavailable/);
+  })().catch(e => { console.error(e); process.exit(1); });
 }
 
 (async () => {

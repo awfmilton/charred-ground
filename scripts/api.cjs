@@ -7,6 +7,7 @@ const { createAiDecisionService } = require('./ai.cjs');
 
 const MAX_BODY_BYTES = 64 * 1024;
 const SESSION_COOKIE = 'cg_session';
+const WORLD_MAX_X = 1200;
 
 const SHOT_WEAPONS = new Set([
   'Baby Missile', 'Missile', 'Baby Nuke', 'Nuke', 'MIRV', "Death's Head",
@@ -243,17 +244,28 @@ function validateAndCanonicalizeAttestation(match, body) {
     const kind = String(entry.action || 'fire');
     if (kind === 'move') {
       const dx = Number(entry.dx ?? entry.dir ?? 0);
+      const dz = entry.dz === undefined || entry.dz === null ? 0 : Number(entry.dz);
       const maxMoveDist = 30 * 8;
-      if (!Number.isFinite(dx) || (dx === 0 && !(typeof entry.duration === 'number' && typeof entry.distance === 'number')) || Math.abs(dx) > maxMoveDist) {
+      const hasDur = entry.duration !== undefined && entry.duration !== null;
+      const hasDist = entry.distance !== undefined && entry.distance !== null;
+      const groundDist = Math.hypot(dx, dz);
+      if (
+        !Number.isFinite(dx) ||
+        !Number.isFinite(dz) ||
+        Math.abs(dx) > maxMoveDist ||
+        Math.abs(dz) > maxMoveDist ||
+        groundDist > maxMoveDist ||
+        (dx === 0 && dz === 0 && !(typeof entry.duration === 'number' && (typeof entry.distance === 'number' || Number(entry.duration) > 0)))
+      ) {
         return { ok: false, reason: `Invalid move delta at action ${i}` };
       }
-      if (entry.duration !== undefined && entry.duration !== null) {
+      if (hasDur) {
         const dur = Number(entry.duration);
         if (!Number.isFinite(dur) || dur < 0 || dur > 30) {
           return { ok: false, reason: `Invalid move duration at action ${i}` };
         }
       }
-      if (entry.distance !== undefined && entry.distance !== null) {
+      if (hasDist) {
         const dist = Number(entry.distance);
         if (!Number.isFinite(dist) || dist < 0 || dist > maxMoveDist) {
           return { ok: false, reason: `Invalid move distance at action ${i}` };
@@ -274,7 +286,7 @@ function validateAndCanonicalizeAttestation(match, body) {
         return { ok: false, reason: `Disallowed weapon or item: ${rawWeapon}` };
       }
       const tx = Number(entry.targetX);
-      if (entry.targetX === undefined || entry.targetX === null || !Number.isFinite(tx) || tx < 0 || tx > 480) {
+      if (entry.targetX === undefined || entry.targetX === null || !Number.isFinite(tx) || tx < 0 || tx > WORLD_MAX_X) {
         return { ok: false, reason: `Invalid strike targetX at action ${i}` };
       }
       if (entry.angle !== undefined && entry.angle !== null) {
@@ -290,7 +302,7 @@ function validateAndCanonicalizeAttestation(match, body) {
         }
       }
       const az = Number(entry.az ?? 0);
-      if (!Number.isFinite(az) || az < -20 || az > 20) {
+      if (!Number.isFinite(az) || az < -180 || az > 180) {
         return { ok: false, reason: `Invalid azimuth at action ${i}` };
       }
       continue;
@@ -311,7 +323,7 @@ function validateAndCanonicalizeAttestation(match, body) {
       }
       if (entry.targetX !== undefined && entry.targetX !== null) {
         const tx = Number(entry.targetX);
-        if (!Number.isFinite(tx) || tx < 0 || tx > 480) {
+        if (!Number.isFinite(tx) || tx < 0 || tx > WORLD_MAX_X) {
           return { ok: false, reason: `Invalid targetX at action ${i}` };
         }
       }
@@ -328,7 +340,7 @@ function validateAndCanonicalizeAttestation(match, body) {
         }
       }
       const az = Number(entry.az ?? 0);
-      if (!Number.isFinite(az) || az < -20 || az > 20) {
+      if (!Number.isFinite(az) || az < -180 || az > 180) {
         return { ok: false, reason: `Invalid azimuth at action ${i}` };
       }
       continue;
@@ -345,7 +357,7 @@ function validateAndCanonicalizeAttestation(match, body) {
     const hasTargetX = entry.targetX !== undefined && entry.targetX !== null;
     if (hasTargetX) {
       const tx = Number(entry.targetX);
-      if (!Number.isFinite(tx) || tx < 0 || tx > 480) {
+      if (!Number.isFinite(tx) || tx < 0 || tx > WORLD_MAX_X) {
         return { ok: false, reason: `Invalid targetX at action ${i}` };
       }
     }
@@ -389,7 +401,7 @@ function validateAndCanonicalizeAttestation(match, body) {
     }
 
     const az = Number(entry.az ?? 0);
-    if (!Number.isFinite(az) || az < -20 || az > 20) {
+    if (!Number.isFinite(az) || az < -180 || az > 180) {
       return { ok: false, reason: `Invalid azimuth at action ${i}` };
     }
   }
@@ -1386,6 +1398,7 @@ module.exports = {
   EQUIPMENT_WEAPONS,
   SPECIAL_ACTION_WEAPONS,
   ALLOWED_WEAPONS,
+  WORLD_MAX_X,
   validateCustomFields,
   validateAndCanonicalizeAttestation
 };
