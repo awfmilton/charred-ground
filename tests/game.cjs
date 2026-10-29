@@ -6,7 +6,11 @@ const store=new Map(),localStorage={getItem:k=>store.has(k)?store.get(k):null,se
 const elements=new Map();function element(){const cl=new Set(['hidden']);return {value:'',checked:true,classList:{contains:c=>cl.has(c),add:c=>cl.add(c),remove:c=>cl.delete(c),toggle:(c,f)=>f===undefined?(cl.has(c)?cl.delete(c):cl.add(c)):(f?cl.add(c):cl.delete(c))},style:{},replaceChildren(){},appendChild(){},append(){},textContent:'',remove(){},setAttribute(){}}}
 const document={body:element(),getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id)},createElement:element,querySelectorAll:()=>[],hidden:false};
 const context={console,Buffer,coastalCrossingJson:fs.readFileSync('maps/coastal-crossing.json','utf8'),htmlSource:fs.readFileSync('index.html','utf8'),innerWidth:1280,innerHeight:720,THREE:require('three'),document,window:{localStorage},localStorage,setTimeout,clearTimeout,performance,crypto:require('crypto').webcrypto,requestAnimationFrame(){}};
-vm.createContext(context);vm.runInContext(source,context);
+vm.createContext(context);
+// Bind hot globals lexically: inside a vm context every global lookup goes through the contextified global object,
+// which made newTerrain ~16x slower than in a browser (1111 ms vs 67 ms). The game code itself is unchanged.
+const FAST_GLOBALS="const Math=globalThis.Math,Float32Array=globalThis.Float32Array,Int32Array=globalThis.Int32Array,Int16Array=globalThis.Int16Array,Uint8Array=globalThis.Uint8Array,Uint32Array=globalThis.Uint32Array,Number=globalThis.Number,Array=globalThis.Array,Object=globalThis.Object;";
+vm.runInContext(FAST_GLOBALS+source,context);
 const test=`
 let checks=0;function ok(value,message){if(!value)throw Error(message);checks++}
 const originalClearViews=clearViews,originalBroadcastState=broadcastState;emit=()=>{};flash=()=>{};sound=()=>{};refreshWeapons=()=>{};updateUI=()=>{};showShop=()=>{};clearViews=()=>{};broadcastState=()=>{};notice=()=>{};laserLine=()=>{};
@@ -1267,14 +1271,14 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   receiveState(lightSame);
   ok(terrainGeo===guestGeo&&S.heights===guestHeights&&S.customMap===guestCmap&&!terrainFullUpdate&&!terrainDirty&&S.tanks[0].x===123,'NET3: guest receiving light snapshot with same rev keeps terrainGeo/S.heights/customMap identity and does not set terrainFullUpdate');
 
-  // NET3: guest receiving light snapshot with newer rev keeps old terrain and emits exactly one resync per missing rev
-  let resyncSent=[];
+  // NET3: guest receiving light snapshot with newer rev keeps old terrain and state untouched and emits exactly one resync per missing rev
+  let resyncSent=[],guestStateRef=S;
   connections.set('host',{open:true,send(m){resyncSent.push(m)}});
   let lightNewer=JSON.parse(JSON.stringify(snapshot(false)));
   lightNewer.terrainRev=8;lightNewer.tanks[0].x=145;
   receiveState(lightNewer);
   receiveState(JSON.parse(JSON.stringify(lightNewer)));
-  ok(S.heights===guestHeights&&S.terrainRev===7&&!terrainFullUpdate&&resyncSent.length===1&&resyncSent[0].type==='resync'&&S.tanks[0].x===145,'NET3: guest receiving light snapshot with newer rev keeps terrain and emits exactly one resync for that missing rev');
+  ok(S===guestStateRef&&S.heights===guestHeights&&S.terrainRev===7&&!terrainFullUpdate&&resyncSent.length===1&&resyncSent[0].type==='resync'&&S.tanks[0].x===123,'NET3: guest receiving light snapshot with newer rev keeps terrain/state untouched and emits exactly one resync for that missing rev');
 
   // NET3: full snapshot after one crater marks a dirty box around that crater only (not a full update)
   S.heights.fill(25);S.terrainRev=7;
@@ -1393,6 +1397,56 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   S.terrainRev=validFull1.terrainRev;
   receiveState(lightRev2());
   ok(f4Resync.length===2,'NET-FIX2 F4: valid full snapshot resets resync suppression so a later mismatch requests resync again');
+
+  // --- NET-FIX3 (N1-N2) Verification ---
+  // N1: guest at (epoch E, rev 5, 960x240) receives a light snapshot with rev 9 and different dims and a new round with tanks at z=200
+  connections.clear();online=false;host=true;
+  setup();
+  setWorld({w:960,d:240,cell:2});
+  S.heights=new Float32Array(N).fill(21.5);
+  S.terrainEpoch='ep_netfix3_E';
+  S.terrainRev=5;
+  S.round=2;
+  S.tanks[0].x=110;S.tanks[0].z=-40;
+  S.tanks[1].x=820;S.tanks[1].z=35;
+  let nf3GuestS=S,nf3GuestRound=S.round,nf3T0x=S.tanks[0].x,nf3T0z=S.tanks[0].z,nf3T1x=S.tanks[1].x,nf3T1z=S.tanks[1].z,nf3W=W,nf3D=D,nf3Cell=CELL,nf3Chk=hChecksum(S.heights);
+  let nf3Resync=[];
+  connections.set('host',{open:true,send(m){nf3Resync.push(m)}});
+  let nf3LightMismatch=JSON.parse(JSON.stringify(snapshot(false)));
+  nf3LightMismatch.terrainEpoch='ep_netfix3_E';
+  nf3LightMismatch.terrainRev=9;
+  nf3LightMismatch.w=480;nf3LightMismatch.d=80;nf3LightMismatch.cell=1;
+  nf3LightMismatch.round=3;
+  nf3LightMismatch.tanks[0].x=300;nf3LightMismatch.tanks[0].z=200;
+  nf3LightMismatch.tanks[1].x=400;nf3LightMismatch.tanks[1].z=200;
+  receiveState(nf3LightMismatch);
+  receiveState(JSON.parse(JSON.stringify(nf3LightMismatch)));
+  ok(S===nf3GuestS&&S.round===nf3GuestRound&&S.tanks[0].x===nf3T0x&&S.tanks[0].z===nf3T0z&&S.tanks[1].x===nf3T1x&&S.tanks[1].z===nf3T1z&&W===nf3W&&D===nf3D&&CELL===nf3Cell&&hChecksum(S.heights)===nf3Chk&&nf3Resync.length===1&&nf3Resync[0].type==='resync','NET-FIX3 N1: mismatched light snapshot (rev 9, different dims, new round, tanks at z=200) leaves S identity, S.round, every tank x/z, W/D/CELL and heights checksum unchanged and sends exactly one resync');
+  let nf3NewN=(480/1+1)*(2*80/1+1);
+  let nf3NewHeights=new Float32Array(nf3NewN).fill(31.25);
+  let nf3ValidFull={...JSON.parse(JSON.stringify(nf3LightMismatch)),heights:encodeHeights(nf3NewHeights),customMap:null,customMapId:null};
+  let nf3ExpectedChk=hChecksum(decodeHeights(nf3ValidFull.heights,nf3NewN));
+  receiveState(nf3ValidFull);
+  ok(W===480&&D===80&&CELL===1&&S.round===3&&S.terrainRev===9&&hChecksum(S.heights)===nf3ExpectedChk&&S.tanks[0].x===300&&S.tanks[0].z===74&&S.tanks[1].x===400&&S.tanks[1].z===74,'NET-FIX3 N1: following valid full snapshot is adopted atomically with new dims, heights, round and tank positions clamped to new D');
+
+  // N2: light snapshot carrying customMap:null does not clear guest customMap, while full snapshot with customMap:null does
+  setup();
+  applyCustomMapToState(cmGood);
+  let nf3FullWithCmap=JSON.parse(JSON.stringify(snapshot(true)));
+  setup();
+  receiveState(nf3FullWithCmap);
+  ok(S.customMap!==null&&S.customMap.name==='NetCustom','NET-FIX3 N2: guest has active customMap before light snapshot test');
+  let nf3LightWithNullCmap=JSON.parse(JSON.stringify(snapshot(false)));
+  nf3LightWithNullCmap.customMap=null;
+  nf3LightWithNullCmap.tanks[0].x=222;
+  receiveState(nf3LightWithNullCmap);
+  ok(S.customMap!==null&&S.customMap.name==='NetCustom'&&S.customMapId===nf3FullWithCmap.customMapId&&S.tanks[0].x===222,'NET-FIX3 N2: light snapshot carrying customMap:null does not clear guest customMap');
+  let nf3FullClearCmap=JSON.parse(JSON.stringify(snapshot(true)));
+  nf3FullClearCmap.customMap=null;
+  nf3FullClearCmap.customMapId=null;
+  nf3FullClearCmap.terrainRev=S.terrainRev+1;
+  receiveState(nf3FullClearCmap);
+  ok(S.customMap===null&&S.customMapId===null,'NET-FIX3 N2: full snapshot with customMap:null clears guest customMap');
 
   connections.clear();online=false;host=true;
   setup();
