@@ -10,7 +10,8 @@ vm.createContext(context);vm.runInContext(source,context);
 const test=`
 let checks=0;function ok(value,message){if(!value)throw Error(message);checks++}
 const originalClearViews=clearViews;emit=()=>{};flash=()=>{};sound=()=>{};refreshWeapons=()=>{};updateUI=()=>{};showShop=()=>{};clearViews=()=>{};broadcastState=()=>{};notice=()=>{};laserLine=()=>{};
-function setup(){seed=1729;S={cfg:{terrain:'Rolling Hills',wall:'Concrete',difficulty:'Cyborg',market:'fixed'},round:1,turn:0,actionsMax:2,actionsLeft:2,heights:new Float32Array(481).fill(20),tanks:[0,1].map(id=>({id,name:'P'+id,x:40+id*100,y:20,hp:100,shield:0,mag:false,inv:Object.fromEntries(Object.keys(WEAPONS_CONFIG).map(n=>[n,10])),fuel:100,power:650,angle:id?135:45,az:0,vy:0,chuting:0,buried:0,cash:10000,score:0})),platforms:[],customMap:null,satellites:[],buildings:[],drones:[],shots:[],fires:[],phase:'aim',wind:0,wall:'Concrete',time:0,uid:0,prices:{},ready:[]};running=true;host=true;online=false;shotClock=0;return S.tanks[0]}
+function setFlatRow(x0,x1,v,z=0){let ix0=clamp(Math.floor(x0/CELL),0,NX-1),ix1=clamp(Math.ceil(x1/CELL),0,NX-1),iz0=clamp(Math.floor((z+D-6)/CELL),0,NZ-1),iz1=clamp(Math.ceil((z+D+6)/CELL),0,NZ-1);for(let iz=iz0;iz<=iz1;iz++)for(let ix=ix0;ix<=ix1;ix++)S.heights[gridIdx(ix,iz)]=quantH(v)}
+function setup(){setWorld({w:960,d:240,cell:2});seed=1729;S={cfg:{terrain:'Rolling Hills',wall:'Concrete',difficulty:'Cyborg',market:'fixed'},round:1,turn:0,actionsMax:2,actionsLeft:2,heights:new Float32Array(N).fill(20),tanks:[0,1].map(id=>({id,name:'P'+id,x:40+id*100,y:20,hp:100,shield:0,mag:false,inv:Object.fromEntries(Object.keys(WEAPONS_CONFIG).map(n=>[n,10])),fuel:100,power:650,angle:id?135:45,az:0,vy:0,chuting:0,buried:0,cash:10000,score:0})),platforms:[],customMap:null,satellites:[],buildings:[],drones:[],shots:[],fires:[],phase:'aim',wind:0,wall:'Concrete',time:0,uid:0,prices:{},ready:[]};running=true;host=true;online=false;shotClock=0;return S.tanks[0]}
 for(let[name,w]of Object.entries(WEAPONS_CONFIG)){let t=setup();let accepted=action({weaponOrItem:name,angle:35,power:500,az:0,targetX:140},0);if(['chute','floatplat','lifejacket'].includes(w.kind)){ok(!accepted&&S.actionsLeft===2,'Passive parachute rejected without spending action');continue}ok(accepted,'Action rejected '+name);if(w.kind==='actionpack'){ok(S.actionsLeft===4&&current().packUsed,'Action pack adds net two actions');continue}if(['blast','nuke','split','leap','funky','roller','digger','dirt','liquid','riot','napalm','laser','drone'].includes(w.kind)){for(let i=0;i<1600&&S.phase==='flight';i++)step(1/60);ok(S.phase!=='flight','Flight stuck '+name);ok(S.heights.every(Number.isFinite),'Invalid terrain '+name);ok(S.tanks.every(t=>Number.isFinite(t.hp)&&Number.isFinite(t.y)),'Invalid tank '+name);ok(S.actionsLeft===1,'Flight spends one of two configured remaining actions')}else ok(S.phase==='aim'&&S.actionsLeft===1,'Equipment/structure/satellite spends one configured action '+name)}
 setup();let t=current();t.hp=60;action({weaponOrItem:'Baby Missile',angle:45,power:1000});ok(t.power===600,'Health caps power');
 setup();t=current();t.hp=15;t.power=150;$('power').value=150;action({weaponOrItem:'Battery',angle:45,power:150});ok(t.hp===100&&t.power===1000&&+$('power').value===1000&&+$('power').max===1000,'Battery restores full 100 HP and 1000 firing power');
@@ -35,8 +36,8 @@ setup();t=current();t.hp=15;t.power=150;$('power').value=150;action({weaponOrIte
   ok(S.turn===0&&!t.packUsed&&action({weaponOrItem:'Action Supply Pack'},0),'Action Supply Pack limit resets on next personal turn');
 }
 setup();t=current();t.shield=40;damage(t,55,1);ok(t.hp===85&&t.shield===0,'Shield absorbs damage');
-setup();let before=S.heights[140];impact({name:'Dirt Ball',x:140,y:20,z:0,owner:0});ok(S.heights[140]>before,'Dirt adds terrain');
-setup();impact({name:'Riot Bomb',x:140,y:20,z:0,owner:0});ok(S.heights[140]<20&&S.tanks[1].hp===100,'Riot clears without blast damage');
+setup();let before=height(140,0);impact({name:'Dirt Ball',x:140,y:20,z:0,owner:0});ok(height(140,0)>before,'Dirt adds terrain');
+setup();impact({name:'Riot Bomb',x:140,y:20,z:0,owner:0});ok(height(140,0)<20&&S.tanks[1].hp===100,'Riot clears without blast damage');
 setup();impact({name:'Nuke',x:140,y:20,z:0,owner:0});ok(S.tanks[1].hp===0,'Nuke lethal direct impact');
 setup();for(let boundary of ['Concrete','Rubber','Spring','Wrap-Around']){S.wall=boundary;let p={x:-2,z:0,vx:-10};let gone=wall(p);ok(boundary==='Concrete'?gone:!gone,'Wall mode '+boundary);if(boundary==='Spring')ok(p.vx===13,'Spring amplification');if(boundary==='Wrap-Around')ok(p.x>239,'Wrapping');}
 setup();t=current();t.y=50;t.inv.Parachute=1;for(let i=0;i<400;i++)step(1/60);ok(t.hp===100&&t.inv.Parachute===0,'Parachute prevents fall damage');
@@ -95,8 +96,8 @@ setup();S.phase='shop';let cash=current().cash;ok(buy(0,'Missile'),'Shop purchas
 setup();let initial=current().cash;S.tanks[1].hp=0;finishRound();ok(S.phase==='shop','Round ends');ok(current().cash===Math.floor((initial+1400)*1.05),'Winner award and compound interest');
 setup();S.buildings.push({shape:'ciws',owner:1,x:100,y:20,charges:1,hp:55});ok(intercepted({owner:0,x:100,y:35,z:0}),'CIWS interception');ok(!intercepted({owner:0,x:100,y:35,z:0}),'CIWS single charge');
 setup();ok(!action({weaponOrItem:'Nuke',angle:NaN,power:600}),'Invalid angles rejected');ok(!action({weaponOrItem:'Nuke',angle:45,power:600},1),'Out of turn rejected');
-setup();camera=new THREE.PerspectiveCamera(47,16/9,.2,1200);camera.position.set(240,180,570);scene=new THREE.Scene();initTrails();
-ok(W===480&&N===481&&D===80,'Expanded battlefield dimensions');
+setup();camera=new THREE.PerspectiveCamera(47,16/9,.2,1200);camera.position.set(W/2,180,570);scene=new THREE.Scene();initTrails();
+ok(W===960&&D===240&&CELL===2&&NX===481&&NZ===241&&N===115921&&LEGACY_N===481,'Expanded battlefield dimensions');
 setCameraMode('focus');ok(viewMode==='focus'&&exploreX===current().x,'Focus targets current tank');
 setCameraMode('explore');let oldX=exploreX;panExplore('d');ok(exploreX!==oldX,'Explore pans across map');
 setCameraMode('gunner');ok(fp,'Gunner mode enabled');lastVisualRound=S.round;lastVisualPhase='aim';
@@ -106,11 +107,11 @@ updateTrails(.016);ok(traces.size===1,'Projectile path tracked');S.shots[0].x+=2
 S.shots=[];for(let i=0;i<70;i++)updateTrails(1/60);ok(traces.size===0,'Trails expire without growth');
 S.phase='aim';updateCamera(.016,current(),45,0,direction(45,0));ok(!document.getElementById('orbit').disabled,'Camera sliders unlock after flight');
 initNature();updateNature();ok(trunks.count>0&&trunks.count<=180&&crowns.count===trunks.count,'Pooled trees populated');ok(water.position.y===12,'Water surface initialized');
-for(let terrainType of ['Rolling Hills','Jagged Mountains','Valleys','Cliffs']){let map=newTerrain(terrainType);ok(map.length===481&&map.every(Number.isFinite),'Larger valid terrain '+terrainType);}
+for(let terrainType of ['Rolling Hills','Jagged Mountains','Valleys','Cliffs']){let map=newTerrain(terrainType);ok(map.length===N&&map.every(Number.isFinite),'Larger valid terrain '+terrainType);}
 // --- Custom Terrain Editor & Floating Platform Verification ---
 setup();
 S.heights.fill(6);
-for(let x=20;x<=38;x++)S.heights[x]=13;
+setFlatRow(20,38,13);
 S.platforms=[{id:1,x:52,y:13,width:28,hp:120,maxHp:120}];
 t=current();t.inv['Floating Platform']=0;t.inv['Inflatable Lifejacket']=0;t.x=36;t.y=supportHeight(36);t.fuel=100;
 ok(t.y===13,'Tank starts on coastal ramp at platform elevation');
@@ -136,38 +137,38 @@ for(let i=0;i<120;i++)step(1/60);
 ok(t.y===6&&t.hp<100,'Surviving tank falls to underwater floor and takes fall damage when platform collapses');
 
 setup();
-S.heights[200]=30;S.heights[204]=22;editorFlattenY=30;
+S.heights[gridIdx(200/CELL,D/CELL)]=30;S.heights[gridIdx(204/CELL,D/CELL)]=22;editorFlattenY=30;
 sculptTerrain(200,'flat',20,8);
 sculptTerrain(200,'flat',20,8);
-ok(S.heights[200]>=29&&S.heights[204]>22,'Flatten brush converges toward locked target height without flipping to water');
+ok(height(200,0)>=29&&height(204,0)>22,'Flatten brush converges toward locked target height without flipping to water');
 editorFlattenY=null;
 sculptTerrain(200,'water',20,10);
 sculptTerrain(200,'water',20,10);
-ok(S.heights[200]<WATER_LEVEL,'Separate water brush carves channel below water level');
+ok(height(200,0)<WATER_LEVEL,'Separate water brush carves channel below water level');
 
-ok(!validateCustomMap({name:'NoVersion',heights:new Array(481).fill(20),spawns:[40,440]}),'Validator rejects missing version');
-ok(!validateCustomMap({version:1,name:'StrHeight',heights:new Array(481).fill('20'),spawns:[40,440]}),'Validator rejects numeric string heights');
-ok(!validateCustomMap({version:1,name:'NullHeight',heights:new Array(481).fill(null),spawns:[40,440]}),'Validator rejects null heights');
-ok(!validateCustomMap({version:1,name:'CloseSpawns',heights:new Array(481).fill(20),spawns:[100,106]}),'Validator rejects spawns closer than 10m');
-let wetHeights=new Array(481).fill(20);wetHeights[120]=5;
+ok(!validateCustomMap({name:'NoVersion',heights:new Array(N).fill(20),spawns:[40,440]}),'Validator rejects missing version');
+ok(!validateCustomMap({version:1,name:'StrHeight',heights:new Array(N).fill('20'),spawns:[40,440]}),'Validator rejects numeric string heights');
+ok(!validateCustomMap({version:1,name:'NullHeight',heights:new Array(N).fill(null),spawns:[40,440]}),'Validator rejects null heights');
+ok(!validateCustomMap({version:1,name:'CloseSpawns',heights:new Array(N).fill(20),spawns:[100,106]}),'Validator rejects spawns closer than 10m');
+let wetHeights=new Array(N).fill(20);wetHeights[gridIdx(120/CELL,D/CELL)]=5;
 ok(!validateCustomMap({version:1,name:'WetSpawn',heights:wetHeights,spawns:[40,120]}),'Validator rejects unsupported water spawn');
 let bridgedMap=validateCustomMap({version:1,name:'Bridged',heights:wetHeights,platforms:[{id:1,x:120,y:13,width:24,hp:120,maxHp:120}],spawns:[40,120]});
 ok(bridgedMap&&bridgedMap.spawns.length===6,'Validator accepts platform-supported water spawn and validates all 6 spawns');
 
 setup();
-let origH=S.heights[150],origX=S.tanks[0].x,origAngle=S.tanks[0].angle;
+let origH=height(150,0),origX=S.tanks[0].x,origAngle=S.tanks[0].angle;
 openEditor();
 sculptTerrain(150,'raise',20,10);
 placePlatform(150,28,0);
 S.tanks[0].x=250;S.tanks[0].angle=12;S.tanks[0].falling=true;
 closeEditor(false);
-ok(Math.abs(S.heights[150]-origH)<1e-4&&S.platforms.length===0&&S.tanks[0].x===origX&&S.tanks[0].angle===origAngle&&!S.tanks[0].falling,'Editor cancel restores full snapshot state');
+ok(Math.abs(height(150,0)-origH)<1e-4&&S.platforms.length===0&&S.tanks[0].x===origX&&S.tanks[0].angle===origAngle&&!S.tanks[0].falling,'Editor cancel restores full snapshot state');
 
 setup();S.phase='flight';ok(!openEditor(),'No editing during projectile flight');S.phase='shop';ok(!openEditor(),'No editing during shop');
 setup();online=true;host=false;ok(!openEditor(),'Guest cannot edit maps');host=true;ok(!openEditor(),'Host cannot edit active online match');online=false;
 setup();S.tanks[0].ai=true;ok(openEditor(),'Open editor before AI starts');let beforeTime=S.time;last=1000;let savedDraw=draw;draw=()=>{};animate(1100);draw=savedDraw;ok(S.time===beforeTime&&!aiBusy,'Editor pauses simulation and AI');closeEditor(false);
-setup();openEditor();sculptTerrain(100,'raise',20,10);let incoming=JSON.parse(JSON.stringify(snapshot()));incoming.heights.fill(33);receiveState(incoming);ok(!editorOpen&&S.heights[100]===33,'Incoming snapshot replaces draft without restoring old backup');
-setup();editorSpawns=[40,440,120,360,200,280];let good={version:1,name:'Crossing',heights:Array(481).fill(20),spawns:editorSpawns.slice(),platforms:[{x:240,y:20,width:30,hp:120,maxHp:120}]};
+setup();openEditor();sculptTerrain(100,'raise',20,10);let incoming=JSON.parse(JSON.stringify(snapshot()));incoming.heights.fill(33);receiveState(incoming);ok(!editorOpen&&height(100,0)===33,'Incoming snapshot replaces draft without restoring old backup');
+setup();editorSpawns=[40,440,120,360,200,280];let good={version:1,name:'Crossing',heights:Array(N).fill(20),spawns:editorSpawns.slice(),platforms:[{x:240,y:20,width:30,hp:120,maxHp:120}]};
 ok(validateCustomMap(good),'Valid six-spawn map accepted');
 ok(!validateCustomMap({...good,version:2}),'Unknown map version rejected');
 ok(!validateCustomMap({...good,platforms:Array(17).fill(good.platforms[0])}),'Platform count bounded');
@@ -175,7 +176,7 @@ ok(!validateCustomMap({...good,platforms:[{...good.platforms[0],width:64.4}]}),'
 ok(!validateCustomMap({...good,platforms:[{...good.platforms[0],x:Infinity}]}),'Nonfinite platform rejected');
 ok(applyCustomMapToState(good)&&S.heights instanceof Float32Array,'Imported map retains typed terrain');
 $('mapName').value='Crossing';ok(saveCustomMapSlot('Crossing'),'Map saved to local storage');
-let exportMap=JSON.parse(JSON.stringify(serializeCurrentMap()));ok(exportMap.heights.length===481&&exportMap.spawns.length===6,'JSON map export complete');
+let exportMap=JSON.parse(JSON.stringify(serializeCurrentMap()));ok(exportMap.heights.length===N&&exportMap.spawns.length===6,'JSON map export complete');
 localStorage.setItem(CUSTOM_MAP_KEY,'{"__proto__":'+JSON.stringify(good)+',"constructor":'+JSON.stringify(good)+',"Crossing":'+JSON.stringify(good)+'}');loadSavedMaps();
 ok(Object.getPrototypeOf(savedCustomMaps)===null&&!Object.hasOwn(savedCustomMaps,'__proto__')&&!Object.hasOwn(savedCustomMaps,'constructor')&&savedCustomMaps.Crossing,'Prototype-like saved names handled safely');
 S.cfg.terrain='Custom';S.customMap=exportMap;newRound();ok(S.platforms.length===1&&S.tanks[0].x===40&&S.tanks[1].x===440,'Custom layout persists across rounds');
@@ -264,7 +265,7 @@ setup();S.tanks.forEach(t=>t.turnsTaken=9);S.satellites=[{id:1,owner:0,hp:60}];n
 }
 // Argon flotation and mesh lifecycle regression.
 {
-    setup();S.heights.fill(6);for(let x=20;x<=40;x++)S.heights[x]=13;for(let x=60;x<=80;x++)S.heights[x]=13;
+    setup();S.heights.fill(6);setFlatRow(20,40,13);setFlatRow(60,80,13);
     let tk=S.tanks[0];tk.x=38;tk.y=13;tk.fuel=100;tk.inv['Floating Platform']=1;tk.inv['Inflatable Lifejacket']=1;
     ok(!action({weaponOrItem:'Floating Platform'},0)&&!action({weaponOrItem:'Inflatable Lifejacket'},0)&&S.actionsLeft===2&&tk.inv['Floating Platform']===1&&tk.inv['Inflatable Lifejacket']===1,'Water gear automatic (0 manual cost)');
     ok(movementSpeed(tk,38)===6,'Ground speed 6 m/s');
@@ -286,7 +287,7 @@ setup();S.tanks.forEach(t=>t.turnsTaken=9);S.satellites=[{id:1,owner:0,hp:60}];n
 }
 // Effective shoreline support and no midair drive teleport.
 {
-setup();t=current();S.heights.fill(1);for(let x=0;x<=99;x++)S.heights[x]=18;t.x=99;t.y=18;
+setup();t=current();S.heights.fill(1);setFlatRow(0,100,18);t.x=99;t.y=18;
 ok(action({action:'move',dir:1},0),'Flotation permits six-meter shore-to-water drop despite deep floor');for(let i=0;i<120;i++)step(1/60);ok(t.x>106&&t.y===12,'Tank crosses steep submerged floor at water surface');finishDrive();
 setup();t=current();t.y=50;let oldFuel=t.fuel;ok(!action({action:'move',dir:1},0)&&S.actionsLeft===2&&t.y===50&&t.fuel===oldFuel,'Airborne movement rejected without teleport or cost');
 setup();t=current();action({action:'move',dir:1},0);for(let i=0;i<30;i++)step(1/60);let xpos=t.x;S.heights.fill(1);step(1/60);ok(!S.activeDrive&&t.x===xpos&&t.y>12&&t.falling,'Losing ground support ends driving and preserves falling physics');
@@ -432,6 +433,43 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   ok(S.tanks[0].lastShot.angle===180&&S.tanks[0].lastShot.power===1000&&S.tanks[0].lastShot.az===20&&S.tanks[0].lastShot.wind===6.5&&S.tanks[0].lastShot.hack===undefined&&S.tanks[1].lastShot===null,'Guest snap clamp');
   predict();ok(!arc.visible&&arcGeo.drawRange.count===0,'No arc');
   newRound();ok(S.tanks[0].lastShot===null&&S.tanks[1].lastShot===null&&$('lastShotInfo').textContent==='LAST SHOT: NONE','newRound reset');
+}
+// --- Phase P1a World Model Core Verification ---
+{
+  setup();
+  let w0=W,d0=D,c0=CELL,nx0=NX,nz0=NZ,n0=N;
+  for(let bad of [null,undefined,'bad',{}, {w:480,d:80,cell:3},{w:480,d:80,cell:0},{w:480,d:80,cell:1.5},{w:99,d:80,cell:1},{w:1201,d:80,cell:2},{w:480,d:49,cell:1},{w:480,d:301,cell:1},{w:481,d:80,cell:2},{w:1200,d:200,cell:1},{w:NaN,d:80,cell:1},{w:480,d:Infinity,cell:1}]){
+    ok(setWorld(bad)===false&&W===w0&&D===d0&&CELL===c0&&NX===nx0&&NZ===nz0&&N===n0,'setWorld rejects invalid input '+JSON.stringify(bad));
+  }
+  ok(setWorld({w:480,d:80,cell:2})===true&&W===480&&D===80&&CELL===2&&NX===241&&NZ===81&&N===241*81,'setWorld accepts 480x80 cell 2');
+  S.heights=new Float32Array(N);
+  let ix=10,iz=20,gx=ix*CELL,gz=iz*CELL-D;
+  S.heights[gridIdx(ix,iz)]=10;S.heights[gridIdx(ix+1,iz)]=20;S.heights[gridIdx(ix,iz+1)]=30;S.heights[gridIdx(ix+1,iz+1)]=50;
+  ok(gridIdx(-5,-3)===0&&gridIdx(9999,9999)===N-1,'gridIdx clamps out-of-range indices');
+  ok(height(gx,gz)===10&&height(gx+CELL,gz)===20&&height(gx,gz+CELL)===30&&height(gx+CELL,gz+CELL)===50,'height exact at grid points');
+  ok(Math.abs(height(gx+CELL/2,gz)-15)<1e-6&&Math.abs(height(gx,gz+CELL/2)-20)<1e-6&&Math.abs(height(gx+CELL/2,gz+CELL/2)-27.5)<1e-6,'height exact bilinear at x, z, and center midpoints');
+  for(let terrainType of ['Rolling Hills','Jagged Mountains','Valleys','Cliffs']){
+    seed=4242;
+    let h=newTerrain(terrainType);
+    ok(h instanceof Float32Array&&h.length===N,'newTerrain size matches N for '+terrainType);
+    ok(h.every(v=>Math.abs(v*20-Math.round(v*20))<1e-4),'quantH 0.05m lattice holds after newTerrain for '+terrainType);
+    let zVaries=false,hasWater=false;
+    for(let i=0;i<N;i++)if(h[i]<WATER_LEVEL){hasWater=true;break}
+    for(let x=0;x<NX&&!zVaries;x+=4){let base=h[gridIdx(x,0)];for(let z=1;z<NZ;z++)if(Math.abs(h[gridIdx(x,z)]-base)>.5){zVaries=true;break}}
+    ok(zVaries&&hasWater,terrainType+' varies along z and has cells below WATER_LEVEL');
+  }
+  S.heights.fill(40);
+  deform(200,14,-10,10);
+  ok(S.heights.every(v=>Math.abs(v*20-Math.round(v*20))<1e-4),'quantH 0.05m lattice holds after deform');
+  ok(terrainDirtyBox&&terrainDirtyBox.ix0>=0&&terrainDirtyBox.ix1<NX&&terrainDirtyBox.iz0>=0&&terrainDirtyBox.iz1<NZ,'deform records terrainDirtyBox');
+  let dPosX=40-height(200+8,10),dNegX=40-height(200-8,10),dPosZ=40-height(200,10+8),dNegZ=40-height(200,10-8);
+  ok(dPosX>0&&Math.abs(dPosX-dNegX)<1e-4&&Math.abs(dPosX-dPosZ)<1e-4&&Math.abs(dPosX-dNegZ)<1e-4,'deform is radial (+x,-x,+z,-z equal depth)');
+  let untouched=true;
+  for(let z=0;z<NZ;z++)for(let x=0;x<NX;x++)if(Math.hypot(x*CELL-200,z*CELL-D-10)>14+CELL&&S.heights[gridIdx(x,z)]!==40)untouched=false;
+  ok(untouched,'deform leaves cells beyond r+CELL untouched');
+  let customList=[{id:1,x:100,y:25,width:20,hp:100},{id:2,x:100,y:32,z:20,depth:10,width:20,hp:100}];
+  ok(platformAt(100,customList)?.id===1&&platformAt(100,customList,20)?.id===2&&platformAt(100,customList,40)===null,'platformAt with explicit 2nd-arg list and optional z/depth works');
+  setWorld({w:960,d:240,cell:2});
 }
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
 `;
