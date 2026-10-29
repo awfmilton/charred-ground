@@ -626,6 +626,14 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   deform(tx,14,-22,tz);
   terrainUpdate();
   ok(height(tx,tz)<WATER_LEVEL+2&&te[5]===0&&ce[5]===0&&te[13]<SKIRT_Y&&te[12]===tx&&te[14]===tz&&te[fO+13]===fTy0,'R1: crater dropping tree below water hides instance without rescattering or touching far tree');
+  S.heights.fill(30);terrainFullUpdate=true;terrainUpdate();
+  deform(96,4.1,-12,-20);let dBox=terrainDirtyBox,hz=-20,hx=(dBox.ix1+1.25)*CELL,fx=(dBox.ix1+4.5)*CELL,hTo=16,hFo=32;
+  ok(hx>dBox.ix1*CELL&&hx<(dBox.ix1+2)*CELL&&fx>(dBox.ix1+4)*CELL,'R1-halo: probe tree/rock 1.25 cells outside the dirty box edge, far pair 4.5 cells out');
+  te[hTo+12]=ce[hTo+12]=hx;te[hTo+14]=ce[hTo+14]=hz;te[hTo+13]=99;ce[hTo+13]=105;re[hTo+12]=hx;re[hTo+14]=hz;re[hTo+13]=88;
+  te[hFo+12]=ce[hFo+12]=fx;te[hFo+14]=ce[hFo+14]=hz;te[hFo+13]=99;ce[hFo+13]=105;re[hFo+12]=fx;re[hFo+14]=hz;re[hFo+13]=88;
+  terrainUpdate();let hy=height(hx,hz);
+  ok(Math.abs(te[hTo+13]-(hy+2.5*te[hTo+5]))<1e-4&&Math.abs(ce[hTo+13]-(hy+7*te[hTo+5]))<1e-4&&Math.abs(re[hTo+13]-(hy+.7))<1e-4,'R1-halo: tree+rock 1.25 cells outside the dirty box are re-seated (2-cell halo)');
+  ok(te[hFo+13]===99&&ce[hFo+13]===105&&re[hFo+13]===88,'R1-halo: tree+rock 4.5 cells outside the dirty box stay untouched');
   // R2: Geometry identity checks W, D, CELL as well as NX, NZ
   ok(setWorld({w:480,d:120,cell:1})===true&&NX===481&&NZ===241,'R2: setWorld 480x120 cell 1 (481x241)');
   S.heights=new Float32Array(N).fill(20);
