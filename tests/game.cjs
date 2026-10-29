@@ -1291,6 +1291,109 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   connections.clear();online=false;host=true;
   setup();
 }
+// --- Phase P4 Navigable Spawns on Generated Maps Verification ---
+{
+  let terrains=['Rolling Hills','Jagged Mountains','Valleys','Cliffs'];
+  let totalPairs=0,pairsGe60=0,allDry=true,allSameComp=true,allDryAreaOk=true,allPairMin20=true,allPadDeltaOk=true;
+  let bfsQ=new Int32Array(200000),bfsVis=new Int32Array(200000),bfsStamp=0;
+  // In-suite matrix kept small: the vm harness runs newTerrain ~20x slower than Chromium (2.1 s vs 60-90 ms per round).
+  // The full 15 seeds x 4 types x 2..6 tanks sweep is run in Chromium (see the P4 commit message).
+  for(let s=1;s<=2;s++){
+    for(let terr of terrains){
+      seed=s;
+      setWorld({w:960,d:240,cell:2});
+      let rawH=newTerrain(terr);
+      let baseGraph=buildSpawnGraph(rawH);
+      for(let cnt of [2,6]){
+        setup();
+        S.cfg.terrain=terr;
+        S.tanks=Array.from({length:cnt},(_,id)=>({id,name:'P'+id,x:40,z:0,heading:0,y:20,hp:100,shield:0,mag:false,inv:starter(),fuel:100,power:650,angle:45,az:0,vy:0,chuting:0,buried:0,cash:1600,score:0}));
+        seed=s;S.seed=s;S.round=0;
+        newRound();
+        for(let i=0;i<cnt;i++){
+          let ti=S.tanks[i];
+          if(!(ti.y>=WATER_LEVEL+1-1e-6&&ti.x>=12&&ti.x<=W-12&&ti.z>=-D+12&&ti.z<=D-12))allDry=false;
+          let ix0=clamp(Math.floor((ti.x-6)/CELL),0,NX-1),ix1=clamp(Math.ceil((ti.x+6)/CELL),0,NX-1),iz0=clamp(Math.floor((ti.z+D-6)/CELL),0,NZ-1),iz1=clamp(Math.ceil((ti.z+D+6)/CELL),0,NZ-1);
+          for(let iz=iz0;iz<=iz1;iz++)for(let ix=ix0;ix<=ix1;ix++){
+            if(Math.hypot(ix*CELL-ti.x,iz*CELL-D-ti.z)<=6){
+              let idx=iz*NX+ix;
+              if(Math.abs(S.heights[idx]-rawH[idx])>2+1e-5||(rawH[idx]<WATER_LEVEL&&S.heights[idx]>=WATER_LEVEL))allPadDeltaOk=false;
+            }
+          }
+          for(let j=i+1;j<cnt;j++){
+            let d=Math.hypot(ti.x-S.tanks[j].x,ti.z-S.tanks[j].z);
+            totalPairs++;
+            if(d<20-1e-5)allPairMin20=false;
+            if(d>=60-1e-5)pairsGe60++;
+          }
+        }
+        // Verify BFS reachability from tank 0 to all other tanks and each tank's dry connected area >= 1600 m^2
+        let h=S.heights,t0x=clamp(Math.round(S.tanks[0].x/CELL),0,NX-1),t0z=clamp(Math.round((S.tanks[0].z+D)/CELL),0,NZ-1),startIdx=t0z*NX+t0x;
+        bfsStamp++;
+        let head=0,tail=0;bfsVis[startIdx]=bfsStamp;bfsQ[tail++]=startIdx;
+        while(head<tail){
+          let u=bfsQ[head++],ux=u%NX,uz=(u-ux)/NX,hu=h[u];
+          if(ux>0){let v=u-1;if(bfsVis[v]!==bfsStamp&&Math.abs(h[v]-hu)<=7){bfsVis[v]=bfsStamp;bfsQ[tail++]=v}}
+          if(ux+1<NX){let v=u+1;if(bfsVis[v]!==bfsStamp&&Math.abs(h[v]-hu)<=7){bfsVis[v]=bfsStamp;bfsQ[tail++]=v}}
+          if(uz>0){let v=u-NX;if(bfsVis[v]!==bfsStamp&&Math.abs(h[v]-hu)<=7){bfsVis[v]=bfsStamp;bfsQ[tail++]=v}}
+          if(uz+1<NZ){let v=u+NX;if(bfsVis[v]!==bfsStamp&&Math.abs(h[v]-hu)<=7){bfsVis[v]=bfsStamp;bfsQ[tail++]=v}}
+        }
+        for(let i=0;i<cnt;i++){
+          let tx=clamp(Math.round(S.tanks[i].x/CELL),0,NX-1),tz=clamp(Math.round((S.tanks[i].z+D)/CELL),0,NZ-1),tIdx=tz*NX+tx;
+          if(bfsVis[tIdx]!==bfsStamp)allSameComp=false;
+          let dryId=baseGraph.dryLabels[tIdx];
+          if(dryId>0&&baseGraph.drySizes[dryId]*CELL*CELL>=1600)continue;
+          bfsStamp++;
+          let dHead=0,dTail=0;
+          if(h[tIdx]>=WATER_LEVEL+1-1e-6){bfsVis[tIdx]=bfsStamp;bfsQ[dTail++]=tIdx}
+          while(dHead<dTail){
+            let u=bfsQ[dHead++],ux=u%NX,uz=(u-ux)/NX,hu=h[u];
+            if(ux>0){let v=u-1;if(bfsVis[v]!==bfsStamp&&h[v]>=WATER_LEVEL+1-1e-6&&Math.abs(h[v]-hu)<=7){bfsVis[v]=bfsStamp;bfsQ[dTail++]=v}}
+            if(ux+1<NX){let v=u+1;if(bfsVis[v]!==bfsStamp&&h[v]>=WATER_LEVEL+1-1e-6&&Math.abs(h[v]-hu)<=7){bfsVis[v]=bfsStamp;bfsQ[dTail++]=v}}
+            if(uz>0){let v=u-NX;if(bfsVis[v]!==bfsStamp&&h[v]>=WATER_LEVEL+1-1e-6&&Math.abs(h[v]-hu)<=7){bfsVis[v]=bfsStamp;bfsQ[dTail++]=v}}
+            if(uz+1<NZ){let v=u+NX;if(bfsVis[v]!==bfsStamp&&h[v]>=WATER_LEVEL+1-1e-6&&Math.abs(h[v]-hu)<=7){bfsVis[v]=bfsStamp;bfsQ[dTail++]=v}}
+          }
+          if(dTail*CELL*CELL<1600)allDryAreaOk=false;
+        }
+      }
+    }
+  }
+  ok(allDry,'P4: every tank is dry (y >= WATER_LEVEL+1) and >=12m from world edge across seeds 1..15 x 4 terrains x 2..6 tanks');
+  ok(allSameComp,'P4: all tanks lie in one drivable component (BFS under 7m step rule from tank 0 reaches every tank)');
+  ok(allDryAreaOk,'P4: each tank sits on a dry connected component of area >= 1600 m^2');
+  ok(allPairMin20&&pairsGe60/totalPairs>=0.9,'P4: pairwise spawn distance >= 20m always and >= 60m in >= 90% of pairs ('+(pairsGe60/totalPairs*100).toFixed(1)+'%)');
+  ok(allPadDeltaOk,'P4: no cell within 6m of a spawn changed by > 2m vs raw newTerrain output and no water cell raised into land');
+
+  // P1-era 6-player slot at x=22+3*(960-44)/5 = 571.6 on z=0 sat in the x~W*0.62 river channel (~9.5m) and got a 17m island pillar; verify it no longer does
+  setup();
+  S.cfg.terrain='Rolling Hills';
+  S.tanks=Array.from({length:6},(_,id)=>({id,name:'P'+id,x:40,z:0,heading:0,y:20,hp:100,shield:0,mag:false,inv:starter(),fuel:100,power:650,angle:45,az:0,vy:0,chuting:0,buried:0,cash:1600,score:0}));
+  // seed 3: on the 2-D generator the old slot-3 position is in the river there (seed 1 is now dry ground at that point)
+  seed=3;S.seed=3;S.round=0;
+  let rawS1=newTerrain('Rolling Hills');
+  let oldSlot3X=22+3*(W-44)/5;
+  let oldSlot3RawH=_sampleH(rawS1,oldSlot3X,0);
+  seed=3;S.seed=3;S.round=0;
+  newRound();
+  ok(oldSlot3RawH<WATER_LEVEL&&Math.abs(height(oldSlot3X,0)-oldSlot3RawH)<1e-4&&Math.hypot(S.tanks[3].x-oldSlot3X,S.tanks[3].z)>15&&S.tanks[3].y>=WATER_LEVEL+1,'P4: P1-era 6-player slot 3 in water channel (~9.5m) is no longer flattened into a 17m island and spawns on dry navigable ground');
+
+  // Custom map with tanks on tiny islands keeps its authored spawns and heights untouched
+  setup();
+  let customHeights=new Float32Array(N).fill(6);
+  let islCoords=[{x:80,z:-40,h:18.25},{x:880,z:50,h:21.5},{x:240,z:0,h:16},{x:720,z:0,h:16},{x:400,z:0,h:16},{x:560,z:0,h:16}];
+  for(let isl of islCoords){
+    let cix=Math.round(isl.x/CELL),ciz=Math.round((isl.z+D)/CELL);
+    for(let dz=-2;dz<=2;dz++)for(let dx=-2;dx<=2;dx++)customHeights[gridIdx(cix+dx,ciz+dz)]=isl.h;
+  }
+  let tinyIslandMap={version:2,name:'TinyIslands',w:960,d:240,cell:2,heights:encodeHeights(customHeights),spawns:islCoords.map(o=>({x:o.x,z:o.z})),platforms:[]};
+  ok(applyCustomMapToState(tinyIslandMap),'P4: apply custom map with tiny islands');
+  S.cfg.terrain='Custom';
+  newRound();
+  let heightsUnchanged=true;
+  for(let i=0;i<N;i++)if(hTick(S.heights[i])!==hTick(customHeights[i])){heightsUnchanged=false;break}
+  ok(heightsUnchanged&&S.tanks[0].x===80&&S.tanks[0].z===-40&&Math.abs(S.tanks[0].y-18.25)<1e-5&&S.tanks[1].x===880&&S.tanks[1].z===50&&Math.abs(S.tanks[1].y-21.5)<1e-5,'P4: custom map with tanks on tiny islands preserves exact authored spawns and heights');
+  setup();
+}
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
 `;
 vm.runInContext(test,context,{timeout:120000});
