@@ -949,6 +949,59 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   ok(Math.abs(S.tanks[0].aiMem[1].lastMissX-(-30))<1e-6&&S.tanks[0].aiMem[1].corrPower>0,'P2b-1 recordAiImpact measures miss along shooter->impact bearing when z!=0');
   setup();
 }
+// --- Phase P2b-2 Structures, Bridges, Platforms, Drones, Satellites, Defences & Views ---
+{
+  // 1. Wall placed by tank at z=-40 aiming az=90 sits at z>-40 with yaw~pi/2, blocks shell crossing its footprint, not one 15m to its side
+  setup();S.heights.fill(20);S.wind=0;
+  let tBld=current();tBld.x=200;tBld.z=-40;tBld.y=20;
+  ok(action({weaponOrItem:'Reinforced Bunker Wall',angle:45,power:500,az:90},0)&&S.buildings.length===1,'P2b-2 deploy wall at z=-40, az=90');
+  let wBld=S.buildings[0];
+  ok(wBld.z>-40&&Math.abs(wBld.z-(-28))<1e-3&&Math.abs(wBld.x-200)<1e-3&&Math.abs(wBld.yaw-Math.PI/2)<1e-3,'P2b-2 wall placed at z>-40 with yaw~pi/2');
+  ok(Boolean(buildingCollision({x:200,y:25,z:wBld.z,owner:1,life:1}))&&!buildingCollision({x:215,y:25,z:wBld.z,owner:1,life:1}),'P2b-2 oriented wall blocks shell crossing footprint at x=200 but not one 15m to side at x=215');
+  // 2. Bridge laid at az=90 spans along z and supports a tank driving across a water channel that runs along x; platformAt respects yaw
+  setup();S.heights.fill(20);
+  for(let iz=0;iz<NZ;iz++){let gz=iz*CELL-D;if(Math.abs(gz-18)<=10)for(let ix=0;ix<NX;ix++)S.heights[gridIdx(ix,iz)]=5}
+  let tBr=current();tBr.x=200;tBr.z=0;tBr.y=supportHeight(200,0);tBr.heading=Math.PI/2;tBr.fuel=100;tBr.inv['Floating Platform']=0;tBr.inv['Inflatable Lifejacket']=0;
+  ok(action({weaponOrItem:'Deployable Bridge',angle:45,power:500,az:90},0)&&S.platforms.length===1,'P2b-2 deploy bridge at az=90');
+  let br=S.platforms[0];
+  ok(Math.abs(br.x-200)<1e-3&&Math.abs(br.z-18)<1e-3&&Math.abs(br.yaw-Math.PI/2)<1e-3&&br.width===40&&br.depth===12,'P2b-2 bridge laid at az=90 spans along z with yaw~pi/2');
+  ok(platformAt(200,S.platforms,35)===br&&platformAt(215,S.platforms,18)===null,'P2b-2 platformAt respects yaw (covers z=35 along span, not x=215 beside it)');
+  ok(action({action:'move',throttle:1,turn:0},0),'P2b-2 start drive across water channel on z-spanning bridge');
+  for(let i=0;i<360&&S.activeDrive;i++)step(1/60);
+  if(S.activeDrive)finishDrive();
+  ok(tBr.z>30&&tBr.hp===100,'P2b-2 bridge supports tank driving across water channel running along x');
+  // 3. Drone launched at a target at z=70 flies to it and its round hits there
+  setup();S.heights.fill(20);S.wind=0;
+  let tDr=current(),eDr=S.tanks[1];tDr.x=200;tDr.z=0;tDr.y=20;tDr.ai=true;eDr.x=200;eDr.z=70;eDr.y=20;eDr.hp=100;
+  ok(action({weaponOrItem:'Strike Attack Drone',angle:45,power:500,az:90,targetX:200,targetZ:70},0)&&S.drones.length===1,'P2b-2 launch unpiloted attack drone toward target at z=70');
+  let maxDroneZ=0;
+  for(let i=0;i<360&&S.phase==='flight';i++){if(S.drones[0]&&S.drones[0].z>maxDroneZ)maxDroneZ=S.drones[0].z;step(1/60)}
+  ok(maxDroneZ>20&&eDr.hp<100,'P2b-2 drone flies along +z toward z=70 and its round hits target tank there');
+  // 4. Satellite strike at strikeZ=-50 deforms terrain at z=-50 and damages a tank there, not one at z=0
+  setup();S.heights.fill(20);
+  let sat={id:1,owner:0,x:200,y:190,z:0,hp:60,maxHp:60,cooldown:0};
+  S.satellites=[sat];
+  executeSatelliteStrike(sat,200,-50);
+  ok(height(200,-50)<20&&height(200,0)===20,'P2b-2 executeSatelliteStrike at strikeZ=-50 deforms terrain at z=-50 and not z=0');
+  setup();S.heights.fill(20);
+  S.tanks[0].x=200;S.tanks[0].z=0;S.tanks[0].y=20;S.tanks[0].hp=100;
+  S.tanks[1].x=200;S.tanks[1].z=-50;S.tanks[1].y=20;S.tanks[1].hp=100;
+  S.satellites=[{id:2,owner:0,x:200,y:190,z:0,hp:60,maxHp:60,cooldown:0}];
+  ok(action({action:'sat_strike',targetX:200,targetZ:-50},0),'P2b-2 sat_strike action with targetZ=-50');
+  ok(S.tanks[1].hp<100&&S.tanks[0].hp===100,'P2b-2 satellite strike at strikeZ=-50 damages tank at z=-50 and not tank at z=0');
+  // 5. CIWS at z=60 intercepts a shell at z=60 but not at z=0
+  setup();
+  S.buildings=[{id:1,owner:1,shape:'ciws',x:200,y:20,z:60,yaw:0,charges:1,hp:55}];
+  ok(!intercepted({owner:0,x:200,y:30,z:0})&&S.buildings[0].charges===1,'P2b-2 CIWS at z=60 does not intercept shell at z=0');
+  ok(intercepted({owner:0,x:200,y:30,z:60})&&S.buildings[0].charges===0,'P2b-2 CIWS at z=60 intercepts shell at z=60');
+  // 6. syncViews puts the tank group at z and rotation.y=-heading
+  setup();S.heights.fill(20);
+  S.tanks[0].x=180;S.tanks[0].y=20;S.tanks[0].z=-45;S.tanks[0].heading=Math.PI/3;S.tanks[0].az=90;
+  syncViews();
+  let tv=views.get('t0');
+  ok(tv&&tv.g.position.x===180&&tv.g.position.y===20&&tv.g.position.z===-45&&Math.abs(tv.g.rotation.y-(-Math.PI/3))<1e-6&&Math.abs(tv.turret.rotation.y-(-(90*rad-Math.PI/3)))<1e-6,'P2b-2 syncViews puts tank group at z=-45 with rotation.y=-heading and relative turret yaw');
+  setup();
+}
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
 `;
 vm.runInContext(test,context,{timeout:120000});
