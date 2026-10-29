@@ -399,8 +399,8 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
 {
   ok(htmlSource.includes('id="windGauge"')&&htmlSource.includes('id="windBar"')&&htmlSource.includes('id="windMeta"')&&htmlSource.includes('id="lastShotInfo"'),'Wind HUD DOM');
   ok(!sanitizeLastShot(null)&&!sanitizeLastShot('x')&&!sanitizeLastShot([])&&!sanitizeLastShot({weapon:'Standard Shield',angle:45,power:500,az:0,wind:0})&&!sanitizeLastShot({weapon:'Laser',angle:45,power:500,az:0,wind:0})&&!sanitizeLastShot({weapon:'Baby Missile',angle:NaN,power:500,az:0,wind:0}),'lastShot reject');
-  let cl=sanitizeLastShot({weapon:'MIRV',angle:195.4,power:1200.4,az:-29.3,wind:9.8,impactX:120});
-  ok(cl.weapon==='MIRV'&&cl.angle===180&&cl.power===1000&&cl.az===-20&&cl.wind===6.5&&cl.impactX===undefined,'lastShot clamp');
+  let cl=sanitizeLastShot({weapon:'MIRV',angle:195.4,power:1200.4,az:-209.3,wind:9.8,impactX:120});
+  ok(cl.weapon==='MIRV'&&cl.angle===180&&cl.power===1000&&cl.az===-180&&cl.wind===6.5&&cl.impactX===undefined,'lastShot clamp');
   setup();S.round=0;S.cfg.maxWind=6.5;S.cfg.windCadence='turn';newRound();
   ok(S.round===1&&S.turn===0&&S.tanks[0].lastShot===null&&$('lastShotInfo').textContent==='LAST SHOT: NONE','Initial lastShot');
   S.wind=0;syncWindAndShotHUD();ok($('windBar').style.left==='50%'&&$('windBar').style.width==='0%'&&$('windMeta').textContent.includes('CALM'),'Gauge calm');
@@ -420,17 +420,17 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   ok(txt.includes('MIRV')&&txt.includes('52.5°')&&txt.includes('640 PWR')&&txt.includes('AZ -3.5°')&&txt.includes('WIND +2.0')&&txt.includes('ΔWIND -3.5'),'HUD delta');
   nextTurn();ok(S.turn===1&&$('lastShotInfo').textContent==='LAST SHOT: NONE'&&S.tanks[0].lastShot.weapon==='MIRV','Turn isolation');
   S.tanks[1].hp=60;S.wind=-1.0;
-  ok(action({weaponOrItem:'Baby Missile',angle:200,power:1000,az:40},1)&&S.tanks[1].lastShot?.weapon==='Baby Missile'&&S.tanks[1].lastShot.angle===180&&S.tanks[1].lastShot.power===600&&S.tanks[1].lastShot.az===20&&S.tanks[1].lastShot.wind===-1,'Clamped fired values');
+  ok(action({weaponOrItem:'Baby Missile',angle:200,power:1000,az:240},1)&&S.tanks[1].lastShot?.weapon==='Baby Missile'&&S.tanks[1].lastShot.angle===180&&S.tanks[1].lastShot.power===600&&S.tanks[1].lastShot.az===180&&S.tanks[1].lastShot.wind===-1,'Clamped fired values');
   for(let i=0;i<1600&&S.phase==='flight';i++)step(1/60);
   S.tanks[1].hp=100;
   S.tanks[0].lastShot={weapon:'MIRV',angle:52.5,power:640,az:-3.5,wind:2,impactX:120,extra:'bad'};
   let hostSnap=snapshot();
   ok(hostSnap.tanks[0].lastShot.weapon==='MIRV'&&hostSnap.tanks[0].lastShot.impactX===undefined&&hostSnap.tanks[0].lastShot.extra===undefined,'Host snapshot filter');
   let snap4=JSON.parse(JSON.stringify(hostSnap));
-  snap4.tanks[0].lastShot={weapon:'MIRV',angle:199,power:1500,az:35,wind:12,hack:1};
+  snap4.tanks[0].lastShot={weapon:'MIRV',angle:199,power:1500,az:235,wind:12,hack:1};
   snap4.tanks[1].lastShot={weapon:'Standard Shield',angle:45,power:500,az:0,wind:0};
   receiveState(snap4);
-  ok(S.tanks[0].lastShot.angle===180&&S.tanks[0].lastShot.power===1000&&S.tanks[0].lastShot.az===20&&S.tanks[0].lastShot.wind===6.5&&S.tanks[0].lastShot.hack===undefined&&S.tanks[1].lastShot===null,'Guest snap clamp');
+  ok(S.tanks[0].lastShot.angle===180&&S.tanks[0].lastShot.power===1000&&S.tanks[0].lastShot.az===180&&S.tanks[0].lastShot.wind===6.5&&S.tanks[0].lastShot.hack===undefined&&S.tanks[1].lastShot===null,'Guest snap clamp');
   predict();ok(!arc.visible&&arcGeo.drawRange.count===0,'No arc');
   newRound();ok(S.tanks[0].lastShot===null&&S.tanks[1].lastShot===null&&$('lastShotInfo').textContent==='LAST SHOT: NONE','newRound reset');
 }
@@ -875,6 +875,80 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   ok(S.tanks[0].z===0&&S.tanks[0].heading===0&&S.tanks[1].z===0&&S.tanks[1].heading===Math.PI,'P2a receiveState defaults missing z->0 and heading->(angle>90?pi:0)');
   setup();
 }
+// --- Phase P2b-1 360-Degree Aiming & 2-D Combat Paths Verification ---
+{
+  // 1. direction(angle, az): world-relative azimuth without heading term
+  let d90=direction(45,90),dm90=direction(45,-90),d180=direction(45,180),d135=direction(135,0);
+  ok(Math.abs(d90.x)<1e-6&&Math.abs(d90.z-1)<1e-6&&Math.abs(dm90.x)<1e-6&&Math.abs(dm90.z+1)<1e-6&&d180.x<-0.7&&Math.abs(d180.z)<1e-6&&Math.abs(d135.x-d180.x)<1e-9&&d135.z===0,'P2b-1 direction(45,90) points +z, direction(45,-90) -z, direction(45,180) -x, and direction(135,0) unchanged (-x)');
+  ok(htmlSource.includes('id="azimuth" type="range" min="-180" max="180"'),'P2b-1 #azimuth slider widened to [-180,180]');
+  // 2. Shell fired by tank at z=-60 with az=90 starts at z~-55 and lands at z>-60
+  setup();S.heights.fill(20);S.wind=0;
+  let tAz=S.tanks[0];tAz.x=200;tAz.z=-60;tAz.y=20;
+  ok(action({action:'fire',weaponOrItem:'Baby Missile',angle:45,power:500,az:90},0)&&S.shots.length===1&&Math.abs(S.shots[0].z-(-55))<1e-3,'P2b-1 shell fired by tank at z=-60 with az=90 starts at z~-55');
+  let landZ=S.shots[0].z;
+  for(let i=0;i<400&&S.shots.length;i++){landZ=S.shots[0].z;step(1/60)}
+  ok(S.shots.length===0&&landZ>-50,'P2b-1 shell fired by tank at z=-60 with az=90 lands at z>-60');
+  // 3. Explosion at (x,y,z=60) damages tank at z=60 and NOT tank at same x,y with z=0
+  setup();
+  S.tanks[0].x=200;S.tanks[0].y=20;S.tanks[0].z=0;S.tanks[0].hp=100;
+  S.tanks[1].x=200;S.tanks[1].y=20;S.tanks[1].z=60;S.tanks[1].hp=100;
+  explosion(200,22,60,{r:15,dmg:45,kind:'blast'},0,true);
+  ok(S.tanks[1].hp<100&&S.tanks[0].hp===100,'P2b-1 explosion at (x,y,z=60) damages tank at z=60 and NOT one at same x,y with z=0');
+  // 4. blastCover from a ridge only between z=60 points
+  setup();S.heights.fill(20);
+  setFlatRow(195,205,48,60);
+  S.tanks[0].x=220;S.tanks[0].y=20;S.tanks[0].z=60;
+  S.tanks[1].x=220;S.tanks[1].y=20;S.tanks[1].z=0;
+  ok(blastCover(S.tanks[0],180,22,60)===.2&&blastCover(S.tanks[1],180,22,0)===1,'P2b-1 blastCover attenuates from a ridge only between z=60 points');
+  // 5. Direct hit on a tank at z=80
+  setup();S.heights.fill(10);S.wind=0;
+  S.tanks[1].x=200;S.tanks[1].z=80;S.tanks[1].y=25;S.tanks[1].hp=100;
+  S.shots=[{id:++S.uid,x:200,y:27,z:80,vx:0,vy:0,vz:0,name:'Baby Missile',owner:0,life:.5,bounces:0,split:false,mode:'air'}];
+  step(1/60);
+  ok(S.shots.length===0&&S.tanks[1].hp<100,'P2b-1 direct hit in step() triggers on tank at z=80');
+  // 6. Mag deflector at z
+  setup();S.heights.fill(10);S.wind=0;
+  S.tanks[1].x=200;S.tanks[1].y=20;S.tanks[1].z=70;S.tanks[1].mag=true;
+  S.shots=[
+    {id:++S.uid,x:200,y:25,z:70,vx:10,vy:0,vz:0,name:'Baby Missile',owner:0,life:.1,bounces:0,split:false,mode:'air'},
+    {id:++S.uid,x:200,y:25,z:0,vx:10,vy:0,vz:0,name:'Baby Missile',owner:0,life:.1,bounces:0,split:false,mode:'air'}
+  ];
+  step(1/60);
+  ok(S.shots[0].vy>0&&S.shots[1].vy<0,'P2b-1 mag deflector at z=70 repels projectile near z=70 and not projectile at z=0');
+  // 7. Laser hits a tank at z=40 along its azimuth
+  setup();S.heights.fill(20);
+  S.tanks[0].x=200;S.tanks[0].y=20;S.tanks[0].z=0;
+  S.tanks[1].x=200;S.tanks[1].y=20;S.tanks[1].z=40;S.tanks[1].hp=100;
+  ok(action({action:'fire',weaponOrItem:'Laser',angle:0,power:500,az:90},0)&&S.tanks[1].hp===60,'P2b-1 laser fired at az=90 hits tank at z=40 along its azimuth');
+  // 8. Roller and digger fired at az=90 move along +z
+  setup();S.heights.fill(20);S.wind=0;
+  S.tanks[0].x=200;S.tanks[0].y=20;S.tanks[0].z=0;S.tanks[1].x=500;S.tanks[1].z=0;
+  ok(action({action:'fire',weaponOrItem:'Roller',angle:35,power:300,az:90},0),'P2b-1 fire Roller at az=90');
+  let rollZ0=null,rollZ1=null;
+  for(let i=0;i<240&&S.shots.length;i++){if(S.shots[0].mode==='roll'){if(rollZ0===null)rollZ0=S.shots[0].z;rollZ1=S.shots[0].z}step(1/60)}
+  ok(rollZ0!==null&&rollZ1>rollZ0+5,'P2b-1 roller fired at az=90 moves along +z');
+  setup();S.heights.fill(25);S.wind=0;
+  S.tanks[0].x=200;S.tanks[0].y=25;S.tanks[0].z=0;S.tanks[1].x=500;S.tanks[1].z=0;
+  ok(action({action:'fire',weaponOrItem:'Digger',angle:35,power:300,az:90},0),'P2b-1 fire Digger at az=90');
+  let digZ0=null,digZ1=null;
+  for(let i=0;i<240&&S.shots.length;i++){if(S.shots[0].mode==='dig'){if(digZ0===null)digZ0=S.shots[0].z;digZ1=S.shots[0].z}step(1/60)}
+  ok(digZ0!==null&&digZ1>digZ0+5,'P2b-1 digger fired at az=90 burrows along +z');
+  // 9. nearest() prefers ground-plane-closer tank; damage() death flash at t.z; recordAiImpact along bearing
+  setup();
+  S.tanks.push({id:2,name:'P2',x:130,z:0,heading:0,y:20,hp:100,shield:0});
+  S.tanks[0].x=100;S.tanks[0].z=0;
+  S.tanks[1].x=110;S.tanks[1].z=90;
+  S.tanks[2].x=130;S.tanks[2].z=0;
+  ok(nearest(100,0,0)?.id===2,'P2b-1 nearest() prefers ground-plane-closer tank');
+  let flashZ=null,origFlash=flash;flash=(fx,fy,fz)=>{flashZ=fz};damage(S.tanks[1],150,0);flash=origFlash;
+  ok(S.tanks[1].hp===0&&flashZ===90,'P2b-1 damage() death flash spawns at tank z');
+  setup();S.cfg.difficulty='Normal';
+  S.tanks[0].x=100;S.tanks[0].z=0;S.tanks[1].x=100;S.tanks[1].z=100;
+  S.tanks[0].aiPlan={targetId:1,targetX:100,targetZ:100,angle:45,power:600,biasRange:0,biasWind:0};
+  recordAiImpact(0,100,{x:100,y:20,z:70,vx:0,vy:0,vz:20});
+  ok(Math.abs(S.tanks[0].aiMem[1].lastMissX-(-30))<1e-6&&S.tanks[0].aiMem[1].corrPower>0,'P2b-1 recordAiImpact measures miss along shooter->impact bearing when z!=0');
+  setup();
+}
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
 `;
 vm.runInContext(test,context,{timeout:120000});
@@ -1007,7 +1081,8 @@ const simChecks = vm.runInContext('checks', context);
     [{ actor: 0, action: 'sat_strike', weaponOrItem: 'Satellite Laser Strike' }],
     [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 181, power: 500, az: 0 }],
     [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 1001, az: 0 }],
-    [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 500, az: 25 }],
+    [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 500, az: 181 }],
+    [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 500, az: -181 }],
     [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 500, az: 0, targetX: 1201 }],
     [{ actor: 0, action: 'move', dx: 0 }],
     [{ actor: 0, action: 'move', dx: 0, dz: 0 }],
@@ -1031,6 +1106,24 @@ const simChecks = vm.runInContext('checks', context);
   const { createAiDecisionService, WORLD_MAX_X: AI_MAX_X } = require('../scripts/ai.cjs');
   assert.strictEqual(API_MAX_X, 1200);
   assert.strictEqual(AI_MAX_X, 1200);
+  for (const validAz of [25, -180, 180]) {
+    const azOk = validateAndCanonicalizeAttestation(syntheticMatch, {
+      nonce: 'drift-nonce',
+      winnerSlot: 0,
+      durationMs: 5000,
+      actionLog: [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 500, az: validAz }],
+      outcomes: syntheticOutcomes
+    });
+    assert(azOk.ok, `Deliberate P2b-1 rule change: API accepts widened world azimuth az=${validAz} in [-180, 180]`);
+  }
+  const azRej = validateAndCanonicalizeAttestation(syntheticMatch, {
+    nonce: 'drift-nonce',
+    winnerSlot: 0,
+    durationMs: 5000,
+    actionLog: [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 500, az: 181 }],
+    outcomes: syntheticOutcomes
+  });
+  assert(!azRej.ok, 'Deliberate P2b-1 rule change: API rejects out-of-range azimuth az=181 (> 180)');
   for (const act of [
     { actor: 0, action: 'sat_strike', weaponOrItem: 'Satellite Laser Strike', targetX: 900 },
     { actor: 0, action: 'silo_launch', weaponOrItem: 'ASAT Silo Launch', targetSatId: 1, targetX: 900 },
