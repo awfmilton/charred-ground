@@ -1764,6 +1764,23 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   setup();
 }
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
+// Graph edge == runtime stepLegal, randomized (reviewer: prove equivalence on cell 1 and cell 2 incl. non-monotonic odd-index profiles)
+{
+  let rnd=20261029;const R=()=>{rnd=(Math.imul(rnd,1103515245)+12345)>>>0;return rnd/4294967296};
+  for(const [w,d,cell] of [[480,80,1],[960,240,2]]){
+    setup();setWorld({w,d,cell});let mism=0,checked=0,blocked=0;
+    for(let trial=0;trial<6;trial++){
+      S.heights=new Float32Array(N);
+      for(let iz=0;iz<NZ;iz++)for(let ix=0;ix<NX;ix++){let v=20+((ix*7+iz*13+trial*31)%5),r=R();if(r<.15)v+=6+R()*6;else if(r<.30)v-=6+R()*6;else if(r<.35)v+=(ix%2?9:0);S.heights[iz*NX+ix]=quantH(clamp(v,1,135))}
+      S.platforms=[];let g=buildSpawnGraph(S.heights),t={...S.tanks[0],waterGear:null,inv:{},hp:100};
+      for(let k=0;k<300;k++){let ix=4+Math.floor(R()*(NX-8)),iz=4+Math.floor(R()*(NZ-8)),dir=Math.floor(R()*4),u=iz*NX+ix,v=dir===0?u-1:dir===1?u+1:dir===2?u-NX:u+NX;
+        let x0=ix*CELL,z0=iz*CELL-D,x1=x0+(dir===0?-CELL:dir===1?CELL:0),z1=z0+(dir===2?-CELL:dir===3?CELL:0),b=stepLegal(t,x0,z0,x1,z1);
+        checked++;if(!b)blocked++;if(g.canStep(u,v,dir)!==b)mism++}
+    }
+    ok(mism===0&&blocked>checked*.1&&blocked<checked*.9,'graph canStep equals runtime stepLegal on '+checked+' random edges (cell '+cell+', '+blocked+' blocked, '+mism+' mismatches)');
+  }
+  setWorld({w:960,d:240,cell:2});
+}
 `;
 vm.runInContext(test,context,{timeout:120000});
 const simChecks = vm.runInContext('checks', context);
