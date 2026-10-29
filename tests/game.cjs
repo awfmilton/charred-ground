@@ -879,12 +879,12 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
 {
   // 1. direction(angle, az): world-relative azimuth without heading term
   let d90=direction(45,90),dm90=direction(45,-90),d180=direction(45,180),d135=direction(135,0);
-  ok(Math.abs(d90.x)<1e-6&&Math.abs(d90.z-1)<1e-6&&Math.abs(dm90.x)<1e-6&&Math.abs(dm90.z+1)<1e-6&&d180.x<-0.7&&Math.abs(d180.z)<1e-6&&Math.abs(d135.x-d180.x)<1e-9&&d135.z===0,'P2b-1 direction(45,90) points +z, direction(45,-90) -z, direction(45,180) -x, and direction(135,0) unchanged (-x)');
+  let unit=v=>Math.abs(Math.hypot(v.x,v.y,v.z)-1)<1e-9;ok([d90,dm90,d180,d135,direction(30,45),direction(150,-120)].every(unit),'direction() is a unit vector for every angle/az (old code: z=sin(az) without cos(angle))');ok(Math.abs(d90.x)<1e-6&&Math.abs(d90.z-Math.cos(45*rad))<1e-6&&Math.abs(dm90.x)<1e-6&&Math.abs(dm90.z+Math.cos(45*rad))<1e-6&&d180.x<-0.7&&Math.abs(d180.z)<1e-6&&Math.abs(d135.x-d180.x)<1e-9&&d135.z===0,'P2b-1 direction(45,90) points +z, direction(45,-90) -z, direction(45,180) -x, and direction(135,0) unchanged (-x)');
   ok(htmlSource.includes('id="azimuth" type="range" min="-180" max="180"'),'P2b-1 #azimuth slider widened to [-180,180]');
   // 2. Shell fired by tank at z=-60 with az=90 starts at z~-55 and lands at z>-60
   setup();S.heights.fill(20);S.wind=0;
   let tAz=S.tanks[0];tAz.x=200;tAz.z=-60;tAz.y=20;
-  ok(action({action:'fire',weaponOrItem:'Baby Missile',angle:45,power:500,az:90},0)&&S.shots.length===1&&Math.abs(S.shots[0].z-(-55))<1e-3,'P2b-1 shell fired by tank at z=-60 with az=90 starts at z~-55');
+  ok(action({action:'fire',weaponOrItem:'Baby Missile',angle:45,power:500,az:90},0)&&S.shots.length===1&&Math.abs(S.shots[0].z-(-60+5*Math.cos(45*rad)))<1e-3,'P2b-1 shell fired by tank at z=-60 with az=90 starts 5 m along the unit aim (z=-60+5cos45)');
   let landZ=S.shots[0].z;
   for(let i=0;i<400&&S.shots.length;i++){landZ=S.shots[0].z;step(1/60)}
   ok(S.shots.length===0&&landZ>-50,'P2b-1 shell fired by tank at z=-60 with az=90 lands at z>-60');
@@ -1000,6 +1000,89 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   syncViews();
   let tv=views.get('t0');
   ok(tv&&tv.g.position.x===180&&tv.g.position.y===20&&tv.g.position.z===-45&&Math.abs(tv.g.rotation.y-(-Math.PI/3))<1e-6&&Math.abs(tv.turret.rotation.y-(-(90*rad-Math.PI/3)))<1e-6,'P2b-2 syncViews puts tank group at z=-45 with rotation.y=-heading and relative turret yaw');
+  setup();
+}
+// --- Phase P2c Controls, HUD, Camera & 2-D AI Verification ---
+{
+  // 1. Keyboard: keydown W with canControl starts a drive with throttle 1; holding A sets turn -1 and changes heading; keyup of all keys idles
+  setup();driveKeys.clear();
+  let tkCtrl=current();tkCtrl.x=200;tkCtrl.z=0;tkCtrl.heading=0;tkCtrl.fuel=100;
+  handleKeyDown({key:'w',code:'KeyW',preventDefault(){}});
+  ok(Boolean(S.activeDrive)&&S.activeDrive.throttle===1&&S.activeDrive.turn===0,'P2c keydown W with canControl starts a drive with throttle 1');
+  handleKeyDown({key:'a',code:'KeyA',preventDefault(){}});
+  ok(S.activeDrive.throttle===1&&S.activeDrive.turn===-1,'P2c holding A during a drive sets turn -1');
+  for(let i=0;i<30;i++)step(1/60);
+  ok(tkCtrl.heading<0&&tkCtrl.x>200,'P2c holding W+A advances and rotates heading negatively');
+  handleKeyUp({key:'w',code:'KeyW'});
+  ok(S.activeDrive&&S.activeDrive.throttle===0&&S.activeDrive.turn===-1,'P2c releasing W while holding A keeps turning in place (throttle 0, turn -1)');
+  handleKeyUp({key:'a',code:'KeyA'});
+  ok(S.activeDrive&&S.activeDrive.throttle===0&&S.activeDrive.turn===0,'P2c keyup of all keys idles active drive');
+  handleKeyDown({key:'Escape',code:'Escape',preventDefault(){}});
+  ok(!S.activeDrive,'P2c Escape stops active drive');
+  // 2. Explore mode W still pans (no drive started)
+  setup();driveKeys.clear();
+  setCameraMode('explore');
+  let expX0=exploreX,expZ0=exploreZ;
+  handleKeyDown({key:'w',code:'KeyW',preventDefault(){}});
+  ok(!S.activeDrive&&Math.hypot(exploreX-expX0,exploreZ-expZ0)>1,'P2c explore mode W still pans camera without starting a drive');
+  resetCamera();
+  // 3. Shift+ArrowRight changes az by +1 and wraps 180 -> -179; Shift+ArrowLeft wraps -180 -> 179
+  setup();
+  $('azimuth').value='179';
+  handleKeyDown({key:'ArrowRight',code:'ArrowRight',shiftKey:true,preventDefault(){}});
+  ok(+$('azimuth').value===180,'P2c Shift+ArrowRight increments az 179 -> 180');
+  handleKeyDown({key:'ArrowRight',code:'ArrowRight',shiftKey:true,preventDefault(){}});
+  ok(+$('azimuth').value===-179,'P2c Shift+ArrowRight wraps az 180 -> -179');
+  $('azimuth').value='-180';
+  handleKeyDown({key:'ArrowLeft',code:'ArrowLeft',shiftKey:true,preventDefault(){}});
+  ok(+$('azimuth').value===179,'P2c Shift+ArrowLeft wraps az -180 -> 179');
+  // 4. HUD elements (#driveFwd, #driveRev, #turnL, #turnR, #hdg, #targetZ) and camera focus/gunner at (x,z,heading)
+  ok(htmlSource.includes('id="driveFwd"')&&htmlSource.includes('id="turnL"')&&htmlSource.includes('id="hdg"')&&htmlSource.includes('id="targetZ"'),'P2c HUD includes drive/turn buttons, #hdg readout, and #targetZ input');
+  setup();let tkCam=current();tkCam.x=220;tkCam.z=65;tkCam.y=20;tkCam.heading=Math.PI/2;tkCam.az=90;
+  setCameraMode('focus');updateCamera(.1,tkCam,45,90,direction(45,90));
+  ok(Math.abs(lookGoal.x-220)<1e-3&&lookGoal.z>65&&cameraGoal.z<65,'P2c focus camera follows active tank (x,z) and looks along hull heading');
+  setCameraMode('gunner');updateCamera(.1,tkCam,45,90,direction(45,90));
+  ok(Math.abs(cameraGoal.x-220)<1e-3&&Math.abs(cameraGoal.z-63)<1e-3&&lookGoal.z>100,'P2c gunner camera sits at tank (x,z) and looks along turret world azimuth');
+  resetCamera();
+  // 5. estimate() vs an enemy at (x+150, z+80): returns az within 1 deg of true bearing and shell lands within tolerance
+  setup();S.heights.fill(20);S.cfg.difficulty='Hard';S.wind=0;seed=4242;
+  let bot2D=S.tanks[0],en2D=S.tanks[1];bot2D.x=200;bot2D.z=0;bot2D.y=20;en2D.x=350;en2D.z=80;en2D.y=20;en2D.shield=180;
+  let trueBearing=Math.atan2(80,150)/rad;
+  let est2D=estimate(bot2D,en2D);
+  ok(Math.abs(est2D.az-trueBearing)<=1,'P2c estimate() vs enemy at (x+150, z+80) returns az within 1 deg of true bearing ('+est2D.az.toFixed(2)+' vs '+trueBearing.toFixed(2)+')');
+  bot2D.aiPlan={targetId:en2D.id,targetX:en2D.x,targetZ:en2D.z,angle:est2D.angle,power:est2D.power,az:est2D.az,biasRange:est2D.biasRange,biasWind:est2D.biasWind};
+  ok(action({action:'fire',weaponOrItem:'Baby Missile',angle:est2D.angle,power:est2D.power,az:est2D.az},0),'P2c fire 2-D estimated shot');
+  let impPos=null;
+  for(let i=0;i<600&&S.phase==='flight';i++){if(S.shots[0])impPos={x:S.shots[0].x,z:S.shots[0].z};step(1/60)}
+  ok(impPos&&Math.hypot(impPos.x-en2D.x,impPos.z-en2D.z)<15,'P2c shell fired with 2-D estimate lands within Hard AI tolerance (<15m) of enemy at (x+150, z+80)');
+  // Crosswind offset check: when shooting along +z (bearing 90 deg) with +x wind, az offsets into -x (< 90 deg)
+  setup();S.heights.fill(20);S.cfg.difficulty='Hard';S.wind=6;
+  bot2D=S.tanks[0];en2D=S.tanks[1];bot2D.x=200;bot2D.z=0;en2D.x=200;en2D.z=160;
+  bot2D.aiMem={1:{shots:0,corrX:0,corrPower:0,lastMissX:0,lastEnemyX:200,lastEnemyZ:160,biasRange:0,biasWind:0}};
+  let estCross=estimate(bot2D,en2D);
+  ok(estCross.az>90&&estCross.az<120&&estCross.error<5,'P2c +x crosswind on a +z shot aims upwind toward -x (90 < az < 120) with predicted miss < 5 m');
+  // 6. estimate() vs an enemy at z==0 returns bit-for-bit identical angle/power/az to the 1-D branch
+  for(let[tx,ex,windVal]of [[80,260,3.5],[400,140,-4.2]]){
+    setup();S.cfg.difficulty='Normal';S.wind=windVal;seed=9001;
+    let b1=S.tanks[0],e1=S.tanks[1];b1.x=tx;b1.z=0;b1.heading=1.23;e1.x=ex;e1.z=0;
+    let resActual=estimate(b1,e1);
+    // Compute reference using exact unchanged 1-D math
+    setup();S.cfg.difficulty='Normal';S.wind=windVal;seed=9001;
+    let bRef=S.tanks[0],eRef=S.tanks[1];bRef.x=tx;bRef.z=0;eRef.x=ex;eRef.z=0;
+    let prof=aiProfile(S.cfg.difficulty),biasR=(rng()-.5)*2*prof.rangeErr,biasW=(rng()-.5)*2*prof.windErr;
+    let rawDx=eRef.x-bRef.x,dir=rawDx>=0?1:-1,baseDist=Math.max(12,Math.abs(rawDx)),baseDy=eRef.y-bRef.y;
+    let elev=clamp(44+clamp(baseDy*.18,-10,14)+Math.min(10,baseDist*.018),28,72),ang1D=dir>0?elev:180-elev;
+    let radE=elev*rad,cosE=Math.cos(radE),sinE=Math.sin(radE),tanE=sinE/cosE,sx=bRef.x+dir*cosE*5,sy=bRef.y+3.5+sinE*5;
+    let perceivedX=clamp(eRef.x+biasR,6,W-6),dist=Math.max(8,(perceivedX-sx)*dir),dy=eRef.y-sy;
+    let perceivedWind=(S.wind||0)*prof.windSense+biasW,effG=Math.max(4,GRAV+perceivedWind*dir*tanE);
+    let tFlight=Math.sqrt(Math.max(.16,2*Math.max(2,dist*tanE-dy)/effG)),vx0=Math.max(4,(dist-.5*perceivedWind*dir*tFlight*tFlight)/tFlight);
+    let pwr1D=clamp((vx0/cosE)/.14,100,1000);
+    ok(resActual.angle===ang1D&&resActual.power===pwr1D&&resActual.az===0,'P2c estimate() at z==0 is bit-identical to 1-D branch for dir='+dir);
+  }
+  // 7. AI driving waypoint selection
+  setup();S.heights.fill(20);
+  let wp=pickAiDriveWaypoint(S.tanks[0],S.tanks[1]);
+  ok(wp&&Number.isFinite(wp.targetX)&&Number.isFinite(wp.targetZ)&&Math.hypot(wp.targetX-S.tanks[0].x,wp.targetZ-S.tanks[0].z)>=6,'P2c pickAiDriveWaypoint finds reachable 2-D waypoint');
   setup();
 }
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
@@ -1197,6 +1280,23 @@ const simChecks = vm.runInContext('checks', context);
     const user = { id: 'u1', emailVerified: true };
     const res900 = await aiSvc(user, { self: { x: 900, y: 20, hp: 100, inventory: { 'Baby Missile': 99 } }, enemies: [{ x: 900, y: 20, hp: 100, shield: 0 }], wind: 0 });
     assert.strictEqual(res900.targetX, 900, 'AI accepts x=900 and targetX=900');
+    let capturedPrompt = '';
+    const aiSvc2D = createAiDecisionService({
+      env: { GEMINI_API_KEY: 'test-key', GEMINI_MODEL: 'gemini-2.5-flash' },
+      allowedWeapons: ALLOWED_WEAPONS,
+      fetchImpl: async (_url, opts) => {
+        capturedPrompt = JSON.parse(opts.body).contents[0].parts[0].text;
+        return {
+          ok: true,
+          json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ action: 'fire', weaponOrItem: 'Baby Missile', angle: 48, power: 610, az: 35, targetX: 600, targetZ: -120 }) }] } }] })
+        };
+      }
+    });
+    const res2D = await aiSvc2D(user, { self: { x: 400, z: -80, heading: 0.5, y: 20, hp: 100, inventory: { 'Baby Missile': 99 } }, enemies: [{ x: 600, z: -120, heading: -1.2, y: 20, hp: 100, shield: 0 }], wind: 2 });
+    assert(res2D.az === 35 && res2D.targetZ === -120 && capturedPrompt.includes('(x,z)') && capturedPrompt.includes('"z":-80'), 'P2c server ai.cjs accepts z/heading/targetZ and mentions (x,z) in prompt');
+    await assert.rejects(() => aiSvc2D(user, { self: { x: 400, z: 301, y: 20, hp: 100, inventory: { 'Baby Missile': 99 } }, enemies: [{ x: 400, y: 20, hp: 100, shield: 0 }], wind: 0 }), /Invalid combat context/);
+    await assert.rejects(() => aiSvc2D(user, { self: { x: 400, heading: 4, y: 20, hp: 100, inventory: { 'Baby Missile': 99 } }, enemies: [{ x: 400, y: 20, hp: 100, shield: 0 }], wind: 0 }), /Invalid combat context/);
+    await assert.rejects(() => aiSvc2D(user, { self: { x: 400, y: 20, hp: 100, inventory: { 'Baby Missile': 99 } }, enemies: [{ x: 400, z: -301, y: 20, hp: 100, shield: 0 }], wind: 0 }), /Invalid enemy context/);
     await assert.rejects(() => aiSvc(user, { self: { x: 1201, y: 20, hp: 100, inventory: { 'Baby Missile': 99 } }, enemies: [{ x: 400, y: 20, hp: 100, shield: 0 }], wind: 0 }), /Invalid combat context/);
     await assert.rejects(() => aiSvc(user, { self: { x: 400, y: 20, hp: 100, inventory: { 'Baby Missile': 99 } }, enemies: [{ x: 1201, y: 20, hp: 100, shield: 0 }], wind: 0 }), /Invalid enemy context/);
     const aiBadResp = createAiDecisionService({
