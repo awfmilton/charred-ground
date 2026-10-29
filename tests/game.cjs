@@ -549,6 +549,60 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   ok(hit&&Math.hypot(hit.x-targetX,hit.z-targetZ)<=CELL&&Math.abs(screenToWorldX({clientX:640,clientY:360})-hit.x)<1e-6,'screenToWorld returns aimed terrain (x,z) within 1 cell and screenToWorldX wraps .x');
   setWorld({w:960,d:240,cell:2});
 }
+// --- Phase P1a-FIX2 Review Regressions (F1-F4) ---
+{
+  // F1: Digger radial ground-plane distance < 5
+  setup();
+  S.tanks[1].x=200;S.tanks[1].z=0;S.tanks[1].hp=100;
+  S.shots=[{id:++S.uid,x:200,y:18,z:60,vx:0,vy:0,vz:0,name:'Digger',owner:0,life:0,bounces:0,split:false,mode:'dig',remaining:10}];
+  step(1/60);
+  ok(S.tanks[1].hp===100,'F1: digger at z=60 beside tank at z=0 (dx=0) deals 0 damage');
+  setup();
+  S.tanks[1].x=203.8;S.tanks[1].z=3.8;S.tanks[1].hp=100;
+  S.shots=[{id:++S.uid,x:200,y:18,z:0,vx:0,vy:0,vz:0,name:'Digger',owner:0,life:0,bounces:0,split:false,mode:'dig',remaining:10}];
+  step(1/60);
+  ok(S.tanks[1].hp===100,'F1: near-diagonal tank at dx=3.8,dz=3.8 (dist ~5.37) takes 0 damage');
+  setup();
+  S.tanks[1].x=203;S.tanks[1].z=3;S.tanks[1].hp=100;
+  S.shots=[{id:++S.uid,x:200,y:18,z:0,vx:0,vy:0,vz:0,name:'Digger',owner:0,life:0,bounces:0,split:false,mode:'dig',remaining:10}];
+  step(1/60);
+  ok(S.tanks[1].hp<100,'F1: tank at dx=3,dz=3 (dist ~4.24) takes digger damage');
+  // F2 & F4: Dirty box union + multi-box partial terrainUpdate
+  setup();
+  S.heights.fill(40);
+  terrainFullUpdate=true;terrainUpdate();
+  deform(120,12,-9,-60);
+  let b1={...terrainDirtyBox};
+  deform(780,12,-11,70);
+  let bU={...terrainDirtyBox};
+  ok(bU.ix0===b1.ix0&&bU.iz0===b1.iz0&&bU.ix1>b1.ix1&&bU.iz1>b1.iz1,'F2: two disjoint craters in one frame union into pending terrainDirtyBox covering both');
+  sculptTerrain(450,'raise',14,6,0);
+  ok(terrainDirtyBox.ix0===b1.ix0&&terrainDirtyBox.ix1===bU.ix1&&Array.isArray(terrainDirtyBoxes)&&terrainDirtyBoxes.length===3,'F2/F4: three far-apart edits keep 3 separate dirty boxes while terrainDirtyBox covers union');
+  let midBefore=terrainPos[(gridIdx(Math.round(300/CELL),Math.round(D/CELL)))*3+1];
+  terrainUpdate();
+  let v1=terrainPos[gridIdx(Math.round(120/CELL),Math.round((-60+D)/CELL))*3+1];
+  let v2=terrainPos[gridIdx(Math.round(780/CELL),Math.round((70+D)/CELL))*3+1];
+  let v3=terrainPos[gridIdx(Math.round(450/CELL),Math.round(D/CELL))*3+1];
+  ok(Math.abs(v1-height(120,-60))<1e-4&&Math.abs(v2-height(780,70))<1e-4&&Math.abs(v3-height(450,0))<1e-4&&midBefore===40&&terrainDirtyBox===null&&terrainDirtyBoxes.length===0,'F2/F4: after terrainUpdate, mesh vertex y equals height(x,z) at the centre of all craters and clears dirty state');
+  // F3: Touch only changed cells (preserve untouched 140m cells)
+  setup();
+  S.heights.fill(140);
+  let cx=200,cz=0,cr=10,cix0=clamp(Math.floor((cx-cr)/CELL)-1,0,NX-1),ciz0=clamp(Math.floor((cz+D-cr)/CELL)-1,0,NZ-1);
+  deform(cx,cr,-8,cz);
+  ok(S.heights[gridIdx(cix0,ciz0)]===140&&height(cx,cz)<140,'F3: 140m cell in bounding rectangle corner outside r stays exactly 140');
+  S.heights.fill(140);
+  deform(cx,cr,0,cz);
+  let all140=true;for(let i=0;i<N;i++)if(S.heights[i]!==140){all140=false;break}
+  ok(all140,'F3: flat 140m field with delta=0 keeps every cell at 140');
+  S.heights.fill(140);
+  deform(cx,cr,-0.5,cz);
+  let haloPreserved=true,innerChanged=0;
+  for(let iz=ciz0;iz<=clamp(Math.ceil((cz+D+cr)/CELL)+1,0,NZ-1);iz++)for(let ix=cix0;ix<=clamp(Math.ceil((cx+cr)/CELL)+1,0,NX-1);ix++){
+    let d=Math.hypot(ix*CELL-cx,iz*CELL-D-cz),val=S.heights[gridIdx(ix,iz)];
+    if(d>=cr){if(val!==140)haloPreserved=false}else if(val<140)innerChanged++;
+  }
+  ok(haloPreserved&&innerChanged>0,'F3: flat 140m field with tiny negative delta keeps every cell that did not change at 140');
+}
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
 `;
 vm.runInContext(test,context,{timeout:30000});
