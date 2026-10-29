@@ -302,7 +302,7 @@ function validateAndCanonicalizeAttestation(match, body) {
         }
       }
       const az = Number(entry.az ?? 0);
-      if (!Number.isFinite(az) || az < -20 || az > 20) {
+      if (!Number.isFinite(az) || az < -180 || az > 180) {
         return { ok: false, reason: `Invalid azimuth at action ${i}` };
       }
       continue;
@@ -340,7 +340,7 @@ function validateAndCanonicalizeAttestation(match, body) {
         }
       }
       const az = Number(entry.az ?? 0);
-      if (!Number.isFinite(az) || az < -20 || az > 20) {
+      if (!Number.isFinite(az) || az < -180 || az > 180) {
         return { ok: false, reason: `Invalid azimuth at action ${i}` };
       }
       continue;
@@ -401,7 +401,7 @@ function validateAndCanonicalizeAttestation(match, body) {
     }
 
     const az = Number(entry.az ?? 0);
-    if (!Number.isFinite(az) || az < -20 || az > 20) {
+    if (!Number.isFinite(az) || az < -180 || az > 180) {
       return { ok: false, reason: `Invalid azimuth at action ${i}` };
     }
   }
