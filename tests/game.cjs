@@ -697,7 +697,7 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   ok(impV2&&W===960&&D===240&&CELL===2&&S.heights.length===N,'v2 960x480 import applies world');
   let allTickMatch=true;
   for(let i=0;i<N;i++)if(hTick(S.heights[i])!==origTicks[i]){allTickMatch=false;break}
-  ok(allTickMatch&&S.platforms.length===1&&S.platforms[0].x===240&&S.platforms[0].width===32&&editorSpawns[0]===60&&editorSpawns[1]===900,'v2 960x480 export->import identical hTick for every cell + spawns + platforms');
+  ok(allTickMatch&&S.platforms.length===1&&S.platforms[0].x===240&&S.platforms[0].width===32&&editorSpawns[0]?.x===60&&editorSpawns[1]?.x===900,'v2 960x480 export->import identical hTick for every cell + spawns + platforms');
 
   let rtCur=new Float32Array(S.heights);
   for(let r=0;r<10;r++){let enc=encodeHeights(rtCur);rtCur=decodeHeights(enc,N);ok(rtCur instanceof Float32Array&&rtCur.length===N,'roundtrip '+r)}
@@ -723,7 +723,7 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
 
   let coastalRaw=JSON.parse(coastalCrossingJson);
   let coastalVal=validateCustomMap(coastalRaw);
-  ok(coastalVal&&coastalVal.w===480&&coastalVal.d===80&&coastalVal.cell===1&&coastalVal.spawns.length===6&&coastalVal.spawns[0]===40&&coastalVal.spawns[1]===440&&coastalVal.spawns[4]===185&&coastalVal.spawns[5]===295,'maps/coastal-crossing.json validates with its authored spawns');
+  ok(coastalVal&&coastalVal.w===480&&coastalVal.d===80&&coastalVal.cell===1&&coastalVal.spawns.length===6&&coastalVal.spawns[0]?.x===40&&coastalVal.spawns[1]?.x===440&&coastalVal.spawns[4]?.x===185&&coastalVal.spawns[5]?.x===295,'maps/coastal-crossing.json validates with its authored spawns');
   setup();
 }
 // --- Phase P1c-2 Network Snapshot, Bounds & UI Text ---
@@ -1499,6 +1499,104 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   for(let i=0;i<N;i++)if(hTick(S.heights[i])!==hTick(customHeights[i])){heightsUnchanged=false;break}
   ok(heightsUnchanged&&S.tanks[0].x===80&&S.tanks[0].z===-40&&Math.abs(S.tanks[0].y-18.25)<1e-5&&S.tanks[1].x===880&&S.tanks[1].z===50&&Math.abs(S.tanks[1].y-21.5)<1e-5,'P4: custom map with tanks on tiny islands preserves exact authored spawns and heights');
   setup();
+}
+// --- Phase P5 2-D Map Editor Verification ---
+{
+  let notices=[],origNotice=notice;
+  notice=msg=>{notices.push(String(msg));origNotice(msg)};
+  try{
+    // 1. No '.pts' remains in index.html
+    ok(!htmlSource.includes('.pts'),'P5: no .pts side array remains in index.html');
+    // 2. Sculpt at (300,80) changes height at (300,80) and not at (300,-80)
+    setup();S.heights.fill(20);
+    openEditor();
+    setEditorTool('raise');$('brushSize').value='20';$('brushSize').oninput?.();
+    /* brushSize -> brushOut label: the oninput handler is wired after the harness cut; verified in the browser editor QA */
+    applyEditorPointer({x:300,z:80},true);
+    ok(height(300,80)>20&&height(300,-80)===20,'P5: sculpt at (300,80) changes height at (300,80) and not at (300,-80)');
+    // 3. Flatten uses the clicked (x,z) height
+    S.heights.fill(20);
+    S.heights[gridIdx(Math.round(320/CELL),Math.round((-70+D)/CELL))]=36;
+    S.heights[gridIdx(Math.round(324/CELL),Math.round((-70+D)/CELL))]=22;
+    setEditorTool('flat');
+    editorFlattenY=height(320,-70);
+    applyEditorPointer({x:324,z:-70},true);
+    applyEditorPointer({x:324,z:-70},false);
+    editorFlattenY=null;
+    ok(height(324,-70)>26&&height(324,70)===20,'P5: flatten uses the clicked (x,z) height at (324,-70) without affecting z=+70');
+    // 4. Platform placed at (400,-60) with lift -> platformAt(400,undefined,-60) has that y; delete platform at (x,z)
+    S.heights.fill(20);S.platforms=[];
+    setEditorTool('plat');
+    $('platWidth').value='32';$('platWidth').oninput?.();
+    $('platElev').value='14';$('platElev').oninput?.();
+    /* platWidth/platElev labels: wired after the harness cut; verified in the browser editor QA */
+    applyEditorPointer({x:400,z:-60},true);
+    let pAt=platformAt(400,undefined,-60);
+    let expectedPlatY=Math.round((Math.max(WATER_LEVEL+.6,20+.6)+14)*10)/10;
+    ok(pAt&&pAt.x===400&&pAt.z===-60&&pAt.width===32&&pAt.depth===12&&Math.abs(pAt.y-expectedPlatY)<1e-5&&platformAt(400,undefined,60)===null,'P5: platform placed at (400,-60) with lift has expected y at (400,-60) and not at (400,60)');
+    setEditorTool('delplat');
+    notices.length=0;
+    applyEditorPointer({x:400,z:60},true);
+    ok(platformAt(400,undefined,-60)!==null&&notices.length>0,'P5: delete platform at empty (400,60) leaves (400,-60) intact and shows notice');
+    applyEditorPointer({x:400,z:-60},true);
+    ok(platformAt(400,undefined,-60)===null,'P5: delete platform at (400,-60) removes the deck under (400,-60)');
+    // 5. Spawn slot 2 set to (500,90) -> editorSpawns[2] deep-equals {x:500,z:90} & marker renders at (x,z)
+    setEditorTool('spawn');
+    $('spawnSlot').value='2';
+    applyEditorPointer({x:500,z:90},true);
+    syncViews();
+    let sp2Marker=views.get('sp2');
+    ok(editorSpawns[2]&&editorSpawns[2].x===500&&editorSpawns[2].z===90&&Object.keys(editorSpawns[2]).length===2&&sp2Marker&&sp2Marker.g.position.x===500&&sp2Marker.g.position.z===90,'P5: spawn slot 2 set to (500,90) deep-equals {x:500,z:90} and marker renders at (500,90)');
+    // 6. Spawn on water -> rejected WITH a notice; spawn within 10 m of another -> rejected with a notice; outside world -> rejected with a notice
+    S.heights[gridIdx(Math.round(620/CELL),Math.round((-80+D)/CELL))]=5;
+    notices.length=0;
+    ok(!setSpawnAt(620,3,-80)&&notices.length===1&&/water|land|platform/i.test(notices[0])&&(editorSpawns[3].x!==620||editorSpawns[3].z!==-80),'P5: spawn on water at (620,-80) rejected with notice: '+notices[0]);
+    notices.length=0;
+    ok(!setSpawnAt(505,3,94)&&notices.length===1&&/10m|apart/i.test(notices[0])&&(editorSpawns[3].x!==505||editorSpawns[3].z!==94),'P5: spawn within 10m of slot 2 at (505,94) rejected with notice: '+notices[0]);
+    notices.length=0;
+    ok(!setSpawnAt(W+50,3,0)&&notices.length===1&&/outside|boundar/i.test(notices[0]),'P5: spawn outside world rejected with notice: '+notices[0]);
+    // 7. Save -> Load round trip keeps every spawn's z and platform z; Export -> Import identical
+    S.heights.fill(22);S.platforms=[];
+    placePlatform(420,30,10,-55);
+    let authoredSpawns=[{x:80,z:-90},{x:880,z:85},{x:500,z:90},{x:260,z:-40},{x:700,z:45},{x:420,z:-55}];
+    for(let i=0;i<6;i++)ok(setSpawnAt(authoredSpawns[i].x,i,authoredSpawns[i].z),'P5: set authored 2-D spawn '+i);
+    $('mapName').value='TwoDEditorMap';
+    ok(saveCustomMapSlot('TwoDEditorMap'),'P5: saveCustomMapSlot succeeds');
+    let expJson=JSON.stringify(edExport());
+    S.heights.fill(18);S.platforms=[];editorSpawns=defaultSpawns();
+    ok(loadCustomMapSlot('TwoDEditorMap'),'P5: loadCustomMapSlot succeeds');
+    ok(editorSpawns.every((s,i)=>s.x===authoredSpawns[i].x&&s.z===authoredSpawns[i].z)&&S.platforms.length===1&&S.platforms[0].x===420&&S.platforms[0].z===-55,'P5: save -> load round trip keeps every spawn z and platform z');
+    S.heights.fill(18);S.platforms=[];editorSpawns=defaultSpawns();
+    let impRes=edImport(expJson);
+    ok(impRes&&!('pts' in impRes.spawns)&&editorSpawns.every((s,i)=>s.x===authoredSpawns[i].x&&s.z===authoredSpawns[i].z)&&S.platforms.length===1&&S.platforms[0].x===420&&S.platforms[0].z===-55,'P5: export -> import round trip preserves 2-D spawns and platform z without .pts');
+    // 8. v1 JSON import gives {x,z:0} spawns
+    let v1Json=JSON.stringify({version:1,name:'LegacyV1',heights:new Array(LEGACY_N).fill(24),spawns:[50,430,130,350,210,270],platforms:[{x:240,y:25,width:28,hp:120,maxHp:120}]});
+    let v1Imp=edImport(v1Json);
+    ok(v1Imp&&v1Imp.spawns.length===6&&!('pts' in v1Imp.spawns)&&v1Imp.spawns.every(s=>s&&typeof s==='object'&&s.z===0)&&editorSpawns.every(s=>s&&typeof s==='object'&&s.z===0),'P5: v1 JSON import converts spawns to canonical {x,z:0} objects');
+    closeEditor(false);
+    // 9. Cancel restores spawn z
+    setup();S.heights.fill(22);
+    editorSpawns=[{x:70,z:-65},{x:890,z:75},{x:200,z:-30},{x:760,z:30},{x:350,z:-15},{x:610,z:15}];
+    openEditor();
+    setSpawnAt(500,0,110);
+    ok(editorSpawns[0].x===500&&editorSpawns[0].z===110,'P5: spawn 0 modified in editor');
+    cancelEditor();
+    ok(editorSpawns[0].x===70&&editorSpawns[0].z===-65&&editorSpawns[1].z===75,'P5: cancelEditor restores spawn z');
+    // 10. PLAY MAP -> tanks at the authored (x,z)
+    setup();S.heights.fill(22);S.platforms=[];
+    openEditor();
+    for(let i=0;i<6;i++)setSpawnAt(authoredSpawns[i].x,i,authoredSpawns[i].z);
+    let qsa=document.querySelectorAll;
+    try{
+      let slots=['human','ai','ai','off','off','off'].map(v=>({value:v}));
+      document.querySelectorAll=s=>s==='.slot select'?slots:[];
+      if(closeEditor(true))startMatch(); // the PLAY MAP button handler body (onclick is wired after the harness cut)
+      ok(!editorOpen&&running&&S.cfg.terrain==='Custom'&&S.tanks.length===3&&S.tanks[0].x===authoredSpawns[0].x&&S.tanks[0].z===authoredSpawns[0].z&&S.tanks[1].x===authoredSpawns[1].x&&S.tanks[1].z===authoredSpawns[1].z&&S.tanks[2].x===authoredSpawns[2].x&&S.tanks[2].z===authoredSpawns[2].z,'P5: PLAY MAP starts match with tanks at authored (x,z) spawns');
+    }finally{document.querySelectorAll=qsa}
+  }finally{
+    notice=origNotice;
+    setup();
+  }
 }
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
 `;
