@@ -119,14 +119,14 @@ ok(action({action:'move',dir:1},0)&&S.activeDrive,'Tank starts timed drive from 
 for(let i=0;i<80;i++)step(1/60);
 ok(t.x>42&&t.y===13,'Tank drives from land onto and along floating platform over deep water');
 ok(steerDrive({stop:true,moveId:S.activeDrive.id},0)&&!S.activeDrive,'Stop timed drive on platform');
-S.turn=0;S.actionsLeft=2;t.x=66;t.y=supportHeight(66);
-ok(!action({action:'move',dir:1},0)&&t.x===66&&S.actionsLeft===2,'Tank blocked from driving off platform edge into unbridged deep water at 0 cost');
+S.turn=0;S.actionsLeft=2;setFlatRow(67,140,4);t.x=66;t.y=supportHeight(66);
+ok(!action({action:'move',dir:1},0)&&t.x===66&&S.actionsLeft===2,'Tank blocked from driving off platform edge when the drop to the lakebed exceeds 7 m, at 0 cost (P3: gearless tanks may otherwise enter water)');
 
-S.platforms=[{id:1,x:46,y:13,width:12,hp:120,maxHp:120},{id:2,x:62,y:13,width:12,hp:120,maxHp:120}];
+S.platforms=[{id:1,x:46,y:13,width:12,hp:120,maxHp:120},{id:2,x:62,y:13,width:12,hp:120,maxHp:120}];setFlatRow(52,56,4);
 t.x=50;t.y=supportHeight(50);t.fuel=100;
 ok(action({action:'move',dir:1},0),'Start drive toward water gap between separated platforms');
 for(let i=0;i<60;i++)step(1/60);
-ok(t.x<=52&&t.y===13,'Intermediate water gap between separated platforms blocks timed drive from crossing');
+ok(t.x<=52&&t.y===13,'Intermediate water gap (drop to a 4 m bed > 7 m) between separated platforms blocks timed drive from crossing (P3: a gap within the step rule could be waded)');
 finishDrive();
 
 S.platforms=[{id:1,x:52,y:13,width:28,hp:15,maxHp:120}];
@@ -1083,6 +1083,111 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   setup();S.heights.fill(20);
   let wp=pickAiDriveWaypoint(S.tanks[0],S.tanks[1]);
   ok(wp&&Number.isFinite(wp.targetX)&&Number.isFinite(wp.targetZ)&&Math.hypot(wp.targetX-S.tanks[0].x,wp.targetZ-S.tanks[0].z)>=6,'P2c pickAiDriveWaypoint finds reachable 2-D waypoint');
+  setup();
+}
+// --- Phase P3 Water Rules (W1-W4) Verification ---
+{
+  // W1: Gearless tank drives from shore into a 6 m deep basin (bed=6, WATER_LEVEL=12), sits on bed, moves 2s at 2 m/s (4m +- 0.2), climbs out up a 5 m bank (6 -> 11 -> 13)
+  setup();S.heights.fill(6);
+  setFlatRow(80,100,12);
+  setFlatRow(102,108,6);
+  setFlatRow(110,114,11);
+  setFlatRow(116,130,13);
+  let tg=current();tg.x=99;tg.z=0;tg.y=supportHeight(99,0);tg.heading=0;tg.fuel=100;
+  tg.waterGear=null;tg.inv['Floating Platform']=0;tg.inv['Inflatable Lifejacket']=0;
+  ok(canTraverseWater(99,104,tg,0,0),'P3 W1 canTraverseWater allows gearless tank into 6m deep basin (step 6m <= 7m)');
+  ok(action({action:'move',dir:1},0)&&S.activeDrive,'P3 W1 gearless tank starts drive from shore into water');
+  for(let i=0;i<180&&!(tg.x>=102.2);i++)step(1/60);
+  ok(tg.x>=102&&tg.y===6&&tg.y<WATER_LEVEL&&!tg.waterGear,'P3 W1 gearless tank enters basin and sits on lakebed (y == 6 < WATER_LEVEL); it walks down the shore slope at 2 m/s');
+  let xBed0=tg.x;
+  for(let i=0;i<120;i++)step(1/60);
+  let dMoved2s=tg.x-xBed0;
+  ok(Math.abs(dMoved2s-4)<=0.2&&tg.y===6&&movementSpeed(tg,tg.x,0)===2,'P3 W1 gearless tank moves 2s at 2 m/s along lakebed (4m +- 0.2, got '+dMoved2s.toFixed(3)+')');
+  for(let i=0;i<300&&tg.x<116.5;i++)step(1/60);
+  if(S.activeDrive)finishDrive();
+  ok(tg.x>=116&&tg.y>=11,'P3 W1 gearless tank climbs out up a 5m bank (bed 6 -> 11 -> 13)');
+
+  // W1: A 9 m bank blocks gearless tank
+  setup();S.heights.fill(6);
+  setFlatRow(110,130,15);
+  tg=current();tg.x=108;tg.z=0;tg.y=6;tg.heading=0;tg.fuel=100;
+  tg.waterGear=null;tg.inv['Floating Platform']=0;tg.inv['Inflatable Lifejacket']=0;
+  ok(!canTraverseWater(108,112,tg,0,0),'P3 W1 canTraverseWater rejects 9m bank (6 -> 15)');
+  ok(!action({action:'move',dir:1},0)&&!S.activeDrive&&tg.x===108,'P3 W1 drive straight at a 9 m bank one cell ahead is refused at 0 cost (grid-aware step rule)');
+  for(let i=0;i<120&&S.activeDrive;i++)step(1/60);
+  if(S.activeDrive)finishDrive();
+  ok(tg.x<110&&tg.y===6,'P3 W1 9m bank blocks gearless tank on lakebed');
+  setup();S.heights.fill(20);for(let ix=0;ix<NX;ix++){let x=ix*CELL,h=x<100?20:x>110?29:20+(x-100)*.9;for(let iz=0;iz<NZ;iz++)S.heights[gridIdx(ix,iz)]=quantH(h)}
+  let tr=current();tr.x=96;tr.z=0;tr.y=supportHeight(96,0);tr.heading=0;tr.fuel=100;
+  ok(canStepMove(tr,98,supportHeight,0)&&canTraverseWater(96,114,tr,0,0),'Grid-aware step rule: a 9 m rise spread over 10 m (0.9 m per m) stays drivable');
+
+  // W2: Tank with Lifejacket in inventory floats at WATER_LEVEL and moves 3 m/s (gear consumed once); platform moves 8 m/s
+  setup();S.heights.fill(6);setFlatRow(80,100,13);
+  let tlj=current();tlj.x=99;tlj.z=0;tlj.y=13;tlj.heading=0;tlj.fuel=100;
+  tlj.waterGear=null;tlj.inv['Floating Platform']=0;tlj.inv['Inflatable Lifejacket']=1;
+  ok(action({action:'move',dir:1},0),'P3 W2 lifejacket tank starts drive into water');
+  for(let i=0;i<30;i++)step(1/60);
+  ok(tlj.waterGear==='lifejacket'&&tlj.inv['Inflatable Lifejacket']===0&&tlj.y===WATER_LEVEL&&movementSpeed(tlj,tlj.x,0)===3,'P3 W2 lifejacket auto-equips on water contact, floats at WATER_LEVEL, consumes 1 item');
+  let ljX0=tlj.x;
+  for(let i=0;i<60;i++)step(1/60);
+  ok(Math.abs((tlj.x-ljX0)-3)<0.1&&tlj.y===WATER_LEVEL,'P3 W2 lifejacket tank moves at 3 m/s at WATER_LEVEL');
+  finishDrive();
+
+  setup();S.heights.fill(6);setFlatRow(80,100,13);
+  let tpl=current();tpl.x=99;tpl.z=0;tpl.y=13;tpl.heading=0;tpl.fuel=100;
+  tpl.waterGear=null;tpl.inv['Floating Platform']=1;tpl.inv['Inflatable Lifejacket']=0;
+  ok(action({action:'move',dir:1},0),'P3 W2 platform tank starts drive into water');
+  for(let i=0;i<30;i++)step(1/60);
+  let plX0=tpl.x;
+  for(let i=0;i<60;i++)step(1/60);
+  ok(tpl.waterGear==='platform'&&tpl.inv['Floating Platform']===0&&tpl.y===WATER_LEVEL&&movementSpeed(tpl,tpl.x,0)===8&&Math.abs((tpl.x-plX0)-8)<0.15,'P3 W2 platform tank floats at WATER_LEVEL and moves at 8 m/s');
+  finishDrive();
+
+  // W3 & W4: isSubmerged true on bed, false when floating, false on land; SUBMERGED label tag
+  setup();S.heights.fill(6);setFlatRow(180,220,20);
+  let ts=S.tanks[0];ts.x=100;ts.z=0;ts.y=6;ts.hp=100;ts.waterGear=null;ts.inv['Floating Platform']=0;ts.inv['Inflatable Lifejacket']=0;
+  ok(isSubmerged(ts)===true,'P3 W3 isSubmerged is true for gearless tank on 6m lakebed (y+3=9 < 12)');
+  syncViews();ok(views.get('t0').labelKey.includes('|S|'),'P3 W4 syncViews marks SUBMERGED in labelKey for submerged tank');
+  ts.waterGear='lifejacket';ts.y=WATER_LEVEL;
+  ok(isSubmerged(ts)===false,'P3 W3 isSubmerged is false when floating with waterGear');
+  syncViews();ok(!views.get('t0').labelKey.includes('|S|'),'P3 W4 syncViews clears SUBMERGED tag when floating');
+  ts.waterGear=null;ts.x=200;ts.y=20;
+  ok(isSubmerged(ts)===false,'P3 W3 isSubmerged is false on dry land');
+
+  // W3: 40-dmg explosion on submerged tank removes 30 hp (no shield), with 40 shield removes 0 hp and 30 shield, on floating tank removes 40
+  setup();S.heights.fill(6);
+  let tSubNoSh=S.tanks[1];tSubNoSh.x=140;tSubNoSh.z=0;tSubNoSh.y=6;tSubNoSh.hp=100;tSubNoSh.shield=0;tSubNoSh.waterGear=null;tSubNoSh.inv['Floating Platform']=0;tSubNoSh.inv['Inflatable Lifejacket']=0;
+  explosion(140,8,0,{r:20,dmg:40},0,true);
+  ok(tSubNoSh.hp===70&&tSubNoSh.shield===0,'P3 W3 40-dmg explosion on submerged tank without shield removes 30 hp (hp=70)');
+
+  setup();S.heights.fill(6);
+  let tSubSh=S.tanks[1];tSubSh.x=140;tSubSh.z=0;tSubSh.y=6;tSubSh.hp=100;tSubSh.shield=40;tSubSh.waterGear=null;tSubSh.inv['Floating Platform']=0;tSubSh.inv['Inflatable Lifejacket']=0;
+  explosion(140,8,0,{r:20,dmg:40},0,true);
+  ok(tSubSh.hp===100&&tSubSh.shield===10,'P3 W3 40-dmg explosion on submerged tank with 40 shield removes 0 hp and 30 shield (shield=10)');
+
+  setup();S.heights.fill(6);
+  let tFlt=S.tanks[1];tFlt.x=140;tFlt.z=0;tFlt.y=WATER_LEVEL;tFlt.hp=100;tFlt.shield=0;tFlt.waterGear='platform';
+  explosion(140,WATER_LEVEL+2,0,{r:20,dmg:40},0,true);
+  ok(tFlt.hp===60,'P3 W3 40-dmg explosion on floating tank removes full 40 hp (hp=60)');
+
+  // W3: Direct hit is scaled once (assert exact hp)
+  setup();S.heights.fill(6);S.wind=0;
+  let tDir=S.tanks[1];tDir.x=140;tDir.z=0;tDir.y=6;tDir.hp=100;tDir.shield=0;tDir.waterGear=null;tDir.inv['Floating Platform']=0;tDir.inv['Inflatable Lifejacket']=0;
+  S.shots=[{id:++S.uid,x:140,y:8,z:0,vx:0,vy:0,vz:0,name:'Baby Missile',owner:0,life:.5,bounces:0,split:false,mode:'air'}];
+  step(1/60);
+  let expectedLoss=WEAPONS_CONFIG['Baby Missile'].dmg*WATER_DAMAGE_SCALE;
+  ok(S.shots.length===0&&Math.abs(tDir.hp-(100-expectedLoss))<0.1,'P3 W3 direct hit on submerged tank scales once by 0.75 (blast falloff at the hit point leaves <0.1 hp; twice-scaled would be 5.6 hp off; expected hp='+(100-expectedLoss)+', got '+tDir.hp+')');
+
+  // W1: Fall into water from a cliff rests on the bed without a stuck drive
+  setup();S.heights.fill(6);
+  let tCliff=current();tCliff.x=100;tCliff.z=0;tCliff.y=24;tCliff.hp=100;tCliff.fuel=100;
+  tCliff.inv.Parachute=0;tCliff.waterGear=null;tCliff.inv['Floating Platform']=0;tCliff.inv['Inflatable Lifejacket']=0;
+  for(let i=0;i<180;i++)step(1/60);
+  ok(!tCliff.falling&&tCliff.y===6&&!S.activeDrive&&tCliff.hp>0,'P3 W1 tank falling from cliff into water rests on lakebed (y=6) without stuck state');
+  ok(action({action:'move',dir:1},0)&&S.activeDrive,'P3 W1 tank resting on lakebed after cliff fall can start a normal drive');
+  for(let i=0;i<60;i++)step(1/60);
+  ok(tCliff.x>101.5&&tCliff.y===6,'P3 W1 tank drives along lakebed after cliff fall');
+  finishDrive();
   setup();
 }
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
