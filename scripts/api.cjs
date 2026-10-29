@@ -244,17 +244,28 @@ function validateAndCanonicalizeAttestation(match, body) {
     const kind = String(entry.action || 'fire');
     if (kind === 'move') {
       const dx = Number(entry.dx ?? entry.dir ?? 0);
+      const dz = entry.dz === undefined || entry.dz === null ? 0 : Number(entry.dz);
       const maxMoveDist = 30 * 8;
-      if (!Number.isFinite(dx) || (dx === 0 && !(typeof entry.duration === 'number' && typeof entry.distance === 'number')) || Math.abs(dx) > maxMoveDist) {
+      const hasDur = entry.duration !== undefined && entry.duration !== null;
+      const hasDist = entry.distance !== undefined && entry.distance !== null;
+      const groundDist = Math.hypot(dx, dz);
+      if (
+        !Number.isFinite(dx) ||
+        !Number.isFinite(dz) ||
+        Math.abs(dx) > maxMoveDist ||
+        Math.abs(dz) > maxMoveDist ||
+        groundDist > maxMoveDist ||
+        (dx === 0 && dz === 0 && !(typeof entry.duration === 'number' && (typeof entry.distance === 'number' || Number(entry.duration) > 0)))
+      ) {
         return { ok: false, reason: `Invalid move delta at action ${i}` };
       }
-      if (entry.duration !== undefined && entry.duration !== null) {
+      if (hasDur) {
         const dur = Number(entry.duration);
         if (!Number.isFinite(dur) || dur < 0 || dur > 30) {
           return { ok: false, reason: `Invalid move duration at action ${i}` };
         }
       }
-      if (entry.distance !== undefined && entry.distance !== null) {
+      if (hasDist) {
         const dist = Number(entry.distance);
         if (!Number.isFinite(dist) || dist < 0 || dist > maxMoveDist) {
           return { ok: false, reason: `Invalid move distance at action ${i}` };
