@@ -11,7 +11,7 @@ const test=`
 let checks=0;function ok(value,message){if(!value)throw Error(message);checks++}
 const originalClearViews=clearViews;emit=()=>{};flash=()=>{};sound=()=>{};refreshWeapons=()=>{};updateUI=()=>{};showShop=()=>{};clearViews=()=>{};broadcastState=()=>{};notice=()=>{};laserLine=()=>{};
 function setFlatRow(x0,x1,v,z=0){let ix0=clamp(Math.floor(x0/CELL),0,NX-1),ix1=clamp(Math.ceil(x1/CELL),0,NX-1),iz0=clamp(Math.floor((z+D-6)/CELL),0,NZ-1),iz1=clamp(Math.ceil((z+D+6)/CELL),0,NZ-1);for(let iz=iz0;iz<=iz1;iz++)for(let ix=ix0;ix<=ix1;ix++)S.heights[gridIdx(ix,iz)]=quantH(v)}
-function setup(){setWorld({w:960,d:240,cell:2});seed=1729;S={cfg:{terrain:'Rolling Hills',wall:'Concrete',difficulty:'Cyborg',market:'fixed'},round:1,turn:0,actionsMax:2,actionsLeft:2,heights:new Float32Array(N).fill(20),tanks:[0,1].map(id=>({id,name:'P'+id,x:40+id*100,y:20,hp:100,shield:0,mag:false,inv:Object.fromEntries(Object.keys(WEAPONS_CONFIG).map(n=>[n,10])),fuel:100,power:650,angle:id?135:45,az:0,vy:0,chuting:0,buried:0,cash:10000,score:0})),platforms:[],customMap:null,satellites:[],buildings:[],drones:[],shots:[],fires:[],phase:'aim',wind:0,wall:'Concrete',time:0,uid:0,prices:{},ready:[]};running=true;host=true;online=false;shotClock=0;return S.tanks[0]}
+function setup(){setWorld({w:960,d:240,cell:2});seed=1729;S={cfg:{terrain:'Rolling Hills',wall:'Concrete',difficulty:'Cyborg',market:'fixed'},round:1,turn:0,actionsMax:2,actionsLeft:2,heights:new Float32Array(N).fill(20),tanks:[0,1].map(id=>({id,name:'P'+id,x:40+id*100,z:0,heading:id?Math.PI:0,y:20,hp:100,shield:0,mag:false,inv:Object.fromEntries(Object.keys(WEAPONS_CONFIG).map(n=>[n,10])),fuel:100,power:650,angle:id?135:45,az:0,vy:0,chuting:0,buried:0,cash:10000,score:0})),platforms:[],customMap:null,satellites:[],buildings:[],drones:[],shots:[],fires:[],phase:'aim',wind:0,wall:'Concrete',time:0,uid:0,prices:{},ready:[]};running=true;host=true;online=false;shotClock=0;return S.tanks[0]}
 for(let[name,w]of Object.entries(WEAPONS_CONFIG)){let t=setup();let accepted=action({weaponOrItem:name,angle:35,power:500,az:0,targetX:140},0);if(['chute','floatplat','lifejacket'].includes(w.kind)){ok(!accepted&&S.actionsLeft===2,'Passive parachute rejected without spending action');continue}ok(accepted,'Action rejected '+name);if(w.kind==='actionpack'){ok(S.actionsLeft===4&&current().packUsed,'Action pack adds net two actions');continue}if(['blast','nuke','split','leap','funky','roller','digger','dirt','liquid','riot','napalm','laser','drone'].includes(w.kind)){for(let i=0;i<1600&&S.phase==='flight';i++)step(1/60);ok(S.phase!=='flight','Flight stuck '+name);ok(S.heights.every(Number.isFinite),'Invalid terrain '+name);ok(S.tanks.every(t=>Number.isFinite(t.hp)&&Number.isFinite(t.y)),'Invalid tank '+name);ok(S.actionsLeft===1,'Flight spends one of two configured remaining actions')}else ok(S.phase==='aim'&&S.actionsLeft===1,'Equipment/structure/satellite spends one configured action '+name)}
 setup();let t=current();t.hp=60;action({weaponOrItem:'Baby Missile',angle:45,power:1000});ok(t.power===600,'Health caps power');
 setup();t=current();t.hp=15;t.power=150;$('power').value=150;action({weaponOrItem:'Battery',angle:45,power:150});ok(t.hp===100&&t.power===1000&&+$('power').value===1000&&+$('power').max===1000,'Battery restores full 100 HP and 1000 firing power');
@@ -797,6 +797,84 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   ok(htmlSource.includes('id="targetX" type="number" min="0" max="960"')&&htmlSource.includes('960 × 480 meter')&&htmlSource.includes('960 × 480 M BATTLEFIELD'),'UI text describes 960 x 480 m default and #targetX max=960');
   setup();
 }
+// --- Phase P2a 2-D Tank State, Ground-Plane Driving, Collisions & Physics ---
+{
+  // 1. Drive 2s along +z, -z, and 45 deg heading -> 12m displacement (6 m/s) and 12 fuel drop
+  for(let[label,hdg,ex,ez]of [['+z',Math.PI/2,0,12],['-z',-Math.PI/2,0,-12],['45deg',Math.PI/4,12*Math.SQRT1_2,12*Math.SQRT1_2]]){
+    setup();S.actionLog=[];let tk=current();tk.x=200;tk.z=0;tk.heading=hdg;tk.fuel=100;
+    ok(action({action:'move',throttle:1,turn:0},0),'P2a start drive '+label);
+    for(let i=0;i<120;i++)step(1/60);
+    ok(steerDrive({stop:true,moveId:S.activeDrive.id},0),'P2a stop drive '+label);
+    let dx=tk.x-200,dz=tk.z-0,dist=Math.hypot(dx,dz),log=S.actionLog[S.actionLog.length-1];
+    ok(Math.abs(dx-ex)<1e-2&&Math.abs(dz-ez)<1e-2&&Math.abs(dist-12)<1e-2&&Math.abs(tk.fuel-88)<1e-2&&Math.abs(log.distance-12)<.05&&Math.abs(log.dz-ez)<.05,'P2a 2s drive along '+label+' moves 12m and drains 12 fuel');
+  }
+  // 2. Turn-in-place changes heading at 0 fuel
+  setup();S.actionLog=[];let tkTurn=current();tkTurn.x=200;tkTurn.z=10;tkTurn.heading=0;tkTurn.fuel=100;
+  ok(action({action:'move',throttle:0,turn:1},0),'P2a start turn-in-place');
+  for(let i=0;i<60;i++)step(1/60);
+  ok(steerDrive({stop:true,moveId:S.activeDrive.id},0),'P2a stop turn-in-place');
+  ok(Math.abs(tkTurn.heading-TURN_RATE)<1e-2&&tkTurn.x===200&&tkTurn.z===10&&tkTurn.fuel===100&&S.actionLog[0].distance===0&&S.actionLog[0].duration>0,'P2a 1s turn-in-place rotates by TURN_RATE at 0 fuel');
+  // 3. 7m step rule along diagonal path: blocks 10m ledge, allows 5m ledge
+  for(let[ledge,expectOk]of [[10,false],[5,true]]){
+    setup();S.heights.fill(20);
+    for(let iz=0;iz<NZ;iz++)for(let ix=0;ix<NX;ix++)if(ix*CELL+(iz*CELL-D)>=204)S.heights[gridIdx(ix,iz)]=quantH(20+ledge);
+    let tkStep=current();tkStep.x=200;tkStep.z=0;tkStep.y=supportHeight(200,0);tkStep.heading=Math.PI/4;tkStep.fuel=100;
+    let diagProbeX=200+4*Math.SQRT1_2,diagProbeZ=4*Math.SQRT1_2;
+    ok(canStepMove(tkStep,diagProbeX,supportHeight,diagProbeZ)===expectOk,'P2a diagonal '+ledge+'m ledge canStepMove='+expectOk);
+  }
+  // 4. Tank-tank radial collision: blocked at hypot<7 (dx 3, dz 3), allowed at dx 0, dz 10
+  setup();let tA=S.tanks[0],tB=S.tanks[1];tA.x=200;tA.z=0;tA.y=20;tB.x=203;tB.z=3;tB.y=20;
+  ok(!canStepMove(tA,200.5,supportHeight,0.5),'P2a tank-tank blocked at dx=3, dz=3 (hypot<7)');
+  tB.x=200;tB.z=10;
+  ok(canStepMove(tA,201,supportHeight,0),'P2a tank-tank allowed at dx=0, dz=10');
+  // 5. Wall collision in (x,z): wall at z=0 blocks at z=0, does not block tank at z=30
+  setup();S.buildings=[{id:1,owner:1,x:208,z:0,y:20,shape:'wall',hp:120}];
+  let tW=S.tanks[0];tW.x=200;tW.z=0;tW.y=20;
+  ok(!canStepMove(tW,204,supportHeight,0),'P2a wall blocks tank at z=0');
+  tW.z=30;tW.y=20;
+  ok(canStepMove(tW,204,supportHeight,30),'P2a wall at z=0 does not block tank at z=30');
+  // 6. Legacy {dir:-1} moves -x exactly as before even if heading was pi/2
+  setup();let tLeg=current();tLeg.x=200;tLeg.z=20;tLeg.heading=Math.PI/2;tLeg.fuel=100;
+  ok(action({action:'move',dir:-1},0),'P2a legacy {dir:-1} starts move');
+  for(let i=0;i<60;i++)step(1/60);
+  finishDrive();
+  ok(Math.abs(tLeg.x-194)<1e-2&&Math.abs(tLeg.z-20)<1e-4&&Math.abs(Math.abs(tLeg.heading)-Math.PI)<1e-4,'P2a legacy {dir:-1} sets heading=pi and moves -x');
+  // 7. Tank at z=60 falls, parachutes, and buries against terrain at z=60 (ridge at z=0 must not hold it up)
+  setup();S.heights.fill(20);setFlatRow(180,220,80,0);
+  let tFall=S.tanks[0];tFall.x=200;tFall.z=60;tFall.y=60;tFall.inv.Parachute=1;
+  for(let i=0;i<360;i++)step(1/60);
+  ok(Math.abs(tFall.y-20)<1e-2&&tFall.hp===100&&tFall.inv.Parachute===0,'P2a tank at z=60 parachutes to z=60 ground (20m) ignoring z=0 80m ridge');
+  tFall.y=50;tFall.inv.Parachute=0;
+  for(let i=0;i<180;i++)step(1/60);
+  ok(Math.abs(tFall.y-20)<1e-2&&tFall.hp<100,'P2a tank at z=60 takes fall damage onto z=60 terrain');
+  let hpBeforeBury=tFall.hp;deform(200,12,15,60);
+  for(let i=0;i<60;i++)step(1/60);
+  ok(tFall.hp<hpBeforeBury&&tFall.y>20,'P2a tank at z=60 takes burial damage when terrain at z=60 rises above it');
+  // 8. Re-seat functions at (t.x, t.z): sculptTerrain, placePlatform, removePlatformAt, applyCustomMapToState, newRound
+  setup();S.heights.fill(20);let tSeat=S.tanks[0];tSeat.x=200;tSeat.z=60;tSeat.y=20;
+  sculptTerrain(200,'raise',18,10,0);
+  ok(Math.abs(tSeat.y-20)<1e-3,'P2a sculptTerrain at z=0 does not lift tank at z=60');
+  sculptTerrain(200,'raise',18,10,60);
+  ok(Math.abs(tSeat.y-height(200,60))<1e-3,'P2a sculptTerrain at z=60 re-seats tank at z=60');
+  placePlatform(200,28,15,0);
+  ok(Math.abs(tSeat.y-height(200,60))<1e-3,'P2a placePlatform at z=0 does not lift tank at z=60');
+  placePlatform(200,28,15,60);
+  ok(Math.abs(tSeat.y-supportHeight(200,60))<1e-3&&tSeat.y>height(200,60),'P2a placePlatform at z=60 supports tank at z=60');
+  removePlatformAt(200,60);
+  ok(Math.abs(tSeat.y-height(200,60))<1e-3,'P2a removePlatformAt at z=60 drops tank back to terrain at z=60');
+  let cmap2D={version:2,name:'ZSpawns',w:480,d:80,cell:2,heights:encodeHeights(new Float32Array(241*81).fill(20)),spawns:[{x:60,z:-40},{x:420,z:50}],platforms:[]};
+  ok(applyCustomMapToState(cmap2D)&&S.tanks[0].z===-40&&S.tanks[1].z===50&&Math.abs(S.tanks[0].heading-Math.atan2(90,360))<1e-3,'P2a applyCustomMapToState sets z from custom map spawns and heading toward nearest opponent');
+  S.cfg.terrain='Custom';newRound();
+  ok(S.tanks[0].z===-40&&S.tanks[1].z===50&&Math.abs(S.tanks[0].heading-Math.atan2(90,360))<1e-3,'P2a newRound sets z from custom map spawns and heading toward nearest opponent');
+  // 9. Old snapshot without z/heading loads with z=0 and heading from angle
+  setup();
+  let oldSnap=JSON.parse(JSON.stringify(snapshot()));
+  delete oldSnap.tanks[0].z;delete oldSnap.tanks[0].heading;oldSnap.tanks[0].angle=45;
+  delete oldSnap.tanks[1].z;delete oldSnap.tanks[1].heading;oldSnap.tanks[1].angle=135;
+  receiveState(oldSnap);
+  ok(S.tanks[0].z===0&&S.tanks[0].heading===0&&S.tanks[1].z===0&&S.tanks[1].heading===Math.PI,'P2a receiveState defaults missing z->0 and heading->(angle>90?pi:0)');
+  setup();
+}
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
 `;
 vm.runInContext(test,context,{timeout:120000});
@@ -917,9 +995,9 @@ const simChecks = vm.runInContext('checks', context);
   });
   assert(rtRes.ok, `Client-recorded actionLog failed server validation: ${rtRes.reason}`);
 
-  for (const entry of [{actor:0,action:'move',dx:0,distance:0,duration:0},{actor:0,action:'move',dx:0,distance:12,duration:2},{actor:0,action:'move',dx:240,distance:240,duration:30}]) {
+  for (const entry of [{actor:0,action:'move',dx:0,distance:0,duration:0},{actor:0,action:'move',dx:0,distance:12,duration:2},{actor:0,action:'move',dx:240,distance:240,duration:30},{actor:0,action:'move',dx:0,dz:12,distance:12,duration:2},{actor:0,action:'move',dx:0,dz:0,distance:0,duration:1.5}]) {
     const result=validateAndCanonicalizeAttestation(syntheticMatch,{nonce:'drift-nonce',winnerSlot:0,durationMs:5000,actionLog:[entry],outcomes:syntheticOutcomes});
-    assert(result.ok, 'Stopped and reversed timed drives remain valid ranked records');
+    assert(result.ok, 'Stopped, reversed, pure-z, and turn-in-place timed drives remain valid ranked records');
   }
   // Negative checks: unknown weapons and out-of-range fields must still be rejected
   const badEntries = [
@@ -932,7 +1010,10 @@ const simChecks = vm.runInContext('checks', context);
     [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 500, az: 25 }],
     [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 500, az: 0, targetX: 1201 }],
     [{ actor: 0, action: 'move', dx: 0 }],
+    [{ actor: 0, action: 'move', dx: 0, dz: 0 }],
     [{ actor: 0, action: 'move', dx: 241 }],
+    [{ actor: 0, action: 'move', dx: 0, dz: 241, distance: 12, duration: 2 }],
+    [{ actor: 0, action: 'move', dx: 0, dz: -241, distance: 12, duration: 2 }],
     [{ actor: 0, action: 'silo_launch', weaponOrItem: 'ASAT Silo Launch', targetSatId: -2 }]
   ];
   for (const badLog of badEntries) {
