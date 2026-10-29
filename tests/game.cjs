@@ -5,7 +5,7 @@ source=source.slice(0,source.indexOf('for(let i=0;i<6;i++){let d=document.create
 const store=new Map(),localStorage={getItem:k=>store.has(k)?store.get(k):null,setItem:(k,v)=>store.set(k,String(v)),removeItem:k=>store.delete(k)};
 const elements=new Map();function element(){const cl=new Set(['hidden']);return {value:'',checked:true,classList:{contains:c=>cl.has(c),add:c=>cl.add(c),remove:c=>cl.delete(c),toggle:(c,f)=>f===undefined?(cl.has(c)?cl.delete(c):cl.add(c)):(f?cl.add(c):cl.delete(c))},style:{},replaceChildren(){},appendChild(){},append(){},textContent:'',remove(){},setAttribute(){}}}
 const document={body:element(),getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id)},createElement:element,querySelectorAll:()=>[],hidden:false};
-const context={console,htmlSource:fs.readFileSync('index.html','utf8'),innerWidth:1280,innerHeight:720,THREE:require('three'),document,window:{localStorage},localStorage,setTimeout,clearTimeout,performance,crypto:require('crypto').webcrypto,requestAnimationFrame(){}};
+const context={console,Buffer,coastalCrossingJson:fs.readFileSync('maps/coastal-crossing.json','utf8'),htmlSource:fs.readFileSync('index.html','utf8'),innerWidth:1280,innerHeight:720,THREE:require('three'),document,window:{localStorage},localStorage,setTimeout,clearTimeout,performance,crypto:require('crypto').webcrypto,requestAnimationFrame(){}};
 vm.createContext(context);vm.runInContext(source,context);
 const test=`
 let checks=0;function ok(value,message){if(!value)throw Error(message);checks++}
@@ -167,16 +167,16 @@ ok(Math.abs(height(150,0)-origH)<1e-4&&S.platforms.length===0&&S.tanks[0].x===or
 setup();S.phase='flight';ok(!openEditor(),'No editing during projectile flight');S.phase='shop';ok(!openEditor(),'No editing during shop');
 setup();online=true;host=false;ok(!openEditor(),'Guest cannot edit maps');host=true;ok(!openEditor(),'Host cannot edit active online match');online=false;
 setup();S.tanks[0].ai=true;ok(openEditor(),'Open editor before AI starts');let beforeTime=S.time;last=1000;let savedDraw=draw;draw=()=>{};animate(1100);draw=savedDraw;ok(S.time===beforeTime&&!aiBusy,'Editor pauses simulation and AI');closeEditor(false);
-setup();openEditor();sculptTerrain(100,'raise',20,10);let incoming=JSON.parse(JSON.stringify(snapshot()));incoming.heights.fill(33);receiveState(incoming);ok(!editorOpen&&height(100,0)===33,'Incoming snapshot replaces draft without restoring old backup');
+setup();openEditor();sculptTerrain(100,'raise',20,10);let incoming=JSON.parse(JSON.stringify(snapshot()));incoming.heights=encodeHeights(new Float32Array(N).fill(33));receiveState(incoming);ok(!editorOpen&&height(100,0)===33,'Incoming snapshot replaces draft without restoring old backup');
 setup();editorSpawns=[40,440,120,360,200,280];let good={version:1,name:'Crossing',heights:Array(N).fill(20),spawns:editorSpawns.slice(),platforms:[{x:240,y:20,width:30,hp:120,maxHp:120}]};
 ok(validateCustomMap(good),'Valid six-spawn map accepted');
-ok(!validateCustomMap({...good,version:2}),'Unknown map version rejected');
+ok(!validateCustomMap({...good,version:3}),'Unknown map version rejected');
 ok(!validateCustomMap({...good,platforms:Array(17).fill(good.platforms[0])}),'Platform count bounded');
 ok(!validateCustomMap({...good,platforms:[{...good.platforms[0],width:64.4}]}),'Oversize platform rejected before rounding');
 ok(!validateCustomMap({...good,platforms:[{...good.platforms[0],x:Infinity}]}),'Nonfinite platform rejected');
 ok(applyCustomMapToState(good)&&S.heights instanceof Float32Array,'Imported map retains typed terrain');
 $('mapName').value='Crossing';ok(saveCustomMapSlot('Crossing'),'Map saved to local storage');
-let exportMap=JSON.parse(JSON.stringify(serializeCurrentMap()));ok(exportMap.heights.length===N&&exportMap.spawns.length===6,'JSON map export complete');
+let exportMap=JSON.parse(JSON.stringify(serializeCurrentMap()));ok(exportMap.version===2&&decodeHeights(exportMap.heights,N)?.length===N&&exportMap.spawns.length===6,'JSON map export complete');
 localStorage.setItem(CUSTOM_MAP_KEY,'{"__proto__":'+JSON.stringify(good)+',"constructor":'+JSON.stringify(good)+',"Crossing":'+JSON.stringify(good)+'}');loadSavedMaps();
 ok(Object.getPrototypeOf(savedCustomMaps)===null&&!Object.hasOwn(savedCustomMaps,'__proto__')&&!Object.hasOwn(savedCustomMaps,'constructor')&&savedCustomMaps.Crossing,'Prototype-like saved names handled safely');
 S.cfg.terrain='Custom';S.customMap=exportMap;newRound();ok(S.platforms.length===1&&S.tanks[0].x===40&&S.tanks[1].x===440,'Custom layout persists across rounds');
@@ -654,6 +654,141 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   for(let i=0;i<terrainPos.length;i+=3){vTmp.set(terrainPos[i],terrainPos[i+1],terrainPos[i+2]);if(!bs.containsPoint(vTmp)){allInside=false;break}}
   ok(allInside,'R3: after raising corner to cap on partial update, every vertex lies inside fixed terrainGeo.boundingSphere');
 }
+// --- Phase P1c-1 Map Format v2, Encoding, Migration & Local Storage ---
+{
+  setup();
+  let asym=new Array(LEGACY_N).fill(20);
+  asym[37]=83.45;asym[38]=14.2;asym[121]=7.35;asym[122]=61.8;asym[333]=112.6;asym[240]=31.25;
+  let v1Asym={version:1,name:'AsymV1',heights:asym,spawns:[40,440,110,370,185,295],platforms:[{id:1,x:120,y:25,width:28,hp:120,maxHp:120}]};
+  ok(applyCustomMapToState(v1Asym)&&W===480&&D===80&&CELL===1&&NX===481&&NZ===161,'v1 asymmetric map migrates to W=480, D=80, CELL=1');
+  for(let z of [-80,-17,0,33,80]){
+    for(let x of [0,36,37,38,39,120,121,122,240,333,480]){
+      ok(Math.abs(height(x,z)-Math.round(asym[x]*100)/100)<1e-5,'v1 exact height(x,z) at x='+x+' z='+z);
+    }
+  }
+  ok(S.platforms.length===1&&S.platforms[0].x===120&&S.platforms[0].width===28&&(S.platforms[0].z||0)===0,'v1 platform x/width unchanged and z=0');
+
+  let roundArr=new Array(LEGACY_N).fill(20);roundArr[77]=17.023;
+  let migRound=validateCustomMap({version:1,name:'RoundTest',heights:roundArr,spawns:[40,440]});
+  ok(migRound&&Math.abs(migRound.heights[77]-17.02)<1e-5,'17.023 in v1 rounds to 17.02 on migrate');
+  ok(applyCustomMapToState(migRound),'apply migrated rounding map');
+  let serRound=serializeCurrentMap();
+  let valRound=validateCustomMap(serRound);
+  ok(valRound&&Math.abs(valRound.heights[77]-17.02)<1e-5&&hTick(valRound.heights[77])===1702,'17.02 survives migrate -> serialize -> validate');
+
+  setup();
+  S.heights=newTerrain('Jagged Mountains');
+  S.platforms=[{id:1,x:240,z:-20,y:34.5,width:32,depth:16,hp:110,maxHp:140}];
+  editorSpawns=[60,900,200,760,360,600];
+  $('mapName').value='BigV2';
+  let origTicks=Array.from(S.heights,hTick);
+  let expV2=edExport();
+  ok(expV2&&expV2.version===2&&expV2.w===960&&expV2.d===240&&expV2.cell===2&&expV2.heights?.enc==='i16t','v2 960x480 export structure');
+  S.heights.fill(15);S.platforms=[];
+  let impV2=edImport($('edJsonIO').value);
+  ok(impV2&&W===960&&D===240&&CELL===2&&S.heights.length===N,'v2 960x480 import applies world');
+  let allTickMatch=true;
+  for(let i=0;i<N;i++)if(hTick(S.heights[i])!==origTicks[i]){allTickMatch=false;break}
+  ok(allTickMatch&&S.platforms.length===1&&S.platforms[0].x===240&&S.platforms[0].width===32&&editorSpawns[0]===60&&editorSpawns[1]===900,'v2 960x480 export->import identical hTick for every cell + spawns + platforms');
+
+  let rtCur=new Float32Array(S.heights);
+  for(let r=0;r<10;r++){let enc=encodeHeights(rtCur);rtCur=decodeHeights(enc,N);ok(rtCur instanceof Float32Array&&rtCur.length===N,'roundtrip '+r)}
+  let rtMatch=true;
+  for(let i=0;i<N;i++)if(hTick(rtCur[i])!==origTicks[i]){rtMatch=false;break}
+  ok(rtMatch,'10 encode/decode roundtrips are tick-identical');
+
+  let validEnc=encodeHeights(new Float32Array([20,25,30,35]));
+  ok(decodeHeights(validEnc,3)===null&&decodeHeights(validEnc,5)===null,'rejects wrong encoded length');
+  let makeRawEnc=(ticks)=>{let b=new Uint8Array(ticks.length*2);for(let i=0;i<ticks.length;i++){b[i*2]=ticks[i]&255;b[i*2+1]=(ticks[i]>>8)&255}return{enc:'i16t',data:Buffer.from(b).toString('base64')}};
+  ok(decodeHeights(makeRawEnc([0,2000,2000]),3)===null,'rejects tick 0');
+  ok(decodeHeights(makeRawEnc([2000,14001,2000]),3)===null,'rejects tick 14001');
+  ok(decodeHeights([20,NaN,20],3)===null,'rejects NaN in plain array');
+  let baseV2={version:2,name:'T',w:480,d:80,cell:2,heights:encodeHeights(new Float32Array(241*81).fill(20)),spawns:[{x:40,z:0},{x:440,z:0}],platforms:[]};
+  ok(validateCustomMap({...baseV2,spawns:[{x:40,z:0},{x:80,z:0},{x:120,z:0},{x:160,z:0},{x:200,z:0},{x:240,z:0},{x:280,z:0}]})===null,'rejects 7 spawns');
+  ok(validateCustomMap({...baseV2,cell:3})===null,'rejects cell 3');
+  ok(validateCustomMap({...baseV2,w:1200,d:200,cell:1})===null,'rejects nx*nz > 200000');
+  $('edJsonIO').value='x'.repeat(MAX_MAP_TEXT+1);
+  ok(MAX_MAP_TEXT===600000&&edImport()===null,'rejects import text over MAX_MAP_TEXT');
+  localStorage.setItem(CUSTOM_MAP_KEY,JSON.stringify({Bad:{version:2,w:9999},Good:baseV2}));
+  loadSavedMaps();
+  ok(!savedCustomMaps.Bad&&savedCustomMaps.Good,'stored entries that fail validation are skipped');
+
+  let coastalRaw=JSON.parse(coastalCrossingJson);
+  let coastalVal=validateCustomMap(coastalRaw);
+  ok(coastalVal&&coastalVal.w===480&&coastalVal.d===80&&coastalVal.cell===1&&coastalVal.spawns.length===6&&coastalVal.spawns[0]===40&&coastalVal.spawns[1]===440&&coastalVal.spawns[4]===185&&coastalVal.spawns[5]===295,'maps/coastal-crossing.json validates with its authored spawns');
+  setup();
+}
+// --- Phase P1c-2 Network Snapshot, Bounds & UI Text ---
+{
+  setup();
+  S.heights=newTerrain('Jagged Mountains');
+  S.customMap=cloneMapData(validateCustomMap(serializeCurrentMap()));
+  let hRef=S.heights,cmRef=S.customMap.heights;
+  let snapFull=snapshot();
+  ok(S.heights===hRef&&S.customMap.heights===cmRef&&snapFull.w===960&&snapFull.d===240&&snapFull.cell===2&&snapFull.heights?.enc==='i16t'&&snapFull.customMap?.heights?.enc==='i16t','snapshot() sends w/d/cell and encoded heights/customMap without mutating S');
+  let snapJson=JSON.stringify(snapFull);
+  ok(snapJson.length<700000,'full 960x480 snapshot WITH a custom map (live heights + authored map heights) JSON size ('+snapJson.length+' B) < 700 KB');
+
+  ok(setWorld({w:480,d:80,cell:1})&&W===480&&D===80&&CELL===1&&N===481*161,'switch host to 480x80@1');
+  S.heights=newTerrain('Cliffs');
+  S.platforms=[{id:1,x:180,z:0,y:28,width:28,depth:12,hp:120,maxHp:120}];
+  editorSpawns=[40,440,120,360,200,280];
+  S.customMap=cloneMapData(validateCustomMap(serializeCurrentMap()));
+  let hostTicks=Array.from(S.heights,hTick);
+  let wire480Json=JSON.stringify(snapshot()),wire480=JSON.parse(wire480Json);
+  setWorld({w:960,d:240,cell:2});
+  S.heights=new Float32Array(N).fill(15);S.platforms=[];S.customMap=null;
+  receiveState(wire480);
+  let guestTicksMatch=W===480&&D===80&&CELL===1&&S.heights.length===481*161;
+  for(let i=0;i<S.heights.length&&guestTicksMatch;i++)if(hTick(S.heights[i])!==hostTicks[i])guestTicksMatch=false;
+  ok(guestTicksMatch&&S.customMap&&S.customMap.w===480&&S.customMap.d===80&&S.customMap.cell===1,'snapshot()->JSON->receiveState of 480x80@1 switches receiver W/D/CELL and heights tick-identical');
+
+  let plainPeer=JSON.parse(wire480Json);
+  plainPeer.heights=Array.from(S.heights);
+  S.heights.fill(18);
+  receiveState(plainPeer);
+  let plainMatch=true;
+  for(let i=0;i<S.heights.length;i++)if(hTick(S.heights[i])!==hostTicks[i]){plainMatch=false;break}
+  ok(plainMatch,'older peer plain-array heights accepted when length matches');
+
+  setup();
+  for(let delta of [6.95,7.00,7.05]){
+    S.heights.fill(20);
+    let iz0=Math.round(D/CELL),ixStep=Math.round(100/CELL);
+    for(let iz=iz0-2;iz<=iz0+2;iz++)for(let ix=ixStep;ix<NX;ix++)S.heights[gridIdx(ix,iz)]=quantH(20+delta);
+    let tk=S.tanks[0];tk.x=100-CELL;tk.z=0;tk.y=supportHeight(tk.x,0);tk.fuel=100;
+    let beforeStep=canStepMove(tk,100);
+    let rtSnap=JSON.parse(JSON.stringify(snapshot()));
+    S.heights.fill(15);
+    receiveState(rtSnap);
+    let tkAfter=S.tanks[0];
+    let afterStep=canStepMove(tkAfter,100);
+    ok(beforeStep===afterStep&&(delta<=7?beforeStep:!beforeStep),'canStepMove at '+delta+'m step identical before and after snapshot roundtrip ('+beforeStep+')');
+  }
+
+  setup();
+  S.heights.fill(23.45);
+  let keepW=W,keepD=D,keepCell=CELL,keepH0=S.heights[0],keepRef=S;
+  let badLenSnap=JSON.parse(JSON.stringify(snapshot()));
+  badLenSnap.heights=encodeHeights(new Float32Array(100).fill(20));
+  receiveState(badLenSnap);
+  ok(S===keepRef&&W===keepW&&D===keepD&&CELL===keepCell&&hTick(S.heights[0])===2345,'receiveState ignores snapshot with wrong encoded length');
+
+  let bigGridSnap=JSON.parse(JSON.stringify(snapshot()));
+  bigGridSnap.w=1200;bigGridSnap.d=200;bigGridSnap.cell=1;
+  receiveState(bigGridSnap);
+  ok(S===keepRef&&W===keepW&&D===keepD&&CELL===keepCell&&hTick(S.heights[0])===2345,'receiveState ignores snapshot with nx*nz > 200000');
+
+  let makeRawEnc2=(ticks)=>{let b=new Uint8Array(ticks.length*2);for(let i=0;i<ticks.length;i++){b[i*2]=ticks[i]&255;b[i*2+1]=(ticks[i]>>8)&255}return{enc:'i16t',data:Buffer.from(b).toString('base64')}};
+  let badMapSnap=JSON.parse(JSON.stringify(snapshot()));
+  let badTicks=new Array(241*81).fill(2000);badTicks[5]=14001;
+  badMapSnap.customMap={version:2,name:'BadTick',w:480,d:80,cell:2,heights:makeRawEnc2(badTicks),spawns:[{x:40,z:0},{x:440,z:0}],platforms:[]};
+  receiveState(badMapSnap);
+  ok(S===keepRef&&W===keepW&&D===keepD&&CELL===keepCell&&hTick(S.heights[0])===2345&&S.customMap===null,'receiveState ignores snapshot with customMap tick 14001');
+
+  ok(htmlSource.includes('id="targetX" type="number" min="0" max="960"')&&htmlSource.includes('960 × 480 meter')&&htmlSource.includes('960 × 480 M BATTLEFIELD'),'UI text describes 960 x 480 m default and #targetX max=960');
+  setup();
+}
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
 `;
 vm.runInContext(test,context,{timeout:120000});
@@ -782,12 +917,12 @@ const simChecks = vm.runInContext('checks', context);
   const badEntries = [
     [{ actor: 0, action: 'fire', weaponOrItem: 'Quantum Singularity Cannon', angle: 45, power: 500, az: 0 }],
     [{ actor: 0, action: 'sat_strike', weaponOrItem: 'Satellite Laser Strike', targetX: -1 }],
-    [{ actor: 0, action: 'sat_strike', weaponOrItem: 'Satellite Laser Strike', targetX: 481 }],
+    [{ actor: 0, action: 'sat_strike', weaponOrItem: 'Satellite Laser Strike', targetX: 1201 }],
     [{ actor: 0, action: 'sat_strike', weaponOrItem: 'Satellite Laser Strike' }],
     [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 181, power: 500, az: 0 }],
     [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 1001, az: 0 }],
     [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 500, az: 25 }],
-    [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 500, az: 0, targetX: 500 }],
+    [{ actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 500, az: 0, targetX: 1201 }],
     [{ actor: 0, action: 'move', dx: 0 }],
     [{ actor: 0, action: 'move', dx: 241 }],
     [{ actor: 0, action: 'silo_launch', weaponOrItem: 'ASAT Silo Launch', targetSatId: -2 }]
@@ -802,6 +937,43 @@ const simChecks = vm.runInContext('checks', context);
     });
     assert(!neg.ok, `Expected validator to reject invalid log entry: ${JSON.stringify(badLog[0])}`);
   }
+
+  const { WORLD_MAX_X: API_MAX_X } = require('../scripts/api.cjs');
+  const { createAiDecisionService, WORLD_MAX_X: AI_MAX_X } = require('../scripts/ai.cjs');
+  assert.strictEqual(API_MAX_X, 1200);
+  assert.strictEqual(AI_MAX_X, 1200);
+  for (const act of [
+    { actor: 0, action: 'sat_strike', weaponOrItem: 'Satellite Laser Strike', targetX: 900 },
+    { actor: 0, action: 'silo_launch', weaponOrItem: 'ASAT Silo Launch', targetSatId: 1, targetX: 900 },
+    { actor: 0, action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 600, az: 0, targetX: 900 }
+  ]) {
+    assert(validateAndCanonicalizeAttestation(syntheticMatch, { nonce: 'drift-nonce', winnerSlot: 0, durationMs: 5000, actionLog: [act], outcomes: syntheticOutcomes }).ok, 'API accepts targetX=900');
+    assert(!validateAndCanonicalizeAttestation(syntheticMatch, { nonce: 'drift-nonce', winnerSlot: 0, durationMs: 5000, actionLog: [{ ...act, targetX: 1201 }], outcomes: syntheticOutcomes }).ok, 'API rejects targetX=1201');
+  }
+  (async () => {
+    const aiSvc = createAiDecisionService({
+      env: { GEMINI_API_KEY: 'test-key', GEMINI_MODEL: 'gemini-2.5-flash' },
+      allowedWeapons: ALLOWED_WEAPONS,
+      fetchImpl: async () => ({
+        ok: true,
+        json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 600, az: 0, targetX: 900 }) }] } }] })
+      })
+    });
+    const user = { id: 'u1', emailVerified: true };
+    const res900 = await aiSvc(user, { self: { x: 900, y: 20, hp: 100, inventory: { 'Baby Missile': 99 } }, enemies: [{ x: 900, y: 20, hp: 100, shield: 0 }], wind: 0 });
+    assert.strictEqual(res900.targetX, 900, 'AI accepts x=900 and targetX=900');
+    await assert.rejects(() => aiSvc(user, { self: { x: 1201, y: 20, hp: 100, inventory: { 'Baby Missile': 99 } }, enemies: [{ x: 400, y: 20, hp: 100, shield: 0 }], wind: 0 }), /Invalid combat context/);
+    await assert.rejects(() => aiSvc(user, { self: { x: 400, y: 20, hp: 100, inventory: { 'Baby Missile': 99 } }, enemies: [{ x: 1201, y: 20, hp: 100, shield: 0 }], wind: 0 }), /Invalid enemy context/);
+    const aiBadResp = createAiDecisionService({
+      env: { GEMINI_API_KEY: 'test-key', GEMINI_MODEL: 'gemini-2.5-flash' },
+      allowedWeapons: ALLOWED_WEAPONS,
+      fetchImpl: async () => ({
+        ok: true,
+        json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ action: 'fire', weaponOrItem: 'Baby Missile', angle: 45, power: 600, az: 0, targetX: 1201 }) }] } }] })
+      })
+    });
+    await assert.rejects(() => aiBadResp(user, { self: { x: 400, y: 20, hp: 100, inventory: { 'Baby Missile': 99 } }, enemies: [{ x: 400, y: 20, hp: 100, shield: 0 }], wind: 0 }), /Server AI unavailable/);
+  })().catch(e => { console.error(e); process.exit(1); });
 }
 
 (async () => {
