@@ -7,6 +7,7 @@ const { createAiDecisionService } = require('./ai.cjs');
 
 const MAX_BODY_BYTES = 64 * 1024;
 const SESSION_COOKIE = 'cg_session';
+const WORLD_MAX_X = 1200;
 
 const SHOT_WEAPONS = new Set([
   'Baby Missile', 'Missile', 'Baby Nuke', 'Nuke', 'MIRV', "Death's Head",
@@ -274,7 +275,7 @@ function validateAndCanonicalizeAttestation(match, body) {
         return { ok: false, reason: `Disallowed weapon or item: ${rawWeapon}` };
       }
       const tx = Number(entry.targetX);
-      if (entry.targetX === undefined || entry.targetX === null || !Number.isFinite(tx) || tx < 0 || tx > 480) {
+      if (entry.targetX === undefined || entry.targetX === null || !Number.isFinite(tx) || tx < 0 || tx > WORLD_MAX_X) {
         return { ok: false, reason: `Invalid strike targetX at action ${i}` };
       }
       if (entry.angle !== undefined && entry.angle !== null) {
@@ -311,7 +312,7 @@ function validateAndCanonicalizeAttestation(match, body) {
       }
       if (entry.targetX !== undefined && entry.targetX !== null) {
         const tx = Number(entry.targetX);
-        if (!Number.isFinite(tx) || tx < 0 || tx > 480) {
+        if (!Number.isFinite(tx) || tx < 0 || tx > WORLD_MAX_X) {
           return { ok: false, reason: `Invalid targetX at action ${i}` };
         }
       }
@@ -345,7 +346,7 @@ function validateAndCanonicalizeAttestation(match, body) {
     const hasTargetX = entry.targetX !== undefined && entry.targetX !== null;
     if (hasTargetX) {
       const tx = Number(entry.targetX);
-      if (!Number.isFinite(tx) || tx < 0 || tx > 480) {
+      if (!Number.isFinite(tx) || tx < 0 || tx > WORLD_MAX_X) {
         return { ok: false, reason: `Invalid targetX at action ${i}` };
       }
     }
@@ -1386,6 +1387,7 @@ module.exports = {
   EQUIPMENT_WEAPONS,
   SPECIAL_ACTION_WEAPONS,
   ALLOWED_WEAPONS,
+  WORLD_MAX_X,
   validateCustomFields,
   validateAndCanonicalizeAttestation
 };
