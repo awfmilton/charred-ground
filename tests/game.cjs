@@ -1791,6 +1791,23 @@ console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFI
   ok(rt===false&&g.canStep(u,v,1)===false,'reviewer fixture [20,20,13,27] cell 1: runtime rejects 0->1 (13 -> 27 inside the 2 m look-ahead) and the graph edge agrees (runtime '+rt+')');
   setWorld({w:960,d:240,cell:2});
 }
+// Forced exhaustion of the spawn picker (reviewer 2026-10-29): never launch an uncertified layout, never the old +-4 m island pads.
+{
+  const realPick=pickGeneratedSpawns,certified=()=>{let g=buildSpawnGraph(S.heights);if(!g)return false;let idx=t=>clamp(Math.round(((t.z||0)+D)/CELL),0,NZ-1)*NX+clamp(Math.round(t.x/CELL),0,NX-1),c0=g.drvLabels[idx(S.tanks[0])];return c0>0&&S.tanks.every(t=>g.drvLabels[idx(t)]===c0&&t.y>=WATER_LEVEL+1-1e-6)};
+  const oldX=n=>Array.from({length:n},(_,i)=>22+i*(W-44)/(n-1));
+  for(const [label,failN] of [['re-seed attempts exhausted -> smoothed terrain',6],['smoothed terrain also refused -> gentle fallback terrain',7]]){
+    setup();S.cfg.terrain='Cliffs';S.tanks=Array.from({length:4},(_,id)=>({...S.tanks[0],id,name:'P'+id,inv:starter(),hp:100,z:0}));seed=11;S.seed=11;S.round=0;
+    let calls=0;pickGeneratedSpawns=(...a)=>(++calls<=failN?null:realPick(...a));let notes=[],on=notice;notice=m=>notes.push(String(m));
+    let r;try{r=newRound()}finally{pickGeneratedSpawns=realPick;notice=on}
+    let ox=oldX(4),onOldSlots=S.tanks.filter((t,i)=>Math.abs(t.x-ox[i])<1&&Math.abs(t.z||0)<1).length;
+    ok(r!==false&&calls===failN+1&&certified()&&onOldSlots===0&&notes.length===0,'P4 fallback: '+label+' launches a certified layout (calls '+calls+', tanks on old even slots '+onOldSlots+')');
+  }
+  setup();S.cfg.terrain='Valleys';S.tanks=Array.from({length:3},(_,id)=>({...S.tanks[0],id,name:'P'+id,inv:starter(),hp:100,z:0}));seed=5;S.seed=5;S.round=0;running=true;
+  let notes=[],on=notice;notice=m=>notes.push(String(m));pickGeneratedSpawns=()=>null;let r;
+  try{r=newRound()}finally{pickGeneratedSpawns=realPick;notice=on}
+  ok(r===false&&!running&&notes.some(m=>/navigable/.test(m)),'P4 fallback: if no certified layout exists the round does not start and says why');
+  running=true;
+}
 `;
 vm.runInContext(test,context,{timeout:120000});
 const simChecks = vm.runInContext('checks', context);
