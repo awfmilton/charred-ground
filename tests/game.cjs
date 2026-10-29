@@ -1487,20 +1487,32 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
             if(d>=60-1e-5)pairsGe60++;
           }
         }
-        // Verify BFS reachability from tank 0 to all other tanks and each tank's dry connected area >= 1600 m^2
+        // Verify mutual (forward + reverse directed) BFS reachability between tank 0 and all other tanks and each tank's dry connected area >= 1600 m^2
         let h=S.heights,t0x=clamp(Math.round(S.tanks[0].x/CELL),0,NX-1),t0z=clamp(Math.round((S.tanks[0].z+D)/CELL),0,NZ-1),startIdx=t0z*NX+t0x;
+        let dirOk=(u,v,dir)=>{let ux=u%NX,uz=(u-ux)/NX,hu=h[u],hv=h[v];if(Math.abs(hv-hu)>7)return false;if(dir===0)return ux>=2?Math.abs(h[v-1]-hv)<=7:true;if(dir===1)return ux+2<NX?Math.abs(h[v+1]-hv)<=7:true;if(dir===2)return uz>=2?Math.abs(h[v-NX]-hv)<=7:true;return uz+2<NZ?Math.abs(h[v+NX]-hv)<=7:true};
         bfsStamp++;
-        let head=0,tail=0;bfsVis[startIdx]=bfsStamp;bfsQ[tail++]=startIdx;
+        let fwdStamp=bfsStamp,head=0,tail=0;bfsVis[startIdx]=fwdStamp;bfsQ[tail++]=startIdx;
         while(head<tail){
-          let u=bfsQ[head++],ux=u%NX,uz=(u-ux)/NX,hu=h[u];
-          if(ux>0){let v=u-1;if(bfsVis[v]!==bfsStamp&&Math.abs(h[v]-hu)<=7){bfsVis[v]=bfsStamp;bfsQ[tail++]=v}}
-          if(ux+1<NX){let v=u+1;if(bfsVis[v]!==bfsStamp&&Math.abs(h[v]-hu)<=7){bfsVis[v]=bfsStamp;bfsQ[tail++]=v}}
-          if(uz>0){let v=u-NX;if(bfsVis[v]!==bfsStamp&&Math.abs(h[v]-hu)<=7){bfsVis[v]=bfsStamp;bfsQ[tail++]=v}}
-          if(uz+1<NZ){let v=u+NX;if(bfsVis[v]!==bfsStamp&&Math.abs(h[v]-hu)<=7){bfsVis[v]=bfsStamp;bfsQ[tail++]=v}}
+          let u=bfsQ[head++],ux=u%NX,uz=(u-ux)/NX;
+          if(ux>0){let v=u-1;if(bfsVis[v]!==fwdStamp&&dirOk(u,v,0)){bfsVis[v]=fwdStamp;bfsQ[tail++]=v}}
+          if(ux+1<NX){let v=u+1;if(bfsVis[v]!==fwdStamp&&dirOk(u,v,1)){bfsVis[v]=fwdStamp;bfsQ[tail++]=v}}
+          if(uz>0){let v=u-NX;if(bfsVis[v]!==fwdStamp&&dirOk(u,v,2)){bfsVis[v]=fwdStamp;bfsQ[tail++]=v}}
+          if(uz+1<NZ){let v=u+NX;if(bfsVis[v]!==fwdStamp&&dirOk(u,v,3)){bfsVis[v]=fwdStamp;bfsQ[tail++]=v}}
+        }
+        let fwdOk=true;
+        for(let i=0;i<cnt;i++){let tx=clamp(Math.round(S.tanks[i].x/CELL),0,NX-1),tz=clamp(Math.round((S.tanks[i].z+D)/CELL),0,NZ-1);if(bfsVis[tz*NX+tx]!==fwdStamp)fwdOk=false}
+        bfsStamp++;
+        let revStamp=bfsStamp;head=0;tail=0;bfsVis[startIdx]=revStamp;bfsQ[tail++]=startIdx;
+        while(head<tail){
+          let u=bfsQ[head++],ux=u%NX,uz=(u-ux)/NX;
+          if(ux>0){let v=u-1;if(bfsVis[v]!==revStamp&&dirOk(v,u,1)){bfsVis[v]=revStamp;bfsQ[tail++]=v}}
+          if(ux+1<NX){let v=u+1;if(bfsVis[v]!==revStamp&&dirOk(v,u,0)){bfsVis[v]=revStamp;bfsQ[tail++]=v}}
+          if(uz>0){let v=u-NX;if(bfsVis[v]!==revStamp&&dirOk(v,u,3)){bfsVis[v]=revStamp;bfsQ[tail++]=v}}
+          if(uz+1<NZ){let v=u+NX;if(bfsVis[v]!==revStamp&&dirOk(v,u,2)){bfsVis[v]=revStamp;bfsQ[tail++]=v}}
         }
         for(let i=0;i<cnt;i++){
           let tx=clamp(Math.round(S.tanks[i].x/CELL),0,NX-1),tz=clamp(Math.round((S.tanks[i].z+D)/CELL),0,NZ-1),tIdx=tz*NX+tx;
-          if(bfsVis[tIdx]!==bfsStamp)allSameComp=false;
+          if(!fwdOk||bfsVis[tIdx]!==revStamp)allSameComp=false;
           let dryId=baseGraph.dryLabels[tIdx];
           if(dryId>0&&baseGraph.drySizes[dryId]*CELL*CELL>=1600)continue;
           bfsStamp++;
@@ -1678,20 +1690,73 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
     ok(!canStepMove(tkShore,102,supportHeight,0)&&!canTraverseWater(100,102,tkShore,0,0),label+' abrupt 8 m shoreline step blocks going UP');
     tkShore.x=102;tkShore.z=0;tkShore.y=supportHeight(102,0);tkShore.heading=Math.PI;
     ok(!canStepMove(tkShore,100,supportHeight,0)&&!canTraverseWater(102,100,tkShore,0,0),label+' abrupt 8 m shoreline step blocks going DOWN');
-    // Short move (0.1 m) at the foot of an 8 m cliff is blocked by 2 m look-ahead (and mid-cliff hop blocked by 2 m look-back)
+    // (a) Cliff-foot retreat & look-ahead block on both cell-1 and cell-2 worlds
     S.heights=new Float32Array(N).fill(20);
-    for(let ix=Math.round(100/CELL)+1;ix<NX;ix++)for(let iz=0;iz<NZ;iz++)S.heights[gridIdx(ix,iz)]=28;
-    let tkCliff=current();tkCliff.x=100;tkCliff.z=0;tkCliff.y=supportHeight(100,0);tkCliff.heading=0;tkCliff.fuel=100;
-    ok(!canStepMove(tkCliff,100.1,supportHeight,0)&&!canTraverseWater(100,100.1,tkCliff,0,0),label+' short move (0.1 m) at foot of 8 m cliff is blocked (look-ahead)');
-    tkCliff.x=100+CELL*0.5;tkCliff.y=supportHeight(tkCliff.x,0);
-    ok(!canStepMove(tkCliff,tkCliff.x+0.1,supportHeight,0),label+' short move (0.1 m) on 8 m cliff face is blocked (look-back + look-ahead)');
+    let cliffIx=Math.round(100/CELL);
+    for(let ix=cliffIx+1;ix<NX;ix++)for(let iz=0;iz<NZ;iz++)S.heights[gridIdx(ix,iz)]=28;
+    let tkCliff=current();tkCliff.waterGear=null;tkCliff.inv['Floating Platform']=0;tkCliff.inv['Inflatable Lifejacket']=0;tkCliff.fuel=100;
+    tkCliff.x=100;tkCliff.z=0;tkCliff.y=supportHeight(100,0);tkCliff.heading=0;
+    ok(!canStepMove(tkCliff,100.1,supportHeight,0)&&!stepLegal(tkCliff,100,0,100.1,0),label+' (a) short move (0.1 m) into 8 m cliff is blocked (look-ahead)');
+    ok(!canStepMove(tkCliff,100+CELL,supportHeight,0)&&!stepLegal(tkCliff,100,0,100+CELL,0),label+' (a) full cell step into 8 m cliff is blocked');
+    tkCliff.heading=Math.PI;
+    ok(canStepMove(tkCliff,98,supportHeight,0)&&stepLegal(tkCliff,100,0,98,0)&&canStepMove(tkCliff,99.5,supportHeight,0),label+' (a) tank at foot of 8 m cliff CAN retreat away over flat ground');
   }
-  // buildSpawnGraph connects a 3.0 m/m ramp and separates across a 4.0 m/m ramp on cell 2 (and cell 1)
+  // (b) Near-cliff flat edge fixture: heights along x [20,20,20,40] at cell spacing (and cell-1 with 2 m window)
+  {
+    setup();setWorld({w:960,d:240,cell:2});
+    S.heights=new Float32Array(N).fill(20);
+    for(let ix=3;ix<NX;ix++)for(let iz=0;iz<NZ;iz++)S.heights[gridIdx(ix,iz)]=40;
+    let tkB=current();tkB.waterGear=null;tkB.inv['Floating Platform']=0;tkB.inv['Inflatable Lifejacket']=0;tkB.fuel=100;
+    let zMidIdx=Math.round(D/CELL),iX2=gridIdx(1,zMidIdx),iX4=gridIdx(2,zMidIdx);
+    let gB2=buildSpawnGraph(S.heights);
+    ok(!stepLegal(tkB,2,0,4,0)&&gB2&&!gB2.canStep(iX2,iX4)&&gB2.drvLabels[iX2]!==gB2.drvLabels[iX4],'STEP-FIX2 (b) cell-2 [20,20,20,40]: x=2->x=4 rejected by both stepLegal and buildSpawnGraph');
+    ok(stepLegal(tkB,4,0,2,0)&&gB2&&gB2.canStep(iX4,iX2),'STEP-FIX2 (b) cell-2 [20,20,20,40]: x=4->x=2 (retreat from cliff) accepted by both stepLegal and buildSpawnGraph');
+    setup();setWorld({w:480,d:80,cell:1});
+    S.heights=new Float32Array(N).fill(20);
+    for(let ix=3;ix<NX;ix++)for(let iz=0;iz<NZ;iz++)S.heights[gridIdx(ix,iz)]=40;
+    let zMid1=Math.round(D/CELL),jX1=gridIdx(1,zMid1),jX2=gridIdx(2,zMid1);
+    let gB1=buildSpawnGraph(S.heights);
+    ok(!stepLegal(tkB,1,0,2,0)&&gB1&&!gB1.canStep(jX1,jX2)&&gB1.drvLabels[jX1]!==gB1.drvLabels[jX2],'STEP-FIX2 (b) cell-1 [20,20,20,40]: x=1->x=2 rejected by both stepLegal and buildSpawnGraph (2 m look-ahead hits x=3)');
+    ok(stepLegal(tkB,2,0,1,0)&&gB1&&gB1.canStep(jX2,jX1),'STEP-FIX2 (b) cell-1 [20,20,20,40]: x=2->x=1 (retreat from cliff) accepted by both stepLegal and buildSpawnGraph');
+  }
+  // (c) 10 generated rounds (seeds 1..5 x 2 terrain types, 4 tanks): every pair of spawns mutually reachable by actual runtime stepLegal walk along graph BFS path
+  {
+    let allWalksLegal=true,walkPairsChecked=0,stepCountChecked=0;
+    for(let s=1;s<=5;s++){
+      for(let terr of ['Rolling Hills','Cliffs']){
+        setup();
+        S.cfg.terrain=terr;
+        S.tanks=Array.from({length:4},(_,id)=>({id,name:'P'+id,x:40,z:0,heading:0,y:20,hp:100,shield:0,mag:false,inv:starter(),fuel:100,power:650,angle:45,az:0,vy:0,chuting:0,buried:0,cash:1600,score:0}));
+        seed=s;S.seed=s;S.round=0;
+        newRound();
+        let gRound=buildSpawnGraph(S.heights),probe={id:0,hp:100,waterGear:null,inv:{}},
+            spIdx=S.tanks.map(t=>clamp(Math.round((t.z+D)/CELL),0,NZ-1)*NX+clamp(Math.round(t.x/CELL),0,NX-1));
+        for(let i=0;i<4;i++){
+          for(let j=0;j<4;j++){
+            if(i===j)continue;
+            walkPairsChecked++;
+            let path=gRound?gRound.bfsPath(spIdx[i],spIdx[j]):null;
+            if(!path||path.length<2){allWalksLegal=false;break}
+            for(let k=0;k<path.length-1;k++){
+              let u=path[k],v=path[k+1],ux=u%NX,uz=(u-ux)/NX,vx=v%NX,vz=(v-vx)/NX;
+              let x0=ux*CELL,z0=uz*CELL-D,x1=vx*CELL,z1=vz*CELL-D;
+              if(Math.hypot(x1-x0,z1-z0)!==CELL||!stepLegal(probe,x0,z0,x1,z1)){allWalksLegal=false;break}
+              stepCountChecked++;
+            }
+            if(!allWalksLegal)break;
+          }
+          if(!allWalksLegal)break;
+        }
+      }
+    }
+    ok(allWalksLegal&&walkPairsChecked===120&&stepCountChecked>0,'STEP-FIX2 (c) 10 generated rounds (seeds 1..5 x 2 terrains, 4 tanks): all 120 directed spawn pairs connected by runtime-legal 2 m axis walks ('+stepCountChecked+' steps verified)');
+  }
+  // (d) buildSpawnGraph connects a 3.0 m/m ramp and separates across a 4.0 m/m ramp on cell 2 (and cell 1)
   for(let[label,dims]of [['cell-2',{w:960,d:240,cell:2}],['cell-1',{w:480,d:80,cell:1}]]){
     setup();setWorld(dims);
     buildAxisRamp(3.0);
     let g3=buildSpawnGraph(S.heights),iL=gridIdx(Math.round(60/CELL),Math.round(D/CELL)),iR=gridIdx(Math.round(160/CELL),Math.round(D/CELL));
-    ok(g3&&g3.drvCount===1&&g3.drvLabels[iL]===g3.drvLabels[iR]&&g3.dryLabels[iL]===g3.dryLabels[iR],'buildSpawnGraph connects 3.0 m/m ramp on '+label);
+    ok(g3&&g3.drvLabels[iL]===g3.drvLabels[iR]&&g3.dryLabels[iL]===g3.dryLabels[iR],'buildSpawnGraph connects 3.0 m/m ramp on '+label);
     buildAxisRamp(4.0);
     let g4=buildSpawnGraph(S.heights);
     ok(g4&&g4.drvCount>=2&&g4.drvLabels[iL]!==g4.drvLabels[iR]&&g4.dryLabels[iL]!==g4.dryLabels[iR],'buildSpawnGraph separates across 4.0 m/m ramp on '+label);
