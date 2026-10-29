@@ -1243,7 +1243,7 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   handlers.open();
   running=true;
   connections.set('p2',c2);
-  c2._terrainRev=S.terrainRev;c2._customMapId=S.customMapId;
+  c2._terrainRev=S.terrainRev;c2._customMapId=S.customMapId;c2._epoch=S.terrainEpoch||terrainEpoch;
   netConn.sent.length=0;sent2.length=0;
   originalBroadcastState();
   ok(Boolean(netConn.sent[0]?.state?.heights)&&JSON.parse(sent2[0]).state.heights===undefined,'NET2: newly connected guest gets full while up-to-date peer gets light');
@@ -1288,6 +1288,112 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   ok(!terrainFullUpdate&&terrainDirty&&terrainDirtyBox!==null&&terrainDirtyBox.ix0>150&&terrainDirtyBox.ix1<250&&terrainDirtyBox.iz0>100&&terrainDirtyBox.iz1<160&&S.terrainRev===craterSnap.terrainRev,'NET3: full snapshot after one crater marks a dirty box around that crater only (not terrainFullUpdate)');
   terrainUpdate();
   ok(Math.abs(height(400,20)-craterSnap.heights?height(400,20):0)<1e9&&height(400,20)<25,'NET3: partial terrainUpdate applies crater heights on guest');
+
+  // --- NET-FIX2 (F1-F4) Verification ---
+  const hChecksum=h=>{let s=2166136261;for(let i=0;i<h.length;i++)s=Math.imul(s^hTick(h[i]),16777619)>>>0;return s>>>0};
+  // F1: new match/round where fresh S would have restarted rev at 1 still gives guest the NEW heights
+  connections.clear();online=true;host=true;running=true;
+  setup();
+  newRound();
+  let f1Msgs=[];
+  let f1Conn={peer:'p_f1',open:true,send(d){f1Msgs.push(JSON.parse(JSON.stringify(d)))}};
+  connections.set('p_f1',f1Conn);
+  online=true;host=true;running=true; // setup() above resets online=false
+  originalBroadcastState();
+  let f1Snap1=f1Msgs[f1Msgs.length-1].state;
+  let guestS1Heights=decodeHeights(f1Snap1.heights,N),chk1=hChecksum(guestS1Heights);
+  // Simulate a new match creating a fresh S with different seed/terrain
+  seed=987654321;
+  S={cfg:{terrain:'Jagged Mountains',wall:'Concrete',difficulty:'Normal',market:'fixed'},round:0,turn:0,terrainRev:0,customMapId:null,tanks:S.tanks.map(t=>({...t,hp:100})),heights:[],platforms:[],customMap:null,buildings:[],drones:[],shots:[],fires:[],phase:'aim',wind:0,wall:'Concrete',time:0,uid:0,prices:{},ready:[],seed};
+  newRound();
+  let hostChk2=hChecksum(S.heights);
+  originalBroadcastState(); // the harness stubs broadcastState; the real game broadcasts on its 10 Hz tick
+  let f1Snap2=f1Msgs[f1Msgs.length-1].state;
+  setup();
+  receiveState(f1Snap1);
+  receiveState(f1Snap2);
+  ok(hostChk2!==chk1&&hChecksum(S.heights)===hostChk2&&S.terrainRev===f1Snap2.terrainRev&&S.terrainRev>f1Snap1.terrainRev,'NET-FIX2 F1: new match/round never repeats terrainRev and sends full new heights so guest checksum matches host');
+
+  // F1b: epoch mismatch or missing epoch on light snapshot triggers resync and retains terrain
+  let f1Resync=[];
+  connections.clear();connections.set('host',{open:true,send(m){f1Resync.push(m)}});
+  let preEpHeights=S.heights,preEpRev=S.terrainRev,preEpEpoch=S.terrainEpoch;
+  let lightDiffEpoch=JSON.parse(JSON.stringify(snapshot(false)));
+  lightDiffEpoch.terrainEpoch='ep_other_host';
+  receiveState(lightDiffEpoch);
+  ok(S.heights===preEpHeights&&S.terrainEpoch===preEpEpoch&&f1Resync.length===1&&f1Resync[0].type==='resync','NET-FIX2 F1: light snapshot with different terrainEpoch retains terrain and requests resync');
+  let lightNoEpoch=JSON.parse(JSON.stringify(snapshot(false)));
+  delete lightNoEpoch.terrainEpoch;
+  receiveState(lightNoEpoch);
+  ok(S.heights===preEpHeights&&f1Resync.length===2,'NET-FIX2 F1: light snapshot without terrainEpoch is not treated as unchanged');
+
+  // F2: custom map round followed by generated round clears guest customMap to null; light snapshot keeps customMap; full without customMap field retains
+  setup();
+  applyCustomMapToState(cmGood);
+  let fullCustomSnap=JSON.parse(JSON.stringify(snapshot(true)));
+  let lightCustomSnap=JSON.parse(JSON.stringify(snapshot(false)));
+  S.cfg.terrain='Rolling Hills';
+  newRound();
+  let fullGenSnap=JSON.parse(JSON.stringify(snapshot(true)));
+  ok(S.customMap===null&&fullGenSnap.customMap===null,'NET-FIX2 F2: generated round after custom map sets host and full snapshot customMap to null');
+  setup();
+  receiveState(fullCustomSnap);
+  ok(S.customMap!==null&&S.customMap.name==='NetCustom','NET-FIX2 F2: guest applies customMap from full snapshot');
+  receiveState(lightCustomSnap);
+  ok(S.customMap!==null&&S.customMap.name==='NetCustom','NET-FIX2 F2: light snapshot keeps guest customMap');
+  let fullOmittedCmap=JSON.parse(JSON.stringify(fullGenSnap));
+  delete fullOmittedCmap.customMap;
+  fullOmittedCmap.customMapId=fullCustomSnap.customMapId;
+  receiveState(fullOmittedCmap);
+  ok(S.customMap!==null&&S.customMap.name==='NetCustom','NET-FIX2 F2: full snapshot without customMap field retains guest customMap');
+  receiveState(fullGenSnap);
+  ok(S.customMap===null&&S.customMapId===null,'NET-FIX2 F2: full snapshot with customMap:null after generated round clears guest customMap to null');
+
+  // F3: connection whose send() throws is retried with full next broadcast and does not block a second connection; new connection object after reconnect gets full
+  setup();
+  newRound();
+  online=true;host=true;running=true;
+  let throwFirst=true,f3Sent1=[],f3Sent2=[];
+  let cFlaky={peer:'flaky',open:true,send(d){if(throwFirst){throwFirst=false;throw Error('RTCDataChannel send failed')}f3Sent1.push(JSON.parse(JSON.stringify(d)))}};
+  let cHealthy={peer:'healthy',open:true,send(d){f3Sent2.push(JSON.parse(JSON.stringify(d)))}};
+  connections.clear();connections.set('flaky',cFlaky);connections.set('healthy',cHealthy);
+  originalBroadcastState();
+  ok(f3Sent1.length===0&&cFlaky._terrainRev===undefined&&f3Sent2.length===1&&Boolean(f3Sent2[0].state.heights),'NET-FIX2 F3: throwing send() does not record _terrainRev on failing connection and does not block second connection');
+  originalBroadcastState();
+  ok(f3Sent1.length===1&&Boolean(f3Sent1[0].state.heights)&&cFlaky._terrainRev===S.terrainRev&&f3Sent2.length===2&&f3Sent2[1].state.heights===undefined,'NET-FIX2 F3: connection whose previous send() threw receives full snapshot on next broadcast');
+  let f3SentReconn=[];
+  let cReconn={peer:'flaky',open:true,send(d){f3SentReconn.push(JSON.parse(JSON.stringify(d)))}};
+  connections.set('flaky',cReconn);
+  originalBroadcastState();
+  ok(f3SentReconn.length===1&&Boolean(f3SentReconn[0].state.heights)&&cReconn._terrainRev===S.terrainRev,'NET-FIX2 F3: new connection object after reconnect always receives full snapshot');
+
+  // F4: corrupt full snapshot leaves guest heights/rev/state unchanged (atomic) and a later valid full applies and resets resync suppression
+  connections.clear();online=false;host=true;
+  setup();
+  newRound();
+  let validFull1=JSON.parse(JSON.stringify(snapshot(true)));
+  deform(260,15,-9,0);
+  let validFull2=JSON.parse(JSON.stringify(snapshot(true)));
+  let lightRev2Json=JSON.stringify(snapshot(false)),lightRev2=()=>JSON.parse(lightRev2Json); // fresh copy per receive: receiveState adopts (and mutates) the object it is given
+  setup();
+  receiveState(validFull1);
+  let f4Resync=[];
+  connections.set('host',{open:true,send(m){f4Resync.push(m)}});
+  receiveState(lightRev2());
+  ok(f4Resync.length===1&&S.terrainRev===validFull1.terrainRev,'NET-FIX2 F4: initial missing rev triggers first resync');
+  let beforeCorruptHeights=S.heights,beforeCorruptRev=S.terrainRev,beforeTankX=S.tanks[0].x;
+  let corruptFull=JSON.parse(JSON.stringify(validFull2));
+  corruptFull.heights={enc:'i16t',data:'AAAA'};
+  corruptFull.tanks[0].x=777;
+  receiveState(corruptFull);
+  ok(S.heights===beforeCorruptHeights&&S.terrainRev===beforeCorruptRev&&S.tanks[0].x===beforeTankX,'NET-FIX2 F4: corrupt full snapshot (bad encoded length) leaves guest state/heights/rev completely unchanged');
+  receiveState(validFull2);
+  ok(S.terrainRev===validFull2.terrainRev&&hChecksum(S.heights)===hChecksum(decodeHeights(validFull2.heights,N)),'NET-FIX2 F4: subsequent valid full snapshot applies cleanly');
+  // Trigger the same missing rev key again after valid full reset _resyncRev -> should send resync again
+  S.terrainRev=validFull1.terrainRev;
+  receiveState(lightRev2());
+  ok(f4Resync.length===2,'NET-FIX2 F4: valid full snapshot resets resync suppression so a later mismatch requests resync again');
+
   connections.clear();online=false;host=true;
   setup();
 }
