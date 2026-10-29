@@ -9,7 +9,7 @@ const context={console,Buffer,coastalCrossingJson:fs.readFileSync('maps/coastal-
 vm.createContext(context);vm.runInContext(source,context);
 const test=`
 let checks=0;function ok(value,message){if(!value)throw Error(message);checks++}
-const originalClearViews=clearViews;emit=()=>{};flash=()=>{};sound=()=>{};refreshWeapons=()=>{};updateUI=()=>{};showShop=()=>{};clearViews=()=>{};broadcastState=()=>{};notice=()=>{};laserLine=()=>{};
+const originalClearViews=clearViews,originalBroadcastState=broadcastState;emit=()=>{};flash=()=>{};sound=()=>{};refreshWeapons=()=>{};updateUI=()=>{};showShop=()=>{};clearViews=()=>{};broadcastState=()=>{};notice=()=>{};laserLine=()=>{};
 function setFlatRow(x0,x1,v,z=0){let ix0=clamp(Math.floor(x0/CELL),0,NX-1),ix1=clamp(Math.ceil(x1/CELL),0,NX-1),iz0=clamp(Math.floor((z+D-6)/CELL),0,NZ-1),iz1=clamp(Math.ceil((z+D+6)/CELL),0,NZ-1);for(let iz=iz0;iz<=iz1;iz++)for(let ix=ix0;ix<=ix1;ix++)S.heights[gridIdx(ix,iz)]=quantH(v)}
 function setup(){setWorld({w:960,d:240,cell:2});seed=1729;S={cfg:{terrain:'Rolling Hills',wall:'Concrete',difficulty:'Cyborg',market:'fixed'},round:1,turn:0,actionsMax:2,actionsLeft:2,heights:new Float32Array(N).fill(20),tanks:[0,1].map(id=>({id,name:'P'+id,x:40+id*100,z:0,heading:id?Math.PI:0,y:20,hp:100,shield:0,mag:false,inv:Object.fromEntries(Object.keys(WEAPONS_CONFIG).map(n=>[n,10])),fuel:100,power:650,angle:id?135:45,az:0,vy:0,chuting:0,buried:0,cash:10000,score:0})),platforms:[],customMap:null,satellites:[],buildings:[],drones:[],shots:[],fires:[],phase:'aim',wind:0,wall:'Concrete',time:0,uid:0,prices:{},ready:[]};running=true;host=true;online=false;shotClock=0;return S.tanks[0]}
 for(let[name,w]of Object.entries(WEAPONS_CONFIG)){let t=setup();let accepted=action({weaponOrItem:name,angle:35,power:500,az:0,targetX:140},0);if(['chute','floatplat','lifejacket'].includes(w.kind)){ok(!accepted&&S.actionsLeft===2,'Passive parachute rejected without spending action');continue}ok(accepted,'Action rejected '+name);if(w.kind==='actionpack'){ok(S.actionsLeft===4&&current().packUsed,'Action pack adds net two actions');continue}if(['blast','nuke','split','leap','funky','roller','digger','dirt','liquid','riot','napalm','laser','drone'].includes(w.kind)){for(let i=0;i<1600&&S.phase==='flight';i++)step(1/60);ok(S.phase!=='flight','Flight stuck '+name);ok(S.heights.every(Number.isFinite),'Invalid terrain '+name);ok(S.tanks.every(t=>Number.isFinite(t.hp)&&Number.isFinite(t.y)),'Invalid tank '+name);ok(S.actionsLeft===1,'Flight spends one of two configured remaining actions')}else ok(S.phase==='aim'&&S.actionsLeft===1,'Equipment/structure/satellite spends one configured action '+name)}
@@ -1188,6 +1188,107 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   for(let i=0;i<60;i++)step(1/60);
   ok(tCliff.x>101.5&&tCliff.y===6,'P3 W1 tank drives along lakebed after cliff fall');
   finishDrive();
+  setup();
+}
+// --- Network Terrain Sync & Revision (NET1-NET5) Verification ---
+{
+  setup();
+  newRound();
+  let revR1=S.terrainRev;
+  ok(Number.isInteger(revR1)&&revR1>=1&&S.customMapId===null,'NET1: newRound initializes integer S.terrainRev >= 1 and null customMapId without custom map');
+  deform(200,12,-6,0);
+  let revDeform=S.terrainRev;
+  ok(revDeform===revR1+1,'NET1: deform increments S.terrainRev');
+  sculptTerrain(240,'raise',16,6,0);
+  let revSculpt=S.terrainRev;
+  ok(revSculpt===revDeform+1,'NET1: sculptTerrain increments S.terrainRev');
+  editorSpawns=[40,440,120,360,200,280];
+  let cmGood={version:2,name:'NetCustom',w:960,d:240,cell:2,heights:encodeHeights(new Float32Array(N).fill(22)),spawns:editorSpawns.map(x=>({x,z:0})),platforms:[]};
+  ok(applyCustomMapToState(cmGood)&&S.terrainRev===revSculpt+1&&typeof S.customMapId==='string'&&S.customMapId.length>4,'NET1: applyCustomMapToState increments S.terrainRev and sets stable customMapId');
+  let cmId1=S.customMapId;
+  newRound();
+  ok(S.terrainRev>revSculpt+1,'NET1: newRound increments S.terrainRev');
+
+  // NET2 & NET4: per-connection broadcastState with 2 fake connections
+  setup();
+  S.terrainRev=1;S.customMap=cloneMapData(validateCustomMap(cmGood));S.customMapId=customMapIdFor(S.customMap);
+  online=true;host=true;running=true;
+  let sent1=[],sent2=[];
+  let c1={peer:'p1',open:true,send(d){sent1.push(JSON.stringify(d))}};
+  let c2={peer:'p2',open:true,send(d){sent2.push(JSON.stringify(d))}};
+  connections.clear();connections.set('p1',c1);connections.set('p2',c2);
+  for(let i=0;i<5;i++)originalBroadcastState();
+  ok(sent1.length===5&&sent2.length===5,'NET2: 5 broadcastState calls send 5 messages to each open connection');
+  let p1Msgs=sent1.map(s=>JSON.parse(s).state),p2Msgs=sent2.map(s=>JSON.parse(s).state);
+  ok(Boolean(p1Msgs[0].heights)&&Boolean(p2Msgs[0].heights)&&Boolean(p1Msgs[0].customMap),'NET2: 1st broadcast sends full heights and customMap');
+  for(let i=1;i<5;i++){
+    ok(p1Msgs[i].heights===undefined&&p2Msgs[i].heights===undefined&&p1Msgs[i].customMap===undefined&&sent1[i].length<20000&&sent2[i].length<20000,'NET2: broadcast '+(i+1)+' omits heights/customMap and is < 20 KB ('+sent1[i].length+' B)');
+  }
+  // After deform(), next broadcast sends heights again, while customMapId is unchanged
+  deform(300,14,-8,0);
+  originalBroadcastState();
+  let afterDef1=JSON.parse(sent1[5]).state,afterDef2=JSON.parse(sent2[5]).state;
+  ok(Boolean(afterDef1.heights)&&Boolean(afterDef2.heights)&&afterDef1.terrainRev===S.terrainRev&&afterDef1.customMapId===cmId1,'NET2: after deform() next broadcast sends heights again with updated terrainRev');
+  originalBroadcastState();
+  let afterDefLight=JSON.parse(sent1[6]).state;
+  ok(afterDefLight.heights===undefined&&afterDefLight.customMap===undefined&&afterDefLight.customMapId===cmId1&&sent1[6].length<20000,'NET2: subsequent broadcast after deform is light again and does not resend custom map heights while customMapId is unchanged');
+
+  // NET4: host resync clears connection rev so next broadcast to that connection is full (other stays light)
+  let fakeServer={on(ev,fn){if(ev==='connection')this.connCb=fn}};
+  lobby=[{id:0,name:'Host',peer:'h'}];running=false;connections.clear();
+  hostConnections(fakeServer);
+  let handlers={};
+  let netConn={peer:'p_resync',open:true, sent:[], on(ev,fn){handlers[ev]=fn}, send(d){this.sent.push(JSON.parse(JSON.stringify(d)))}, close(){}};
+  fakeServer.connCb(netConn);
+  handlers.open();
+  running=true;
+  connections.set('p2',c2);
+  c2._terrainRev=S.terrainRev;c2._customMapId=S.customMapId;
+  netConn.sent.length=0;sent2.length=0;
+  originalBroadcastState();
+  ok(Boolean(netConn.sent[0]?.state?.heights)&&JSON.parse(sent2[0]).state.heights===undefined,'NET2: newly connected guest gets full while up-to-date peer gets light');
+  netConn.sent.length=0;sent2.length=0;
+  originalBroadcastState();
+  ok(netConn.sent[0].state.heights===undefined,'NET2: second broadcast to new guest is light');
+  handlers.data({type:'resync'});
+  netConn.sent.length=0;sent2.length=0;
+  originalBroadcastState();
+  ok(Boolean(netConn.sent[0]?.state?.heights)&&JSON.parse(sent2[0]).state.heights===undefined,'NET4: host resync causes next broadcast to that connection to be full while other peer gets light');
+
+  // NET3: guest receiving light snapshot with same rev keeps terrainGeo / S.heights / S.customMap and does NOT set terrainFullUpdate
+  connections.clear();online=false;host=true;
+  setup();
+  S.heights.fill(25);S.terrainRev=7;
+  S.customMap=cloneMapData(validateCustomMap(cmGood));S.customMapId=customMapIdFor(S.customMap);
+  rebuildTerrainGeo();terrainFullUpdate=true;terrainUpdate();
+  let guestGeo=terrainGeo,guestHeights=S.heights,guestCmap=S.customMap;
+  let lightSame=JSON.parse(JSON.stringify(snapshot(false)));
+  lightSame.tanks[0].x=123;
+  receiveState(lightSame);
+  ok(terrainGeo===guestGeo&&S.heights===guestHeights&&S.customMap===guestCmap&&!terrainFullUpdate&&!terrainDirty&&S.tanks[0].x===123,'NET3: guest receiving light snapshot with same rev keeps terrainGeo/S.heights/customMap identity and does not set terrainFullUpdate');
+
+  // NET3: guest receiving light snapshot with newer rev keeps old terrain and emits exactly one resync per missing rev
+  let resyncSent=[];
+  connections.set('host',{open:true,send(m){resyncSent.push(m)}});
+  let lightNewer=JSON.parse(JSON.stringify(snapshot(false)));
+  lightNewer.terrainRev=8;lightNewer.tanks[0].x=145;
+  receiveState(lightNewer);
+  receiveState(JSON.parse(JSON.stringify(lightNewer)));
+  ok(S.heights===guestHeights&&S.terrainRev===7&&!terrainFullUpdate&&resyncSent.length===1&&resyncSent[0].type==='resync'&&S.tanks[0].x===145,'NET3: guest receiving light snapshot with newer rev keeps terrain and emits exactly one resync for that missing rev');
+
+  // NET3: full snapshot after one crater marks a dirty box around that crater only (not a full update)
+  S.heights.fill(25);S.terrainRev=7;
+  terrainFullUpdate=true;terrainUpdate();
+  let hostHeights=new Float32Array(S.heights);
+  deform(400,12,-8,20);
+  let craterSnap=JSON.parse(JSON.stringify(snapshot(true)));
+  S.heights=hostHeights;S.terrainRev=7;
+  terrainFullUpdate=false;terrainDirty=false;terrainDirtyBox=null;terrainDirtyBoxes.length=0;
+  receiveState(craterSnap);
+  ok(!terrainFullUpdate&&terrainDirty&&terrainDirtyBox!==null&&terrainDirtyBox.ix0>150&&terrainDirtyBox.ix1<250&&terrainDirtyBox.iz0>100&&terrainDirtyBox.iz1<160&&S.terrainRev===craterSnap.terrainRev,'NET3: full snapshot after one crater marks a dirty box around that crater only (not terrainFullUpdate)');
+  terrainUpdate();
+  ok(Math.abs(height(400,20)-craterSnap.heights?height(400,20):0)<1e9&&height(400,20)<25,'NET3: partial terrainUpdate applies crater heights on guest');
+  connections.clear();online=false;host=true;
   setup();
 }
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
