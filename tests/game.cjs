@@ -1652,6 +1652,52 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
     setup();
   }
 }
+// --- Reviewer Ruling: Resolution-Independent Physical Step/Slope Policy ---
+{
+  ok(STEP_LOOKAHEAD_M===2&&MAX_STEP_M===7&&typeof stepLegal==='function','Physical step constants STEP_LOOKAHEAD_M=2, MAX_STEP_M=7 and stepLegal helper defined');
+  let buildAxisRamp=(slope)=>{S.heights=new Float32Array(N).fill(20);for(let ix=0;ix<NX;ix++){let x=ix*CELL,h=x<=100?20:x>=124?20+24*slope:20+(x-100)*slope;for(let iz=0;iz<NZ;iz++)S.heights[gridIdx(ix,iz)]=quantH(clamp(h,5,135))}};
+  let buildDiagRamp=(slope)=>{S.heights=new Float32Array(N).fill(20);for(let iz=0;iz<NZ;iz++){let z=iz*CELL-D;for(let ix=0;ix<NX;ix++){let x=ix*CELL,u=(x-100)*Math.SQRT1_2+z*Math.SQRT1_2,h=u<=0?20:u>=24?20+24*slope:20+u*slope;S.heights[gridIdx(ix,iz)]=quantH(clamp(h,5,135))}}};
+  for(let[label,dims]of [['cell-1 (480x80@1)',{w:480,d:80,cell:1}],['cell-2 (960x240@2)',{w:960,d:240,cell:2}]]){
+    setup();ok(setWorld(dims),label+' setWorld');
+    for(let[slope,expectOk]of [[3.0,true],[4.0,false]]){
+      buildAxisRamp(slope);
+      let tk=current();tk.x=108;tk.z=0;tk.y=supportHeight(108,0);tk.heading=0;tk.fuel=100;tk.waterGear=null;tk.inv['Floating Platform']=0;tk.inv['Inflatable Lifejacket']=0;
+      let axisMove=canStepMove(tk,110,supportHeight,0),axisShort=canStepMove(tk,108.5,supportHeight,0),axisWater=canTraverseWater(108,110,tk,0,0);
+      ok(axisMove===expectOk&&axisShort===expectOk&&axisWater===expectOk,label+' continuous '+slope.toFixed(1)+' m/m axis ramp => '+expectOk);
+      buildDiagRamp(slope);
+      let d0=8*Math.SQRT1_2,d1=10*Math.SQRT1_2;
+      tk.x=100+d0;tk.z=d0;tk.y=supportHeight(tk.x,tk.z);tk.heading=Math.PI/4;
+      let diagMove=canStepMove(tk,100+d1,supportHeight,d1),diagWater=canTraverseWater(tk.x,100+d1,tk,tk.z,d1);
+      ok(diagMove===axisMove&&diagWater===axisWater&&diagMove===expectOk,label+' '+slope.toFixed(1)+' m/m ramp approached diagonally (45 deg) matches axis-aligned verdict ('+expectOk+')');
+    }
+    // Abrupt 8 m shoreline step blocks going up AND going down on both resolutions
+    S.heights=new Float32Array(N).fill(6);
+    for(let ix=Math.round(100/CELL)+1;ix<NX;ix++)for(let iz=0;iz<NZ;iz++)S.heights[gridIdx(ix,iz)]=14;
+    let tkShore=current();tkShore.waterGear=null;tkShore.inv['Floating Platform']=0;tkShore.inv['Inflatable Lifejacket']=0;tkShore.fuel=100;
+    tkShore.x=100;tkShore.z=0;tkShore.y=supportHeight(100,0);tkShore.heading=0;
+    ok(!canStepMove(tkShore,102,supportHeight,0)&&!canTraverseWater(100,102,tkShore,0,0),label+' abrupt 8 m shoreline step blocks going UP');
+    tkShore.x=102;tkShore.z=0;tkShore.y=supportHeight(102,0);tkShore.heading=Math.PI;
+    ok(!canStepMove(tkShore,100,supportHeight,0)&&!canTraverseWater(102,100,tkShore,0,0),label+' abrupt 8 m shoreline step blocks going DOWN');
+    // Short move (0.1 m) at the foot of an 8 m cliff is blocked by 2 m look-ahead (and mid-cliff hop blocked by 2 m look-back)
+    S.heights=new Float32Array(N).fill(20);
+    for(let ix=Math.round(100/CELL)+1;ix<NX;ix++)for(let iz=0;iz<NZ;iz++)S.heights[gridIdx(ix,iz)]=28;
+    let tkCliff=current();tkCliff.x=100;tkCliff.z=0;tkCliff.y=supportHeight(100,0);tkCliff.heading=0;tkCliff.fuel=100;
+    ok(!canStepMove(tkCliff,100.1,supportHeight,0)&&!canTraverseWater(100,100.1,tkCliff,0,0),label+' short move (0.1 m) at foot of 8 m cliff is blocked (look-ahead)');
+    tkCliff.x=100+CELL*0.5;tkCliff.y=supportHeight(tkCliff.x,0);
+    ok(!canStepMove(tkCliff,tkCliff.x+0.1,supportHeight,0),label+' short move (0.1 m) on 8 m cliff face is blocked (look-back + look-ahead)');
+  }
+  // buildSpawnGraph connects a 3.0 m/m ramp and separates across a 4.0 m/m ramp on cell 2 (and cell 1)
+  for(let[label,dims]of [['cell-2',{w:960,d:240,cell:2}],['cell-1',{w:480,d:80,cell:1}]]){
+    setup();setWorld(dims);
+    buildAxisRamp(3.0);
+    let g3=buildSpawnGraph(S.heights),iL=gridIdx(Math.round(60/CELL),Math.round(D/CELL)),iR=gridIdx(Math.round(160/CELL),Math.round(D/CELL));
+    ok(g3&&g3.drvCount===1&&g3.drvLabels[iL]===g3.drvLabels[iR]&&g3.dryLabels[iL]===g3.dryLabels[iR],'buildSpawnGraph connects 3.0 m/m ramp on '+label);
+    buildAxisRamp(4.0);
+    let g4=buildSpawnGraph(S.heights);
+    ok(g4&&g4.drvCount>=2&&g4.drvLabels[iL]!==g4.drvLabels[iR]&&g4.dryLabels[iL]!==g4.dryLabels[iR],'buildSpawnGraph separates across 4.0 m/m ramp on '+label);
+  }
+  setup();
+}
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
 `;
 vm.runInContext(test,context,{timeout:120000});
