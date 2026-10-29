@@ -492,6 +492,63 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   for(let i=0;i<25;i++)step(1/60);
   ok(S.fires[0].x<200&&S.shots[0].x<200&&Math.abs(S.shots[0].y-(height(S.shots[0].x,60)+.7))<1e-2,'Fire and roller at z=+60 roll downhill along z=60 slope, not z=0 opposite slope');
 }
+// --- Phase P1b 2-D World Renderer Verification ---
+{
+  setup();
+  rebuildTerrainGeo();
+  let geo960=terrainGeo,disposed960=false;
+  let origDispose=geo960.dispose.bind(geo960);
+  geo960.dispose=()=>{disposed960=true;origDispose()};
+  ok(terrainGeo.attributes.position.count===NX*NZ+2*(NX+NZ),'960x480 cell 2 mesh vertex count === NX*NZ + skirt');
+  S.heights=newTerrain('Rolling Hills');
+  terrainFullUpdate=true;terrainUpdate();
+  ok(terrainGeo===geo960&&!disposed960,'terrainUpdate reuses geometry when NX/NZ unchanged');
+  ok(setWorld({w:480,d:80,cell:1})===true&&NX===481&&NZ===161,'setWorld 480x80 cell 1');
+  ok(terrainGeo===geo960&&!disposed960,'setWorld alone does not touch the renderer (geometry is rebuilt lazily)');
+  S.heights=new Float32Array(N).fill(20);terrainUpdate();
+  ok(disposed960&&terrainGeo!==geo960&&terrainGeo.attributes.position.count===NX*NZ+2*(NX+NZ),'terrainUpdate after setWorld with different NX/NZ disposes old terrainGeo and rebuilds');
+  S.heights=newTerrain('Rolling Hills');
+  terrainUpdate();
+  let sampledOk=true;
+  for(let iz of [0,15,80,160])for(let ix of [0,37,240,480]){
+    let vi=(iz*NX+ix)*3,vx=terrainPos[vi],vy=terrainPos[vi+1],vz=terrainPos[vi+2];
+    if(Math.abs(vx-ix*CELL)>1e-5||Math.abs(vz-(iz*CELL-D))>1e-5||Math.abs(vy-height(vx,vz))>1e-4)sampledOk=false;
+  }
+  ok(sampledOk,'terrain vertex (x,y,z) matches grid coordinates and height(x,z) at sampled points');
+  let checkNormals=(label)=>{
+    let okN=true;
+    for(let i=0;i<N*3;i+=3){
+      let nx=terrainNor[i],ny=terrainNor[i+1],nz=terrainNor[i+2],len=Math.hypot(nx,ny,nz);
+      if(!Number.isFinite(len)||Math.abs(len-1)>1e-3||ny<=0){okN=false;break}
+    }
+    ok(okN,label+' leaves every surface normal unit-length and finite');
+  };
+  checkNormals('Full terrainUpdate');
+  let beforePos=new Float32Array(terrainPos);
+  deform(300,14,-8,40);
+  let box={...terrainDirtyBox};
+  ok(box&&box.ix0>0&&box.ix1<NX-1&&box.iz0>0&&box.iz1<NZ-1,'deform at (300,40) sets interior dirty box');
+  terrainUpdate();
+  ok(terrainDirtyBox===null&&!terrainDirty,'terrainUpdate clears terrainDirtyBox and terrainDirty');
+  let pRange=terrainGeo.attributes.position.updateRange,nRange=terrainGeo.attributes.normal.updateRange;
+  ok(pRange.offset===box.iz0*NX*3&&pRange.count===(box.iz1-box.iz0+1)*NX*3&&nRange.offset===Math.max(0,box.iz0-1)*NX*3&&nRange.count===(Math.min(NZ-1,box.iz1+1)-Math.max(0,box.iz0-1)+1)*NX*3,'partial terrainUpdate sets BufferAttribute.updateRange for touched rows and halo');
+  let onlyBoxChanged=true,changedInside=0;
+  for(let iz=0;iz<NZ;iz++)for(let ix=0;ix<NX;ix++){
+    let i=(iz*NX+ix)*3,diff=Math.abs(terrainPos[i]-beforePos[i])+Math.abs(terrainPos[i+1]-beforePos[i+1])+Math.abs(terrainPos[i+2]-beforePos[i+2]);
+    let inHalo=ix>=box.ix0-1&&ix<=box.ix1+1&&iz>=box.iz0-1&&iz<=box.iz1+1;
+    if(diff>0){if(!inHalo)onlyBoxChanged=false;else changedInside++}
+  }
+  for(let i=N*3;i<terrainPos.length;i++)if(terrainPos[i]!==beforePos[i])onlyBoxChanged=false;
+  ok(onlyBoxChanged&&changedInside>0,'deform + terrainUpdate only changes vertices inside dirty box (+ halo)');
+  checkNormals('Crater partial terrainUpdate');
+  $('world').getBoundingClientRect=()=>({left:0,top:0,width:1280,height:720});
+  camera.aspect=1280/720;camera.fov=47;camera.near=0.2;camera.far=4000;camera.updateProjectionMatrix();
+  let targetX=260,targetZ=-25,targetY=height(targetX,targetZ);
+  camera.position.set(200,190,140);camera.lookAt(targetX,targetY,targetZ);camera.updateMatrixWorld();
+  let hit=screenToWorld({clientX:640,clientY:360});
+  ok(hit&&Math.hypot(hit.x-targetX,hit.z-targetZ)<=CELL&&Math.abs(screenToWorldX({clientX:640,clientY:360})-hit.x)<1e-6,'screenToWorld returns aimed terrain (x,z) within 1 cell and screenToWorldX wraps .x');
+  setWorld({w:960,d:240,cell:2});
+}
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
 `;
 vm.runInContext(test,context,{timeout:30000});
