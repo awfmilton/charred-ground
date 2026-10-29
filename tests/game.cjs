@@ -448,11 +448,12 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   ok(gridIdx(-5,-3)===0&&gridIdx(9999,9999)===N-1,'gridIdx clamps out-of-range indices');
   ok(height(gx,gz)===10&&height(gx+CELL,gz)===20&&height(gx,gz+CELL)===30&&height(gx+CELL,gz+CELL)===50,'height exact at grid points');
   ok(Math.abs(height(gx+CELL/2,gz)-15)<1e-6&&Math.abs(height(gx,gz+CELL/2)-20)<1e-6&&Math.abs(height(gx+CELL/2,gz+CELL/2)-27.5)<1e-6,'height exact bilinear at x, z, and center midpoints');
+  ok(H_TICK===0.01&&hTick(12.34)===1234&&hTick(quantH(19.994))===1999,'H_TICK=0.01 and hTick integer tick helper');
   for(let terrainType of ['Rolling Hills','Jagged Mountains','Valleys','Cliffs']){
     seed=4242;
     let h=newTerrain(terrainType);
     ok(h instanceof Float32Array&&h.length===N,'newTerrain size matches N for '+terrainType);
-    ok(h.every(v=>Math.abs(v*20-Math.round(v*20))<1e-4),'quantH 0.05m lattice holds after newTerrain for '+terrainType);
+    ok(h.every(v=>Math.abs(v*100-Math.round(v*100))<1e-3&&hTick(v)===hTick(quantH(v))),'quantH 0.01m lattice holds after newTerrain for '+terrainType);
     let zVaries=false,hasWater=false;
     for(let i=0;i<N;i++)if(h[i]<WATER_LEVEL){hasWater=true;break}
     for(let x=0;x<NX&&!zVaries;x+=4){let base=h[gridIdx(x,0)];for(let z=1;z<NZ;z++)if(Math.abs(h[gridIdx(x,z)]-base)>.5){zVaries=true;break}}
@@ -460,16 +461,36 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   }
   S.heights.fill(40);
   deform(200,14,-10,10);
-  ok(S.heights.every(v=>Math.abs(v*20-Math.round(v*20))<1e-4),'quantH 0.05m lattice holds after deform');
+  ok(S.heights.every(v=>Math.abs(v*100-Math.round(v*100))<1e-3&&hTick(v)===hTick(quantH(v))),'quantH 0.01m lattice holds after deform');
   ok(terrainDirtyBox&&terrainDirtyBox.ix0>=0&&terrainDirtyBox.ix1<NX&&terrainDirtyBox.iz0>=0&&terrainDirtyBox.iz1<NZ,'deform records terrainDirtyBox');
   let dPosX=40-height(200+8,10),dNegX=40-height(200-8,10),dPosZ=40-height(200,10+8),dNegZ=40-height(200,10-8);
   ok(dPosX>0&&Math.abs(dPosX-dNegX)<1e-4&&Math.abs(dPosX-dPosZ)<1e-4&&Math.abs(dPosX-dNegZ)<1e-4,'deform is radial (+x,-x,+z,-z equal depth)');
   let untouched=true;
   for(let z=0;z<NZ;z++)for(let x=0;x<NX;x++)if(Math.hypot(x*CELL-200,z*CELL-D-10)>14+CELL&&S.heights[gridIdx(x,z)]!==40)untouched=false;
   ok(untouched,'deform leaves cells beyond r+CELL untouched');
+  sculptTerrain(180,'raise',18,6,20);
+  sculptTerrain(180,'smooth',18,6,20);
+  ok(S.heights.every(v=>Math.abs(v*100-Math.round(v*100))<1e-3&&hTick(v)===hTick(quantH(v))),'quantH 0.01m lattice holds after sculptTerrain');
   let customList=[{id:1,x:100,y:25,width:20,hp:100},{id:2,x:100,y:32,z:20,depth:10,width:20,hp:100}];
   ok(platformAt(100,customList)?.id===1&&platformAt(100,customList,20)?.id===2&&platformAt(100,customList,40)===null,'platformAt with explicit 2nd-arg list and optional z/depth works');
   setWorld({w:960,d:240,cell:2});
+  // (a) Shell flying at z=+60 over a world with a tall ridge only at z=0 and low ground at z=60
+  setup();
+  S.heights.fill(20);
+  setFlatRow(100,260,110,0);
+  S.wind=0;S.phase='flight';
+  S.shots=[{id:++S.uid,x:60,y:55,z:60,vx:45,vy:12,vz:0,name:'Baby Missile',owner:0,life:0,bounces:0,split:false,mode:'air'}];
+  let lastShotPos=null;
+  for(let i=0;i<400&&S.shots.length;i++){lastShotPos={x:S.shots[0].x,y:S.shots[0].y,z:S.shots[0].z};step(1/60)}
+  ok(S.shots.length===0&&lastShotPos&&lastShotPos.x>110&&lastShotPos.x<260&&lastShotPos.y<30&&Math.abs(lastShotPos.z-60)<1&&hTick(height(180,0))===11000&&hTick(height(lastShotPos.x,60))<2000,'Shell at z=+60 flies past z=0 ridge without hitting it and lands on low ground at z~60');
+  // (b) Fire and roller placed at z=+60 follow terrain at z=60, not z=0
+  setup();
+  S.heights.fill(20);
+  for(let ix=0;ix<NX;ix++){let x=ix*CELL;for(let iz=Math.floor((D-10)/CELL);iz<=Math.ceil((D+10)/CELL);iz++)S.heights[gridIdx(ix,iz)]=quantH(clamp(80-(x-200)*0.8,10,120));for(let iz=Math.floor((60+D-10)/CELL);iz<=Math.ceil((60+D+10)/CELL);iz++)S.heights[gridIdx(ix,iz)]=quantH(clamp(30+(x-200)*0.8,10,120))}
+  S.fires=[{x:200,z:60,life:4,owner:0,hot:false,tick:0}];
+  S.shots=[{id:++S.uid,x:200,y:height(200,60)+.7,z:60,vx:0,vy:0,vz:0,name:'Roller',owner:0,life:0,bounces:0,split:false,mode:'roll',rollTime:0}];
+  for(let i=0;i<25;i++)step(1/60);
+  ok(S.fires[0].x<200&&S.shots[0].x<200&&Math.abs(S.shots[0].y-(height(S.shots[0].x,60)+.7))<1e-2,'Fire and roller at z=+60 roll downhill along z=60 slope, not z=0 opposite slope');
 }
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
 `;
