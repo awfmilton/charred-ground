@@ -1988,6 +1988,13 @@ console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFI
   ok(bigMsgs.length===2&&Boolean(bigMsgs[1].state.heights)&&bigMsgs[1].state.terrainDelta===undefined,'D2: delta larger than 25% of full payload sends full heights instead of terrainDelta');
   connections.clear();online=false;host=true;setup();
 }
+// QA finding (Antigravity, FIND PUBLIC MATCH): PeerJS returns no connection object when the peer is not open.
+{
+  let armed=0,rejected=null;const realST=setTimeout;setTimeout=(...a)=>{armed++;return realST(()=>{},0)};
+  let pr;try{pr=connectTo({connect:()=>undefined},'charred-pub-lobby-1',50)}catch(e){pr=null}finally{setTimeout=realST}
+  if(pr&&pr.catch)pr.catch(e=>{rejected=e});
+  ok(pr&&typeof pr.then==='function'&&armed===0,'connectTo with no connection object rejects immediately and arms no timer (old code armed a timer that later called close() on undefined - uncaught TypeError)');
+}
 `;
 vm.runInContext(test,context,{timeout:120000});
 const simChecks = vm.runInContext('checks', context);
