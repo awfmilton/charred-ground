@@ -1232,7 +1232,7 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   deform(300,14,-8,0);
   originalBroadcastState();
   let afterDef1=JSON.parse(sent1[5]).state,afterDef2=JSON.parse(sent2[5]).state;
-  ok(Boolean(afterDef1.heights)&&Boolean(afterDef2.heights)&&afterDef1.terrainRev===S.terrainRev&&afterDef1.customMapId===cmId1,'NET2: after deform() next broadcast sends heights again with updated terrainRev');
+  ok((Boolean(afterDef1.heights)||Array.isArray(afterDef1.terrainDelta))&&(Boolean(afterDef2.heights)||Array.isArray(afterDef2.terrainDelta))&&afterDef1.terrainRev===S.terrainRev&&afterDef1.customMapId===cmId1,'NET2: after deform() next broadcast sends heights or terrainDelta with updated terrainRev');
   originalBroadcastState();
   let afterDefLight=JSON.parse(sent1[6]).state;
   ok(afterDefLight.heights===undefined&&afterDefLight.customMap===undefined&&afterDefLight.customMapId===cmId1&&sent1[6].length<20000,'NET2: subsequent broadcast after deform is light again and does not resend custom map heights while customMapId is unchanged');
@@ -1763,6 +1763,67 @@ ok(averageMiss.Normal>5,'Normal computer retains meaningful aiming error');
   }
   setup();
 }
+// --- Rolling Hills Water Bodies & Terrain Smoothness Verification ---
+{
+  setup();setWorld({w:960,d:240,cell:2});
+  let vis=new Uint8Array(N),q=new Int32Array(N);
+  for(let s=1;s<=6;s++){
+    seed=s;
+    let h=newTerrain('Rolling Hills');
+    vis.fill(0);
+    let bodies=0,maxBody=0,waterCells=0;
+    for(let i=0;i<N;i++){
+      if(h[i]<WATER_LEVEL){
+        waterCells++;
+        if(!vis[i]){
+          bodies++;
+          let head=0,tail=0;vis[i]=1;q[tail++]=i;
+          while(head<tail){
+            let u=q[head++],ux=u%NX,uz=(u-ux)/NX;
+            if(ux>0&&!vis[u-1]&&h[u-1]<WATER_LEVEL){vis[u-1]=1;q[tail++]=u-1}
+            if(ux+1<NX&&!vis[u+1]&&h[u+1]<WATER_LEVEL){vis[u+1]=1;q[tail++]=u+1}
+            if(uz>0&&!vis[u-NX]&&h[u-NX]<WATER_LEVEL){vis[u-NX]=1;q[tail++]=u-NX}
+            if(uz+1<NZ&&!vis[u+NX]&&h[u+NX]<WATER_LEVEL){vis[u+NX]=1;q[tail++]=u+NX}
+          }
+          if(tail>maxBody)maxBody=tail;
+        }
+      }
+    }
+    let steepSteps=0,totalSteps=0;
+    for(let iz=0;iz<NZ;iz++){
+      let row=iz*NX;
+      for(let ix=0;ix<NX;ix++){
+        let u=row+ix,hu=h[u];
+        if(ix+1<NX){totalSteps++;if(Math.abs(h[u+1]-hu)>7)steepSteps++}
+        if(iz+1<NZ){totalSteps++;if(Math.abs(h[u+NX]-hu)>7)steepSteps++}
+      }
+    }
+    let largestFrac=maxBody/N,waterFrac=waterCells/N,steepFrac=steepSteps/totalSteps;
+    ok(bodies>=1&&bodies<=5&&largestFrac>=0.02&&waterFrac>=0.03&&waterFrac<=0.25&&steepFrac<0.01,'Rolling Hills seed '+s+' has '+bodies+' water bodies (largest '+(largestFrac*100).toFixed(1)+'%, total '+(waterFrac*100).toFixed(1)+'%, steps>7m '+(steepFrac*100).toFixed(2)+'%)');
+  }
+  for(let terrainType of ['Jagged Mountains','Valleys','Cliffs']){
+    seed=4242;
+    let h=newTerrain(terrainType);
+    seed=4242;
+    let px=rng()*7,pz=rng()*7,p2=rng()*7,sameAsCurrent=h instanceof Float32Array&&h.length===N,hasWater=false,zVaries=false;
+    for(let iz=0;iz<NZ&&sameAsCurrent;iz++){
+      let z=iz*CELL-D,row=iz*NX,bend=Math.sin(z*.028+pz)*26+Math.cos(z*.06+p2)*10,bw=28+Math.cos(z*.035+px)*8;
+      for(let ix=0;ix<NX;ix++){
+        let x=ix*CELL,v=0;
+        if(terrainType==='Jagged Mountains')v=20+Math.abs(Math.sin(x*.045+px+Math.sin(z*.03+pz)*.8))*37+Math.sin(x*.17+z*.11)*7+Math.abs(Math.cos(z*.055+p2))*6;
+        if(terrainType==='Valleys')v=18+27*Math.pow(Math.cos(x*.025+px+Math.sin(z*.022+pz)*.6),2)+Math.sin(z*.04+p2)*5;
+        if(terrainType==='Cliffs')v=18+Math.floor((Math.sin(x*.03+px+z*.012*Math.cos(pz))+1)*2)*12+Math.sin(x*.13+z*.09)*2+Math.cos(z*.05+pz)*3;
+        let c1=23*Math.exp(-Math.pow((x-(W*.62+bend))/bw,2)),c2=18*Math.exp(-Math.pow((x-(W*.28-bend*.7))/26,2)-Math.pow((z-Math.sin(px)*D*.35)/(D*.45),2));
+        let expH=quantH(clamp(v-c1-c2,5,135)),got=h[row+ix];
+        if(hTick(got)!==hTick(expH)){sameAsCurrent=false;break}
+        if(got<WATER_LEVEL)hasWater=true;
+      }
+    }
+    for(let x=0;x<NX&&!zVaries;x+=4){let base=h[gridIdx(x,0)];for(let z=1;z<NZ;z++)if(Math.abs(h[gridIdx(x,z)]-base)>.5){zVaries=true;break}}
+    ok(sameAsCurrent&&hasWater&&zVaries,terrainType+' output and characteristics unchanged for seed 4242');
+  }
+  setup();
+}
 console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFIG).length+' items.');
 // Graph edge == runtime stepLegal, randomized (reviewer: prove equivalence on cell 1 and cell 2 incl. non-monotonic odd-index profiles)
 {
@@ -1807,6 +1868,93 @@ console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFI
   try{r=newRound()}finally{pickGeneratedSpawns=realPick;notice=on}
   ok(r===false&&!running&&notes.some(m=>/navigable/.test(m)),'P4 fallback: if no certified layout exists the round does not start and says why');
   running=true;
+}
+// --- Terrain Deltas (D1-D4) Verification ---
+{
+  const hChecksum=h=>{let s=2166136261;for(let i=0;i<h.length;i++)s=Math.imul(s^hTick(h[i]),16777619)>>>0;return s>>>0};
+  // 1. Digger tunnelling for 2 s with a fake connection: every broadcast after the first is < 30 KB and guest heights checksum equals host after applying in order
+  connections.clear();setup();
+  S.heights.fill(40);
+  bumpTerrainRev(S);
+  online=true;host=true;running=true;
+  let digWire=[];
+  let cDig={peer:'p_dig',open:true,send(d){digWire.push(JSON.stringify(d))}};
+  connections.set('p_dig',cDig);
+  originalBroadcastState();
+  ok(digWire.length===1&&Boolean(JSON.parse(digWire[0]).state.heights),'D1/D2: initial broadcast before digger tunnelling sends full heights');
+  S.phase='flight';
+  S.shots=[{id:++S.uid,x:200,y:37,z:0,vx:14,vy:0,vz:0,ux:1,uz:0,name:'Heavy Digger',owner:0,life:0,bounces:0,split:false,mode:'dig',remaining:200}];
+  for(let b=0;b<20;b++){
+    for(let f=0;f<6;f++)step(1/60);
+    originalBroadcastState();
+  }
+  let hostDigChk=hChecksum(S.heights),hostDigRev=S.terrainRev;
+  ok(digWire.length===21&&digWire.slice(1).every(raw=>{let st=JSON.parse(raw).state;return raw.length<30000&&st.heights===undefined&&Array.isArray(st.terrainDelta)&&st.terrainDelta.length===6}),'D1/D2: every 0.1s broadcast during 2s digger tunnelling is < 30 KB and carries 6-step terrainDelta');
+  connections.clear();online=false;host=true;setup();
+  receiveState(JSON.parse(digWire[0]).state);terrainFullUpdate=false; // the initial FULL snapshot legitimately requests a full update; the harness never renders to clear it
+  for(let i=1;i<digWire.length;i++)receiveState(JSON.parse(digWire[i]).state);
+  ok(!terrainFullUpdate&&S.terrainRev===hostDigRev&&hChecksum(S.heights)===hostDigChk,'D3: guest applying initial full + 20 digger delta broadcasts matches host heights checksum without full terrain update');
+
+  // 2. Crater followed by a new round -> next broadcast is full (ring cleared)
+  connections.clear();setup();
+  newRound();
+  online=true;host=true;running=true;
+  let nrMsgs=[];
+  let cNr={peer:'p_nr',open:true,send(d){nrMsgs.push(JSON.parse(JSON.stringify(d)))}};
+  connections.set('p_nr',cNr);
+  originalBroadcastState();
+  deform(300,12,-8,0);
+  originalBroadcastState();
+  ok(Array.isArray(nrMsgs[1].state.terrainDelta)&&nrMsgs[1].state.heights===undefined,'D1/D2: crater before newRound sends terrainDelta');
+  newRound();
+  originalBroadcastState();
+  ok(terrainDeltaRing.length===0&&Boolean(nrMsgs[2].state.heights)&&nrMsgs[2].state.terrainDelta===undefined,'D1/D2: crater followed by newRound clears ring and sends full heights on next broadcast');
+
+  // 3. Guest that missed one delta (rev gap) gets a resync and no mutation
+  connections.clear();online=false;host=true;setup();
+  S.heights.fill(28);bumpTerrainRev(S);
+  let fullBase=JSON.parse(JSON.stringify(snapshot(true)));
+  deform(250,10,-5,0);
+  let revAfter1=S.terrainRev;
+  deform(320,10,-5,0);
+  let deltaStep2Only=JSON.parse(JSON.stringify(snapshot(false)));
+  deltaStep2Only.terrainDelta=[JSON.parse(JSON.stringify(terrainDeltaRing[terrainDeltaRing.length-1]))];
+  deltaStep2Only.tanks[0].x=333;
+  setup();
+  receiveState(fullBase);
+  let gapResync=[],guestRefGap=S,guestHeightsGap=S.heights,guestChkGap=hChecksum(S.heights),guestRevGap=S.terrainRev,guestTankXGap=S.tanks[0].x;
+  connections.set('host',{open:true,send(m){gapResync.push(m)}});
+  receiveState(deltaStep2Only);
+  ok(deltaStep2Only.terrainDelta[0].fromRev===revAfter1&&S===guestRefGap&&S.heights===guestHeightsGap&&S.terrainRev===guestRevGap&&S.tanks[0].x===guestTankXGap&&hChecksum(S.heights)===guestChkGap&&gapResync.length===1&&gapResync[0].type==='resync','D3: guest that missed one delta (rev gap) emits resync and does not mutate state or heights');
+
+  // 4. Corrupt box (wrong encoded length) -> snapshot ignored, resync, heights unchanged
+  connections.clear();online=false;host=true;setup();
+  S.heights.fill(26);bumpTerrainRev(S);
+  let fullBeforeCorrupt=JSON.parse(JSON.stringify(snapshot(true)));
+  deform(280,10,-6,0);
+  let corruptDeltaSnap=JSON.parse(JSON.stringify(snapshot(false)));
+  corruptDeltaSnap.terrainDelta=JSON.parse(JSON.stringify(terrainDeltaRing));
+  corruptDeltaSnap.terrainDelta[0].boxes[0].data={enc:'i16t',data:'AAAA'};
+  corruptDeltaSnap.tanks[0].x=444;
+  setup();
+  receiveState(fullBeforeCorrupt);
+  let corruptResync=[],guestRefCorrupt=S,guestChkCorrupt=hChecksum(S.heights),guestRevCorrupt=S.terrainRev,guestTankXCorrupt=S.tanks[0].x;
+  connections.set('host',{open:true,send(m){corruptResync.push(m)}});
+  receiveState(corruptDeltaSnap);
+  ok(S===guestRefCorrupt&&S.terrainRev===guestRevCorrupt&&S.tanks[0].x===guestTankXCorrupt&&hChecksum(S.heights)===guestChkCorrupt&&corruptResync.length===1&&corruptResync[0].type==='resync','D3: corrupt delta box (wrong encoded length) is ignored, requests resync, and leaves heights/state unchanged');
+
+  // 5. Delta larger than 25% of full -> full sent
+  connections.clear();setup();
+  S.heights.fill(30);bumpTerrainRev(S);
+  online=true;host=true;running=true;
+  let bigMsgs=[];
+  let cBig={peer:'p_big',open:true,send(d){bigMsgs.push(JSON.parse(JSON.stringify(d)))}};
+  connections.set('p_big',cBig);
+  originalBroadcastState();
+  bumpTerrainRev(S,{ix0:0,ix1:NX-1,iz0:0,iz1:Math.floor(NZ*0.4)});
+  originalBroadcastState();
+  ok(bigMsgs.length===2&&Boolean(bigMsgs[1].state.heights)&&bigMsgs[1].state.terrainDelta===undefined,'D2: delta larger than 25% of full payload sends full heights instead of terrainDelta');
+  connections.clear();online=false;host=true;setup();
 }
 `;
 vm.runInContext(test,context,{timeout:120000});
