@@ -1852,6 +1852,38 @@ console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFI
   ok(rt===false&&g.canStep(u,v,1)===false,'reviewer fixture [20,20,13,27] cell 1: runtime rejects 0->1 (13 -> 27 inside the 2 m look-ahead) and the graph edge agrees (runtime '+rt+')');
   setWorld({w:960,d:240,cell:2});
 }
+// P1/P3 verification: full terrainUpdate invariants (unit normals within 1e-6, y===height(x,z) every 97th vertex, colours in [0,1]) + 3-seed reference SCC agreement
+{
+  setup();setWorld({w:960,d:240,cell:2});seed=9001;
+  S.heights=newTerrain('Cliffs');terrainFullUpdate=true;terrainUpdate();
+  let normOk=true,pos97Ok=true,colOk=true;
+  for(let v=0;v<N;v++){
+    let i=v*3,len=Math.hypot(terrainNor[i],terrainNor[i+1],terrainNor[i+2]);
+    if(!Number.isFinite(len)||Math.abs(len-1)>1e-6||terrainNor[i+1]<=0){normOk=false;break}
+    let c0=terrainCol[i],c1=terrainCol[i+1],c2=terrainCol[i+2];
+    if(!(c0>=0&&c0<=1&&c1>=0&&c1<=1&&c2>=0&&c2<=1)){colOk=false;break}
+    if(v%97===0){
+      let ix=v%NX,iz=(v-ix)/NX,wx=ix*CELL,wz=iz*CELL-D;
+      if(terrainPos[i]!==wx||terrainPos[i+2]!==wz||Math.abs(terrainPos[i+1]-height(wx,wz))>1e-6){pos97Ok=false;break}
+    }
+  }
+  ok(normOk&&pos97Ok&&colOk,'P3 full terrainUpdate invariants: unit normals within 1e-6, y===height(x,z) at every 97th vertex, and colours within [0,1]');
+  let visF=new Uint8Array(N),visR=new Uint8Array(N),q=new Int32Array(N),sccMatch=true;
+  for(let [s,terr] of [[101,'Rolling Hills'],[202,'Jagged Mountains'],[303,'Cliffs']]){
+    seed=s;let h=newTerrain(terr),g=buildSpawnGraph(h);
+    for(let anchor of [gridIdx(120,60),gridIdx(240,120),gridIdx(360,180)]){
+      visF.fill(0);visR.fill(0);let head=0,tail=0;visF[anchor]=1;q[tail++]=anchor;
+      while(head<tail){let u=q[head++],ux=u%NX,uz=(u-ux)/NX;if(ux>0&&!visF[u-1]&&g.canStep(u,u-1,0)){visF[u-1]=1;q[tail++]=u-1}if(ux+1<NX&&!visF[u+1]&&g.canStep(u,u+1,1)){visF[u+1]=1;q[tail++]=u+1}if(uz>0&&!visF[u-NX]&&g.canStep(u,u-NX,2)){visF[u-NX]=1;q[tail++]=u-NX}if(uz+1<NZ&&!visF[u+NX]&&g.canStep(u,u+NX,3)){visF[u+NX]=1;q[tail++]=u+NX}}
+      head=0;tail=0;visR[anchor]=1;q[tail++]=anchor;
+      while(head<tail){let u=q[head++],ux=u%NX,uz=(u-ux)/NX;if(ux>0&&!visR[u-1]&&g.canStep(u-1,u,1)){visR[u-1]=1;q[tail++]=u-1}if(ux+1<NX&&!visR[u+1]&&g.canStep(u+1,u,0)){visR[u+1]=1;q[tail++]=u+1}if(uz>0&&!visR[u-NX]&&g.canStep(u-NX,u,3)){visR[u-NX]=1;q[tail++]=u-NX}if(uz+1<NZ&&!visR[u+NX]&&g.canStep(u+NX,u,2)){visR[u+NX]=1;q[tail++]=u+NX}}
+      let c=g.drvLabels[anchor];
+      for(let i=0;i<N;i++)if(((visF[i]&&visR[i])===1)!==(g.drvLabels[i]===c)){sccMatch=false;break}
+      if(!sccMatch)break;
+    }
+    if(!sccMatch)break;
+  }
+  ok(sccMatch,'P1 buildSpawnGraph drvLabels SCC membership matches reference forward+reverse canStep BFS across 3 seeds');
+}
 // Forced exhaustion of the spawn picker (reviewer 2026-10-29): never launch an uncertified layout, never the old +-4 m island pads.
 {
   const realPick=pickGeneratedSpawns,certified=()=>{let g=buildSpawnGraph(S.heights);if(!g)return false;let idx=t=>clamp(Math.round(((t.z||0)+D)/CELL),0,NZ-1)*NX+clamp(Math.round(t.x/CELL),0,NX-1),c0=g.drvLabels[idx(S.tanks[0])];return c0>0&&S.tanks.every(t=>g.drvLabels[idx(t)]===c0&&t.y>=WATER_LEVEL+1-1e-6)};
