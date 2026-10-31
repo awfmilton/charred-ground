@@ -20,6 +20,7 @@ The suite is deterministic: it uses fixed seeds, one browser and runs its checks
   - `audioAfterBeforeunload`: sound no longer fails after a cancelled reload.
   - `findPublicMatch`: FIND PUBLIC MATCH no longer throws when PeerJS has no connection.
 - **spawnSweep:** across 36 generated rounds, every start is dry, mutually reachable and at least 20 m from the others.
+- **aiBrains:** each slot offers Human, Local AI, Gemini 4 Argon, ChatGPT and Empty. The paid brains are greyed out when signed out or not configured on the server. Two local AIs chosen with the real selects play a spectated match and fire.
 - **netSync:** opt-in with `CG_BROWSER_NET=1`. Two real browsers connect over the public PeerJS broker, and the guest's terrain must equal the host's after a crater.
 
 Options:
@@ -48,6 +49,10 @@ QA_MODEL=gemini-4-argon-high QA_TIMEOUT=40m npm run qa:sweep
 - **Where results go:** reports land in `qa-reports/<timestamp>/` (git-ignored), one `*.report.md` per brief plus `summary.json`.
 - **Why reports are incremental:** each brief makes the agent append one line per item as it goes. `agy -p` prints only its final answer, so a broad brief that times out otherwise loses everything.
 - **Editing briefs:** keep scopes small, around 8 items. Keep the `{{URL}}` and `{{REPORT}}` placeholders and the "HOW A TURN WORKS" section, without which the weapon briefs stall.
+
+## Human test pass
+
+[HUMAN_TEST_CHECKLIST.md](HUMAN_TEST_CHECKLIST.md) is the full manual pass for a release: every setting, control, weapon, the editor, online play, accounts and the ChatGPT and Gemini players.
 
 ## Other agents
 

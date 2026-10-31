@@ -1995,9 +1995,90 @@ console.log(checks+' simulation checks passed across '+Object.keys(WEAPONS_CONFI
   if(pr&&pr.catch)pr.catch(e=>{rejected=e});
   ok(pr&&typeof pr.then==='function'&&armed===0,'connectTo with no connection object rejects immediately and arms no timer (old code armed a timer that later called close() on undefined - uncaught TypeError)');
 }
+// --- Chunk C: Per-Slot Brain, Provider Call, Fallback & Spectating ---
+{
+  let qsa=document.querySelectorAll,origNotice=notice,origServerAi=serverAi,origST=setTimeout;
+  try{
+    // (a) slot brains & duplicate naming
+    let slotsA=['human','openai','gemini','off','off','off'].map(v=>({value:v,options:[]}));
+    document.querySelectorAll=s=>s==='.slot select'?slotsA:[];
+    startMatch();
+    ok(S.tanks.length===3&&S.tanks[0].brain===null&&S.tanks[1].brain==='openai'&&S.tanks[2].brain==='gemini'&&S.tanks[0].name==='Commander 1'&&S.tanks[1].name==='ChatGPT'&&S.tanks[2].name==='Gemini 4 Argon'&&S.tanks[0].ai===false&&S.tanks[1].ai===true&&S.tanks[2].ai===true,'C1(a): human/openai/gemini slots produce expected brains, names and ai flags');
+    let slotsDup=['openai','openai','gemini','gemini','off','off'].map(v=>({value:v,options:[]}));
+    document.querySelectorAll=s=>s==='.slot select'?slotsDup:[];
+    startMatch();
+    ok(S.tanks[0].name==='ChatGPT'&&S.tanks[1].name==='ChatGPT 2'&&S.tanks[2].name==='Gemini 4 Argon'&&S.tanks[3].name==='Gemini 4 Argon 2','C1(a): duplicate provider slots append 2, 3...');
+  }finally{
+    document.querySelectorAll=qsa;
+    notice=origNotice;
+    serverAi=origServerAi;
+    setTimeout=origST;
+  }
+}
 `;
 vm.runInContext(test,context,{timeout:120000});
-const simChecks = vm.runInContext('checks', context);
+// Async browser-AI checks (fallback, sign-in gating, AI-vs-AI), awaited before the API suite reads the check count.
+const chunkCDone=vm.runInContext(`(async()=>{
+  let qsa=document.querySelectorAll,origNotice=notice,origServerAi=serverAi,origST=setTimeout,notices=[];
+  notice=m=>{notices.push(m)};
+  try{
+    // (b) openai brain, signed out -> 0 serverAi calls, local move acts, 1 notice per tank per round
+    setup();S.tanks[0].ai=true;S.tanks[0].brain='openai';S.tanks[0].name='ChatGPT';S.tanks[0].brainFallback=false;S.tanks[0].brainNoticeShown=false;
+    beginTurn();
+    let srvCalls=0;serverAi=async()=>{srvCalls++;return{action:'fire',weaponOrItem:'Baby Missile',angle:45,power:500,az:0}};
+    let beforeLeft=S.actionsLeft;
+    await aiTurn();
+    ok(srvCalls===0&&(S.phase==='flight'||S.actionsLeft<beforeLeft||Boolean(S.activeDrive))&&S.tanks[0].brainFallback===true&&notices.length===1&&notices[0].includes('ChatGPT'),'C3(b): signed-out openai tank makes 0 serverAi calls, still acts locally, and emits 1 notice naming the tank');
+    if(S.activeDrive)finishDrive();
+    for(let i=0;i<1600&&S.phase==='flight';i++)step(1/60);
+    S.turn=0;S.phase='aim';S.actionsLeft=2;
+    await aiTurn();
+    ok(srvCalls===0&&notices.length===1,'C3(b): second aiTurn in the same round adds no second notice');
+
+    // (c) signed in + available -> serverAi called with provider openai and taunt flows to t.talk
+    globalThis.account={user:{id:1}};
+    aiProviders.openai.available=true;
+    setup();S.tanks[0].ai=true;S.tanks[0].brain='openai';S.tanks[0].name='ChatGPT';beginTurn();
+    let calledProv=null;
+    serverAi=async(prov,pl)=>{calledProv=prov;return{action:'fire',weaponOrItem:'Baby Missile',angle:48,power:600,az:0,targetX:140,targetZ:0,taunt:'hi'}};
+    await aiTurn();
+    ok(calledProv==='openai'&&S.tanks[0].talk==='hi','C3(c): signed-in available openai calls serverAi with provider openai and sets t.talk to taunt');
+
+    // (d) signed in + serverAi rejects -> local move, brainFallback true, one notice
+    notices.length=0;
+    setup();S.tanks[0].ai=true;S.tanks[0].brain='openai';S.tanks[0].name='ChatGPT';S.tanks[0].brainFallback=false;S.tanks[0].brainNoticeShown=false;beginTurn();
+    serverAi=async()=>{throw Error('boom')};
+    let leftD=S.actionsLeft;
+    await aiTurn();
+    ok((S.phase==='flight'||S.actionsLeft<leftD||Boolean(S.activeDrive))&&S.tanks[0].brainFallback===true&&notices.length===1&&notices[0].includes('ChatGPT'),'C3(d): rejecting serverAi falls back to local move, sets brainFallback, and emits one notice');
+
+    // (e) all-AI spectating: slots ['ai','ai','off','off','off','off'] reaches round 2 with isSpectating() true
+    delete globalThis.account;
+    aiProviders.openai.available=false;
+    setTimeout=(fn)=>origST(fn,0);
+    let slotsE=['ai','ai','off','off','off','off'].map(v=>({value:v,options:[]}));
+    document.querySelectorAll=s=>s==='.slot select'?slotsE:[];
+    // Pin the match seed: a round between two local AIs on the 960 m map takes 100-260 turns, so a random seed made this flaky.
+    let origCrypto=globalThis.crypto;globalThis.crypto={getRandomValues:a=>{a[0]=4242;return a}};
+    try{startMatch()}finally{globalThis.crypto=origCrypto}
+    ok(S.round===1&&isSpectating()===true,'C4(e): all-AI match starts at round 1 with isSpectating() true');
+    let iter=0;for(;iter<20000&&S.round<2;iter++){
+      if(S.phase==='flight'||S.activeDrive){for(let k=0;k<120&&(S.phase==='flight'||S.activeDrive);k++)step(1/60)}
+      else if(S.phase==='aim'&&current()?.ai&&!aiBusy){await aiTurn()}
+      else step(1/60);
+    }
+    console.log('AI-vs-AI round 1 finished in '+iter+' loop iterations');ok(S.round===2&&isSpectating()===true,'C4(e): all-AI match reaches round 2 autonomously with isSpectating() true (loop iterations '+iter+')');
+  }finally{
+    delete globalThis.account;
+    aiProviders.openai.available=false;
+    document.querySelectorAll=qsa;
+    notice=origNotice;
+    serverAi=origServerAi;
+    setTimeout=origST;
+    setup();
+  }
+})()`,context);
+let simChecks = vm.runInContext('checks', context);
 
 // --- Catalog Drift & Client<->Server Validator Round-Trip Verification ---
 {
@@ -2221,6 +2302,9 @@ const simChecks = vm.runInContext('checks', context);
 }
 
 (async () => {
+  await chunkCDone;
+  simChecks = vm.runInContext('checks', context);
+  console.log(simChecks+' simulation checks passed, including the async server-AI fallback and AI-vs-AI checks.');
   const { createServer } = require('../scripts/serve.cjs');
   const { generateTotpCode } = require('../scripts/auth.cjs');
 

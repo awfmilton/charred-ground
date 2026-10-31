@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('node:assert/strict');
-const { createAiDecisionService } = require('../scripts/ai.cjs');
+const { createAiDecisionService, getAiProvidersStatus, getAiKnobs } = require('../scripts/ai.cjs');
 const { ALLOWED_WEAPONS } = require('../scripts/api.cjs');
 async function runAiTests() {
   const env = { GEMINI_API_KEY: 'test-only-provider-value', GEMINI_MODEL: 'test-model' };
@@ -127,8 +127,23 @@ async function runAiTests() {
       providers: {
         gemini: { available: true, label: 'Gemini 4 Argon' },
         openai: { available: false, label: 'ChatGPT' }
-      }
+      },
+      timeoutMs: 3500
     });
+    assert.deepEqual(getAiKnobs({}), { timeoutMs: 3500, accountRatePerMin: 12, openaiMaxCompletionTokens: 400 });
+    assert.deepEqual(getAiKnobs({ AI_TIMEOUT_MS: '99999', AI_ACCOUNT_RATE_PER_MIN: '0', OPENAI_MAX_COMPLETION_TOKENS: '99999' }), { timeoutMs: 20000, accountRatePerMin: 1, openaiMaxCompletionTokens: 4000 });
+    assert.deepEqual(getAiKnobs({ AI_TIMEOUT_MS: 'abc', AI_ACCOUNT_RATE_PER_MIN: 'xyz', OPENAI_MAX_COMPLETION_TOKENS: '50' }), { timeoutMs: 3500, accountRatePerMin: 12, openaiMaxCompletionTokens: 100 });
+    assert.equal(getAiProvidersStatus({ AI_TIMEOUT_MS: '12000' }).timeoutMs, 12000);
+    let knobBody = null;
+    const knobSvc = createAiDecisionService({
+      env: { ...bothEnv, AI_ACCOUNT_RATE_PER_MIN: '2', OPENAI_MAX_COMPLETION_TOKENS: '2000', AI_TIMEOUT_MS: '12000' },
+      allowedWeapons: ALLOWED_WEAPONS,
+      fetchImpl: async (_u, opts) => { knobBody = JSON.parse(opts.body); return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ weaponOrItem: 'Missile', angle: 45, power: 500 }) } }] }) }; }
+    });
+    await knobSvc(user, { ...payload, provider: 'openai' });
+    assert.equal(knobBody.max_completion_tokens, 2000);
+    await knobSvc(user, { ...payload, provider: 'openai' });
+    await assert.rejects(knobSvc(user, { ...payload, provider: 'openai' }), { status: 429 });
     const url = baseUrl + '/api/ai/decision';
     const send = headers => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(payload) });
     assert.equal((await send({})).status, 401);
