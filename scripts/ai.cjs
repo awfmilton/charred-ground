@@ -11,10 +11,27 @@ const WORLD_MAX_Z = 300;
 
 const MODEL_RE = /^[a-zA-Z0-9._-]{1,100}$/;
 
+function parseClampedInt(raw, def, min, max) {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return def;
+  const n = Number.parseInt(String(raw), 10);
+  if (!Number.isFinite(n)) return def;
+  return Math.max(min, Math.min(max, n));
+}
+
+function getAiKnobs(env = {}) {
+  return {
+    timeoutMs: parseClampedInt(env.AI_TIMEOUT_MS, 3500, 1000, 20000),
+    accountRatePerMin: parseClampedInt(env.AI_ACCOUNT_RATE_PER_MIN, 12, 1, 60),
+    openaiMaxCompletionTokens: parseClampedInt(env.OPENAI_MAX_COMPLETION_TOKENS, 400, 100, 4000)
+  };
+}
+
 function getAiProvidersStatus(env = {}) {
+  const { timeoutMs } = getAiKnobs(env);
   return {
     gemini: { available: Boolean(env.GEMINI_API_KEY && MODEL_RE.test(env.GEMINI_MODEL || '')), label: 'Gemini 4 Argon' },
-    openai: { available: Boolean(env.OPENAI_API_KEY && MODEL_RE.test(env.OPENAI_MODEL || '')), label: 'ChatGPT' }
+    openai: { available: Boolean(env.OPENAI_API_KEY && MODEL_RE.test(env.OPENAI_MODEL || '')), label: 'ChatGPT' },
+    timeoutMs
   };
 }
 
@@ -54,8 +71,9 @@ function createAiDecisionService({ env, fetchImpl, allowedWeapons, now = Date.no
     const at = now();
     for (const [id, rec] of rates) if (at - rec.start >= 60000) rates.delete(id);
     if (at - globalRate.start >= 60000) globalRate = { start: at, count: 0 };
+    const knobs = getAiKnobs(env);
     const rec = rates.get(user.id) || { start: at, count: 0 };
-    if (rec.count >= 12 || globalRate.count >= 60 || inFlight >= 4 || (!rates.has(user.id) && rates.size >= 1000)) throw failure(429, 'Server AI is busy. Local AI remains available.');
+    if (rec.count >= knobs.accountRatePerMin || globalRate.count >= 60 || inFlight >= 4 || (!rates.has(user.id) && rates.size >= 1000)) throw failure(429, 'Server AI is busy. Local AI remains available.');
     rec.count++; rates.set(user.id, rec); globalRate.count++; inFlight++;
     const task = shopping
       ? 'Choose at most 6 purchases from prices within cash. Return only JSON {purchases:[item names],taunt?:string}.'
@@ -65,12 +83,12 @@ function createAiDecisionService({ env, fetchImpl, allowedWeapons, now = Date.no
       const response = provider === 'openai'
         ? await fetchImpl('https://api.openai.com/v1/chat/completions', {
             method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + env.OPENAI_API_KEY },
-            signal: AbortSignal.timeout(3500),
-            body: JSON.stringify({ model: env.OPENAI_MODEL, messages: [{ role: 'system', content: task }, { role: 'user', content: contextJson }], response_format: { type: 'json_object' }, max_completion_tokens: 400 })
+            signal: AbortSignal.timeout(knobs.timeoutMs),
+            body: JSON.stringify({ model: env.OPENAI_MODEL, messages: [{ role: 'system', content: task }, { role: 'user', content: contextJson }], response_format: { type: 'json_object' }, max_completion_tokens: knobs.openaiMaxCompletionTokens })
           })
         : await fetchImpl('https://generativelanguage.googleapis.com/v1beta/models/' + env.GEMINI_MODEL + ':generateContent', {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
-            signal: AbortSignal.timeout(3500),
+            signal: AbortSignal.timeout(knobs.timeoutMs),
             body: JSON.stringify({ contents: [{ parts: [{ text: task + '\n' + contextJson }] }], generationConfig: { responseMimeType: 'application/json', temperature: .7, maxOutputTokens: 400 } })
           });
       if (!response.ok) throw failure(502, 'Server AI request failed.');
@@ -104,4 +122,4 @@ function createAiDecisionService({ env, fetchImpl, allowedWeapons, now = Date.no
   };
 }
 
-module.exports = { createAiDecisionService, getAiProvidersStatus, WORLD_MAX_X, WORLD_MAX_Z };
+module.exports = { createAiDecisionService, getAiProvidersStatus, getAiKnobs, WORLD_MAX_X, WORLD_MAX_Z };

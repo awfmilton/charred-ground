@@ -611,7 +611,8 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch, clo
       }
 
       if (method === 'GET' && pathname === '/api/ai/providers') {
-        json(res, 200, { providers: getAiProvidersStatus(env) });
+        const { gemini, openai, timeoutMs } = getAiProvidersStatus(env);
+        json(res, 200, { providers: { gemini, openai }, timeoutMs });
         return true;
       }
 
