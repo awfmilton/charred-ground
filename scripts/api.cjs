@@ -3,7 +3,7 @@
 const crypto = require('node:crypto');
 const auth = require('./auth.cjs');
 const { publicProfile } = require('./db.cjs');
-const { createAiDecisionService } = require('./ai.cjs');
+const { createAiDecisionService, getAiProvidersStatus } = require('./ai.cjs');
 
 const MAX_BODY_BYTES = 64 * 1024;
 const SESSION_COOKIE = 'cg_session';
@@ -608,6 +608,12 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch, clo
     try {
       if (store.ready) {
         await store.ready;
+      }
+
+      if (method === 'GET' && pathname === '/api/ai/providers') {
+        const { gemini, openai, timeoutMs } = getAiProvidersStatus(env);
+        json(res, 200, { providers: { gemini, openai }, timeoutMs });
+        return true;
       }
 
       // A bearer-authenticated, verified player may request bounded game decisions.

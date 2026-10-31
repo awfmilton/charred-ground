@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('node:assert/strict');
-const { createAiDecisionService } = require('../scripts/ai.cjs');
+const { createAiDecisionService, getAiProvidersStatus, getAiKnobs } = require('../scripts/ai.cjs');
 const { ALLOWED_WEAPONS } = require('../scripts/api.cjs');
 async function runAiTests() {
   const env = { GEMINI_API_KEY: 'test-only-provider-value', GEMINI_MODEL: 'test-model' };
@@ -27,12 +27,124 @@ async function runAiTests() {
   await assert.rejects(broken(user, payload), e => e.status === 502 && !e.message.includes(env.GEMINI_API_KEY));
   const bad = createAiDecisionService({ env, allowedWeapons: ALLOWED_WEAPONS, fetchImpl: async () => ({ ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: '{"weaponOrItem":"Nuke","angle":45,"power":600}' }] } }] }) }) });
   await assert.rejects(bad(user, payload), { status: 502 });
+
+  const bothEnv = { GEMINI_API_KEY: 'gem-secret-key', GEMINI_MODEL: 'gem-model', OPENAI_API_KEY: 'sk-openai-secret-key', OPENAI_MODEL: 'gpt-4o-mini' };
+  let lastReq;
+  let nextContent = JSON.stringify({ weaponOrItem: 'Missile', angle: 60, power: 550, az: 15, targetX: 140, targetZ: 10 });
+  const dualMock = async (url, opts) => {
+    lastReq = { url, opts };
+    if (url.includes('openai.com')) {
+      return { ok: true, json: async () => ({ choices: [{ message: { content: nextContent } }] }) };
+    }
+    return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: nextContent }] } }] }) };
+  };
+  const dualService = createAiDecisionService({ env: bothEnv, fetchImpl: dualMock, allowedWeapons: ALLOWED_WEAPONS });
+  const oaRes = await dualService(user, { ...payload, provider: 'openai' });
+  assert.equal(lastReq.url, 'https://api.openai.com/v1/chat/completions');
+  assert.equal(lastReq.opts.headers.Authorization, 'Bearer ' + bothEnv.OPENAI_API_KEY);
+  assert(!lastReq.url.includes(bothEnv.OPENAI_API_KEY));
+  assert(!lastReq.opts.body.includes(bothEnv.OPENAI_API_KEY));
+  const oaBody = JSON.parse(lastReq.opts.body);
+  assert.equal(oaBody.model, 'gpt-4o-mini');
+  assert.deepEqual(oaBody.response_format, { type: 'json_object' });
+  assert.equal(oaBody.max_completion_tokens, 400);
+  assert.equal(oaBody.messages.length, 2);
+  assert.equal(oaBody.messages[0].role, 'system');
+  assert.equal(oaBody.messages[1].role, 'user');
+  assert.equal(oaRes.weaponOrItem, 'Missile');
+  assert.equal(oaRes.angle, 60);
+  assert.equal(oaRes.power, 550);
+  assert.equal(oaRes.az, 15);
+  assert.equal(oaRes.targetZ, 10);
+  assert.equal(oaRes.taunt, undefined);
+
+  const defRes = await dualService(user, payload);
+  assert(lastReq.url.includes('generativelanguage.googleapis.com'));
+  assert.equal(defRes.weaponOrItem, 'Missile');
+
+  await assert.rejects(dualService(user, { ...payload, provider: 'anthropic' }), { status: 400 });
+
+  const gemOnly = createAiDecisionService({ env: { GEMINI_API_KEY: 'gem-k', GEMINI_MODEL: 'gem-m' }, fetchImpl: dualMock, allowedWeapons: ALLOWED_WEAPONS });
+  await assert.rejects(gemOnly(user, { ...payload, provider: 'openai' }), { status: 503 });
+  assert.equal((await gemOnly(user, { ...payload, provider: 'gemini' })).weaponOrItem, 'Missile');
+
+  const oaOnly = createAiDecisionService({ env: { OPENAI_API_KEY: 'oa-k', OPENAI_MODEL: 'oa-m' }, fetchImpl: dualMock, allowedWeapons: ALLOWED_WEAPONS });
+  await assert.rejects(oaOnly(user, { ...payload, provider: 'gemini' }), { status: 503 });
+  assert.equal((await oaOnly(user, { ...payload, provider: 'openai' })).weaponOrItem, 'Missile');
+
+  for (const badText of [
+    JSON.stringify({ weaponOrItem: 'UnknownLaser', angle: 45, power: 500 }),
+    JSON.stringify({ weaponOrItem: 'Missile', angle: 220, power: 500 }),
+    'not-valid-json{'
+  ]) {
+    const badOa = createAiDecisionService({
+      env: bothEnv,
+      allowedWeapons: ALLOWED_WEAPONS,
+      fetchImpl: async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: badText } }] }) })
+    });
+    await assert.rejects(badOa(user, { ...payload, provider: 'openai' }), e => e.status === 502 && e.message === 'Server AI unavailable. Local AI remains available.');
+  }
+
+  const leakOa = createAiDecisionService({
+    env: bothEnv,
+    allowedWeapons: ALLOWED_WEAPONS,
+    fetchImpl: async () => { throw new Error('Auth failed for ' + bothEnv.OPENAI_API_KEY); }
+  });
+  await assert.rejects(leakOa(user, { ...payload, provider: 'openai' }), e => e.status === 502 && !e.message.includes(bothEnv.OPENAI_API_KEY));
+
+  nextContent = JSON.stringify({ weaponOrItem: 'Missile', angle: 45, power: 500, taunt: '  <b>Fire\u0007\n\t  in   the <script>hole!</script> ' + 'x'.repeat(200), extraSecret: 'drop-me' });
+  const tauntSvc = createAiDecisionService({ env: bothEnv, fetchImpl: dualMock, allowedWeapons: ALLOWED_WEAPONS });
+  const tauntRes = await tauntSvc(user, { ...payload, provider: 'openai' });
+  assert.equal(tauntRes.extraSecret, undefined);
+  assert(!tauntRes.taunt.includes('<') && !tauntRes.taunt.includes('>') && !tauntRes.taunt.includes('\u0007'));
+  assert(tauntRes.taunt.startsWith('bFire in the script'));
+  assert.equal(tauntRes.taunt.length, 80);
+
+  nextContent = JSON.stringify({ weaponOrItem: 'Missile', angle: 45, power: 500, taunt: '   <>\u0000  ' });
+  const emptyTauntRes = await tauntSvc(user, { ...payload, provider: 'openai' });
+  assert.equal(emptyTauntRes.taunt, undefined);
+
+  nextContent = JSON.stringify({ weaponOrItem: 'Missile', angle: 45, power: 500 });
+  const sharedSvc = createAiDecisionService({ env: bothEnv, fetchImpl: dualMock, allowedWeapons: ALLOWED_WEAPONS });
+  for (let i = 0; i < 6; i++) {
+    await sharedSvc(user, { ...payload, provider: 'gemini' });
+    await sharedSvc(user, { ...payload, provider: 'openai' });
+  }
+  await assert.rejects(sharedSvc(user, { ...payload, provider: 'openai' }), { status: 429 });
+  await assert.rejects(sharedSvc(user, { ...payload, provider: 'gemini' }), { status: 429 });
+
   const { createServer } = require('../scripts/serve.cjs');
   const auth = require('../scripts/auth.cjs');
   const server = createServer({ dbPath: ':memory:', env, fetchImpl: mock });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   try {
-    const url = 'http://127.0.0.1:' + server.address().port + '/api/ai/decision';
+    const baseUrl = 'http://127.0.0.1:' + server.address().port;
+    const provRes = await fetch(baseUrl + '/api/ai/providers');
+    assert.equal(provRes.status, 200);
+    const provText = await provRes.text();
+    assert(!provText.includes(env.GEMINI_API_KEY) && !provText.includes(env.GEMINI_MODEL));
+    assert.deepEqual(JSON.parse(provText), {
+      providers: {
+        gemini: { available: true, label: 'Gemini 4 Argon' },
+        openai: { available: false, label: 'ChatGPT' }
+      },
+      timeoutMs: 3500
+    });
+    assert.deepEqual(getAiKnobs({}), { timeoutMs: 3500, accountRatePerMin: 12, openaiMaxCompletionTokens: 400 });
+    assert.deepEqual(getAiKnobs({ AI_TIMEOUT_MS: '99999', AI_ACCOUNT_RATE_PER_MIN: '0', OPENAI_MAX_COMPLETION_TOKENS: '99999' }), { timeoutMs: 20000, accountRatePerMin: 1, openaiMaxCompletionTokens: 4000 });
+    assert.deepEqual(getAiKnobs({ AI_TIMEOUT_MS: 'abc', AI_ACCOUNT_RATE_PER_MIN: 'xyz', OPENAI_MAX_COMPLETION_TOKENS: '50' }), { timeoutMs: 3500, accountRatePerMin: 12, openaiMaxCompletionTokens: 100 });
+    assert.equal(getAiProvidersStatus({ AI_TIMEOUT_MS: '12000' }).timeoutMs, 12000);
+    let knobBody = null;
+    const knobSvc = createAiDecisionService({
+      env: { ...bothEnv, AI_ACCOUNT_RATE_PER_MIN: '2', OPENAI_MAX_COMPLETION_TOKENS: '2000', AI_TIMEOUT_MS: '12000' },
+      allowedWeapons: ALLOWED_WEAPONS,
+      fetchImpl: async (_u, opts) => { knobBody = JSON.parse(opts.body); return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ weaponOrItem: 'Missile', angle: 45, power: 500 }) } }] }) }; }
+    });
+    await knobSvc(user, { ...payload, provider: 'openai' });
+    assert.equal(knobBody.max_completion_tokens, 2000);
+    await knobSvc(user, { ...payload, provider: 'openai' });
+    await assert.rejects(knobSvc(user, { ...payload, provider: 'openai' }), { status: 429 });
+    const url = baseUrl + '/api/ai/decision';
     const send = headers => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(payload) });
     assert.equal((await send({})).status, 401);
     const player = await server.store.createUser({ username: 'aiplayer', email: 'ai@example.test', passwordHash: 'unused-fixture', emailVerified: true, displayName: 'AI Tester' });
