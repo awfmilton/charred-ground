@@ -10,3 +10,5 @@ data/
 .scaffold-cache/
 .codex/
 .gemini/
+
+qa-reports/
