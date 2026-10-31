@@ -216,6 +216,33 @@ const tests = {
     return { ok, detail: `${r.rounds} rounds, min spawn distance ${r.minPair.toFixed(1)} m` + (r.fails.length ? ' FAILS: ' + r.fails.slice(0, 6).join(', ') : '') };
   },
 
+  async aiBrains({ browser, url }) {
+    // Per-slot brains: paid brains are greyed out when signed out or unconfigured; two local AIs play a spectated match.
+    const g = await openGame(browser, url); const p = g.page; const fails = [];
+    const opts = () => p.evaluate(() => Array.from(document.querySelectorAll('.slot select')[1].options).map((o) => ({ v: o.value, t: o.textContent, d: o.disabled })));
+    const o1 = await opts(), by = (o, v) => o.find((x) => x.v === v) || {};
+    if (o1.map((x) => x.v).join() !== 'human,ai,gemini,openai,off') fails.push('slot options ' + o1.map((x) => x.v).join());
+    if (!by(o1, 'gemini').d || !by(o1, 'openai').d || !/\(sign in\)/.test(by(o1, 'openai').t)) fails.push('signed out: paid brains not greyed out ' + JSON.stringify(o1));
+    // Signed in but no server keys, then signed in with a configured provider (state set in-page; no network call is made).
+    await p.evaluate(() => { account.user = { id: 1 }; refreshBrainOptions(); });
+    const o2 = await opts();
+    if (!by(o2, 'openai').d || !/not configured/.test(by(o2, 'openai').t)) fails.push('signed in, unconfigured: ' + JSON.stringify(by(o2, 'openai')));
+    await p.evaluate(() => { aiProviders.openai.available = true; refreshBrainOptions(); });
+    const o3 = await opts();
+    if (by(o3, 'openai').d || by(o3, 'openai').t !== 'ChatGPT') fails.push('signed in, configured: ' + JSON.stringify(by(o3, 'openai')));
+    await p.evaluate(() => { account.user = null; aiProviders.openai.available = false; refreshBrainOptions(); });
+    // Local AI vs local AI, chosen with the real selects and started with the real button.
+    await p.selectOption('.slot:nth-child(1) select', 'ai'); await p.selectOption('.slot:nth-child(2) select', 'ai');
+    await click(p, '#startBtn');
+    const spect = await p.waitForFunction(() => running && /^SPECTATING/.test(document.getElementById('status').textContent), null, { timeout: 30000 }).then(() => true, () => false);
+    if (!spect) fails.push('status never read SPECTATING: ' + await p.evaluate(() => document.getElementById('status').textContent));
+    const fired = await p.waitForFunction(() => S.phase === 'flight' || S.tanks.some((t) => t.lastShot), null, { timeout: 60000 }).then(() => true, () => false);
+    if (!fired) fails.push('no AI fired within 60 s');
+    await g.ctx.close();
+    if (g.errors.length) fails.push('errors: ' + g.errors.join(' / '));
+    return { ok: !fails.length, detail: fails.length ? fails.join('; ') : 'paid brains gated by sign-in and config; local AI vs local AI spectated and firing' };
+  },
+
   async netSync({ browser, url }) {
     if (!NET) return { skip: true, detail: 'set CG_BROWSER_NET=1 (needs the public PeerJS broker)' };
     const H = await openGame(browser, url, { width: 1280, height: 800 }), G = await openGame(browser, url, { width: 1280, height: 800 });
