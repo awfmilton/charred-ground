@@ -1,7 +1,14 @@
 # Verification record
 
-## Current verification — 27 October 2026
+## Current verification — 31 October 2026
 
+`npm test` passes: 1034 simulation checks + 191 API/account checks (1225), plus the server-AI suite, on `main` `eb6a69b` (PRs #6–#8: 2-D world, any-direction driving, water rules, navigable spawns, 2-D editor, terrain revision/delta sync, QA fixes).
+
+`npm run test:browser` (new) passes 7/7 in headless Chromium with real mouse/keyboard input: load, editor end to end, keyboard driving, spawn sweep, and three regression checks that each FAIL on the build before their fix. The opt-in two-peer sync check passes over the public PeerJS broker (guest terrain checksum equals the host).
+
+An exploratory sweep by the Antigravity browser subagent (12 briefs, ~150 human-like checks: every control, all movement, all 43 items, two full games vs the AI including 1v2 Hard) found three defects, all fixed and now covered by the smoke suite. CIWS interception was shown only by the unit test, not in the browser. GitHub Actions cannot run while the account is locked for billing; all results are local.
+
+## Earlier verification — 27 October 2026
 `npm test` passes on Node 24.19.0: 624 simulation checks across 43 items, 191 API/account checks (815 combined), and the server-AI suite. Earlier counts below describe historical coverage. New checks cover wind strength/cadence, round resets, dead-player cycle handling, snapshot sanitization, the bounded wind gauge, accepted-shot capture after value clamping, player isolation, and host/guest previous-shot filtering. Predictive aiming remains disabled.
 
 Claude Opus 5.5 reviewed the exact Argon patches before integration. Browser/WebGL visual verification has not been repeated for this update. MySQL adapter checks use a fake pool; account integration uses SQLite. No live-host wake or deployment was performed by ChatGPT.
