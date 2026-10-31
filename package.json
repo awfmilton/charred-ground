@@ -8,9 +8,12 @@
   "scripts": {
     "start": "node scripts/serve.cjs",
     "test": "node tests/game.cjs && node tests/ai.cjs",
-    "db:check": "node scripts/db-check.cjs"
+    "db:check": "node scripts/db-check.cjs",
+    "test:browser": "node tests/browser/run.cjs",
+    "qa:sweep": "node scripts/qa-sweep.cjs"
   },
   "devDependencies": {
+    "playwright": "1.62.1",
     "three": "0.128.0"
   },
   "engines": {

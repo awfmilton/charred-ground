@@ -12,7 +12,7 @@ pinned: false
 
 [Play the hosted game](https://charred-ground.kodex.tbay.tk).
 
-Node.js 22.5 or newer is required. For local development: `npm install`, copy `.env.example` to `.env` (`cp .env.example .env`), then `npm start` and open http://127.0.0.1:8187. Run `npm test` for the simulation, camera, and player-account API regression suite. The application itself needs no build step.
+Node.js 22.5 or newer is required. For local development: `npm install`, copy `.env.example` to `.env` (`cp .env.example .env`), then `npm start` and open http://127.0.0.1:8187. Run `npm test` for the simulation, camera, and player-account API regression suite. Run `npm run test:browser` for the browser smoke suite (real Chromium, real mouse/keyboard, about 3 minutes) and `npm run qa:sweep` for the exploratory AI-agent browser sweep; see [docs/qa/README.md](docs/qa/README.md). The application itself needs no build step.
 
 Open `index.html` through `npm start` (which serves both the single-file client and the `/api/*` player-account backend on the same origin). The application fetches Three.js, PeerJS, and optional display fonts from CDNs, so the first load needs an internet connection. This README also supplies metadata for a Hugging Face Static Space.
 
