@@ -73,9 +73,14 @@ API references: [Google generateContent](https://ai.google.dev/api/generate-cont
 This is an independent browser remake, not an official release of the original game.
 
 
-## Repository coordination
+## Roadmap
 
-Managed by kôdex / MCP Config Manager. Session Bus room: `#charred-ground`.
+See **[docs/ROADMAP.md](docs/ROADMAP.md)** for the full upcoming engineering roadmap (~78 hours), including:
+- **Team Battles & Cooperative Play** (human + human and computer teammates, shared victory, friendly-fire rules)
+- **Single-Player Campaign Mode** (authored tactical encounters and progression)
+- **Visual Themes** (Cyberpunk Neon Vector Wireframe & Retro VGA Pixel Art themes)
+- **HUD Ergonomics & On-Screen Camera Controls** (moving UI obstructions and adding on-screen Pan, Tilt, Zoom, and Rotate controls)
+- **2D Localized Terrain Destruction, Supporter Donations, Multilingual Support, Security/Infrastructure Reviews, and CI/CD Test Automation**
 
 ## License
 
