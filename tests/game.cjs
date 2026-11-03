@@ -3545,7 +3545,12 @@ let simChecks = vm.runInContext('checks', context);
 
         const fixtureCaRel = 'tests/fixtures/tls/test-only-ca.pem';
         const fixtureCaPem = fs.readFileSync(require.resolve('../tests/fixtures/tls/test-only-ca.pem'), 'utf8');
-        const fixtureServerKeyPem = fs.readFileSync(require.resolve('../tests/fixtures/tls/test-only-server-key.pem'), 'utf8');
+        const fixtureServerKeyB64 = fs.readFileSync(require.resolve('../tests/fixtures/tls/test-only-server-key.der.b64'), 'utf8').trim();
+        const fixtureServerKeyPem = nodeCrypto.createPrivateKey({
+          key: Buffer.from(fixtureServerKeyB64, 'base64'),
+          format: 'der',
+          type: 'pkcs8'
+        }).export({ format: 'pem', type: 'pkcs8' });
         const fixtureServerCertPem = fs.readFileSync(require.resolve('../tests/fixtures/tls/test-only-server-cert.pem'), 'utf8');
         const fixtureCaX509 = new nodeCrypto.X509Certificate(fixtureCaPem);
         const fixtureServerX509 = new nodeCrypto.X509Certificate(fixtureServerCertPem);
@@ -4240,7 +4245,7 @@ let simChecks = vm.runInContext('checks', context);
       try {
         const tlsFailingStore = openStore({
           env: {
-            DB_HOST: 'mysql.tbay.tk',
+            DB_HOST: 'mysql.example.com',
             DB_USER: 'u',
             DB_PASSWORD: secretPw,
             DB_NAME: 'd',

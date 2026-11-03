@@ -9,7 +9,7 @@ CHANGE_LOG (last 10 updates — read only when researching past changes to this 
   v1.0.0 | 2026-04-11 | ecf7f2c | Initial CLI reference guide — Gemini CLI, Jules, Claude Code, GitHub CLI
 -->
 # **Ultimate AI CLI Command Reference (April 2026\)**
-<!-- Author: Alexander Milton / tbay.tk LLC, Helena, Montana | Contact: alex@tbay.tk | https://tbay.tk -->
+<!-- Author: Alexander Milton <awfmilton@gmail.com> | https://github.com/awfmilton -->
 
 This document provides a complete reference for the three major AI coding CLIs: **Gemini CLI**, **Jules Tools**, and **Claude Code**.
 

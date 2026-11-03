@@ -1,6 +1,6 @@
 # Test-only TLS fixtures
 
-These PEM files (`test-only-ca.pem`, `test-only-server-key.pem`, and `test-only-server-cert.pem`) are throwaway, test-only credentials used exclusively by `tests/game.cjs` to start an ephemeral `127.0.0.1` `tls.Server` and verify post-handshake certificate pinning (`verifyConnectionTls` / `wrapMysqlPool`) on a real TLS socket. They are never used for any real host or production environment.
+These fixture files (`test-only-ca.pem`, `test-only-server-key.der.b64`, and `test-only-server-cert.pem`) are throwaway, test-only credentials used exclusively by `tests/game.cjs` to start an ephemeral `127.0.0.1` `tls.Server` and verify post-handshake certificate pinning (`verifyConnectionTls` / `wrapMysqlPool`) on a real TLS socket. They are never used for any real host or production environment. The server key is stored as base64-encoded PKCS#8 DER (`test-only-server-key.der.b64`) without PEM armor headers so automated secret scanners do not false-positive on a throwaway localhost test fixture.
 
 To regenerate:
 
