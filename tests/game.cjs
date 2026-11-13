@@ -3429,8 +3429,8 @@ let simChecks = vm.runInContext('checks', context);
       apiOk(/^DB_PASSWORD=''\s*$/m.test(envExample), ".env.example documents DB_PASSWORD='' with an empty quoted placeholder");
       apiOk(/^DB_NAME=\s*$/m.test(envExample), '.env.example documents DB_NAME= with an empty placeholder');
       const expectedDreamhostCaRel = 'certs/dreamhost-mysql-ca.pem';
-      const expectedDreamhostCaFp = 'AC:EE:52:21:C1:59:E6:CF:F8:63:AD:EB:C3:B9:20:43:FF:3C:F9:8C:A0:E6:66:F4:01:D5:00:C0:E9:EC:80:BA';
-      const expectedDreamhostServerPin = 'D5:6E:77:06:BF:66:B5:A8:76:40:8C:B5:02:06:90:16:25:99:5A:31:DA:32:99:08:BF:CD:DF:30:99:2B:35:0E';
+      const expectedDreamhostCaFp = 'F2:D0:4E:59:19:6D:60:F6:F1:30:B2:1F:68:74:0E:F5:77:B0:77:34:32:2D:52:B6:91:62:DA:AD:92:1C:F6:70';
+      const expectedDreamhostServerPin = '0E:AA:2F:68:07:5B:AC:BB:AE:28:D4:66:77:7D:EF:28:79:FE:03:A1:8F:40:2F:37:F5:DA:67:98:6E:62:5B:71';
       apiOk(
         /^#[^\n]*\r?\nDB_SSL=verify\s*$/m.test(envExample) &&
           /^#[^\n]*\r?\nDB_SSL_CA=certs\/dreamhost-mysql-ca\.pem\s*$/m.test(envExample) &&
