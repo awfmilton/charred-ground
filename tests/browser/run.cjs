@@ -11,7 +11,7 @@
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
-const { chromium } = require('playwright');
+const { launchBrowser, routeVendoredScripts } = require('./support.cjs');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const target = path.resolve(process.argv[2] || path.join(ROOT, 'index.html'));
@@ -31,6 +31,7 @@ function serve(file) {
 
 async function openGame(browser, url, viewport = { width: 1440, height: 900 }) {
   const ctx = await browser.newContext({ viewport });
+  await routeVendoredScripts(ctx);
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
@@ -264,7 +265,7 @@ const tests = {
 (async () => {
   if (!fs.existsSync(target)) { console.error('no such build: ' + target); process.exit(2); }
   const { srv, url } = await serve(target);
-  const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] });
+  const browser = await launchBrowser();
   console.log(`Browser smoke suite against ${path.relative(process.cwd(), target) || target}`);
   let failed = 0, passed = 0, skipped = 0;
   for (const [name, fn] of Object.entries(tests)) {

@@ -26,7 +26,7 @@ Open `index.html` through `npm start` (which serves both the single-file client 
 
 Before a match, set **Max Wind** from 0 (calm) to 6.5 and choose whether it changes each turn, each cycle of living commanders, or once per round. Defaults preserve the original wind behavior. The wind gauge shows direction and strength. Each commander also sees their previous accepted ballistic shot's weapon, angle, power, azimuth, and wind, plus the change in wind since that shot. This reference resets each round and shows no predicted path or impact point.
 
-The map is now 480 meters wide and 160 meters deep, with pooled trees and rocks, animated water, and sandy shores. Press F to focus your tank, E to explore, V for gunner view, or R to reset the full-map camera. Drag to orbit, scroll to zoom, or use the camera sliders. In exploration mode, WASD pans across the map. Firing from a 3D mode shows a short tank-side launch view, then automatically returns to a tactical view that fits the shot. A solid line traces the actual path. Predictive aim and remaining-flight arcs are disabled. Trees are scenery. Tanks can cross water on decks, float with purchased water gear, or sink and drive along the lakebed.
+The map is now 480 meters wide and 160 meters deep, with pooled trees and rocks, animated water, and sandy shores. Press F to focus your tank, E to explore, V for gunner view, or R to reset the full-map camera. Left-drag rotates the camera, right-drag or Shift-drag pans it, and the wheel zooms (Shift+wheel raises and lowers the view). The Camera panel on the right edge has buttons for pan, rotate, tilt and zoom: click for a small step, or hold to keep moving. Its MY TANK, EXPLORE, GUNNER and RESET buttons do exactly what F, E, V and R do. In gunner view, pan, rotate and tilt aim the barrel. On touch screens one finger rotates, and two fingers pan, pinch-zoom and twist. In exploration mode, WASD also pans across the map. HUD panels sit at the screen edges, clear of the middle of the battlefield: each has one HIDE/SHOW button, and the round HUD button lists them all. The Round, Players, Wind, Last-shot and Fire-control panels fade while you aim, move the camera or watch a shot. On short screens the lower-priority panels fold to their tabs on their own until you open them. A blocked camera action shows the reason in a message. Firing from a 3D mode shows a short tank-side launch view, then automatically returns to a tactical view that fits the shot. A solid line traces the actual path. Predictive aim and remaining-flight arcs are disabled. Trees are scenery. Tanks can cross water on decks, float with purchased water gear, or sink and drive along the lakebed.
 
 ## Map editor and floating platforms
 
@@ -79,9 +79,17 @@ See **[docs/ROADMAP.md](docs/ROADMAP.md)** for the full upcoming engineering roa
 - **Team Battles & Cooperative Play** (human + human and computer teammates, shared victory, friendly-fire rules)
 - **Single-Player Campaign Mode** (authored tactical encounters and progression)
 - **Visual Themes** (Cyberpunk Neon Vector Wireframe & Retro VGA Pixel Art themes)
-- **HUD Ergonomics & On-Screen Camera Controls** (moving UI obstructions and adding on-screen Pan, Tilt, Zoom, and Rotate controls)
 - **2D Localized Terrain Destruction, Supporter Donations, Multilingual Support, Security/Infrastructure Reviews, and CI/CD Test Automation**
 
 ## License
 
 Mozilla Public License 2.0 (MPL-2.0). Copyright (c) 2026 Alexander Milton. See [LICENSE](LICENSE).
+
+## Browser tests
+
+The browser suites drive the real game in headless Chromium: `npm run test:browser` runs the original smoke suite and the HUD and camera suite (`tests/browser/hud-camera.cjs`); `npm run test:browser:hud` runs only the HUD and camera suite (`CG_BROWSER_ONLY=layout,fade` picks tests by name).
+
+- **Browser:** on Linux, `npm ci` installs the exact Chromium used for testing (`@sparticuz/chromium` 153.0.0, extracted on first run), so containers without a desktop stack still run the suites. On Windows and macOS the suites use Playwright's own Chromium (`npx playwright install chromium`). `CG_CHROME_PATH` points at any other Chromium binary; `CG_BROWSER=playwright` forces Playwright's.
+- **No CDN needed:** three.js 0.128.0 and PeerJS 1.5.4 are served from `node_modules`, so the tests run offline.
+- **Screenshots:** the HUD suite writes its layout screenshots to `test-results/browser/`.
+- The HUD suite runs with reduced motion, so HUD fades switch instantly; with software WebGL a headless frame can take seconds and CSS transitions only advance on frames.
