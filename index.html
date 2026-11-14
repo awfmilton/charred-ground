@@ -9,14 +9,75 @@ body.inFlight #cameraPanel{display:none}
 textarea{background:#111a14;border:1px solid var(--line);padding:9px;width:100%;border-radius:3px;font:inherit;color:inherit;resize:vertical}#accountModal .sheet,#leaderboardModal .sheet{width:min(880px,100%);padding:28px 34px}.accthead{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:14px;margin-bottom:18px}.accthead h2{font-size:34px}.accttabs{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}.accttabs button.chosen{border-color:var(--acid);color:var(--acid)}.acctgrid{display:grid;grid-template-columns:1fr 1fr;gap:22px}.acctpane.hidden{display:none}.oauthgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.oauthbtn{display:flex;justify-content:space-between;align-items:center;font-size:10px}.lbtable{width:100%;border-collapse:collapse;font-size:11px;margin-top:10px}.lbtable th,.lbtable td{padding:9px 10px;border-bottom:1px solid var(--line);text-align:left}.lbtable th{color:var(--acid);font-size:10px;letter-spacing:1px}.lbtable tr.clickable{cursor:pointer}.lbtable tr.clickable:hover{background:#233024}.statboxes{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:12px 0}.statbox{border:1px solid var(--line);padding:10px;background:#131d16}.statbox strong{display:block;font-size:20px;color:var(--acid)}@media(max-width:750px){.acctgrid,.statboxes,.oauthgrid{grid-template-columns:1fr}}
 #editorPanel{position:absolute;left:25px;top:195px;width:290px;z-index:4;background:#14251bee;border:1px solid var(--acid);padding:12px;backdrop-filter:blur(10px);display:none}#editorPanel.open{display:block}#editorPanel h4{margin:0 0 8px;color:var(--acid);font:700 16px 'Barlow Condensed',sans-serif;letter-spacing:1px;display:flex;justify-content:space-between;align-items:center}.edrow{display:flex;gap:5px;margin-bottom:7px;align-items:center}.edrow button{flex:1;padding:6px 4px;font-size:9px}.edrow button.chosen{border-color:var(--acid);color:var(--acid);background:#2b3b28}.edrow input,.edrow select{padding:5px;font-size:10px}body.editing #roster,body.editing #caption{display:none}#editBtn.selected{border-color:var(--acid);color:var(--acid)}
 #editorPanel{top:190px;max-height:calc(100vh - 210px);overflow:auto;width:310px}#editorPanel input,#editorPanel select{min-width:0;max-width:100%}#edJsonIO{width:100%}.edrow input[type=range]{flex:1;width:110px}body.editing #hud,body.editing #aimhud,body.editing #cameraPanel{display:none}@media(max-width:700px){#editorPanel{left:8px;top:130px;width:270px;max-height:calc(100vh - 145px)}}
+/* ---- Issue 14: HUD cards at the edges, camera dock, fading while busy ---- */
+.hcard{transition:opacity .3s ease}
+@media(prefers-reduced-motion:reduce){.hcard{transition:none}}
+.hcard-bar{display:flex;align-items:center;gap:8px;margin:0 0 6px;padding:3px 6px;border:1px dashed #ffffff26;background:#0c140fb3;color:var(--muted);font-size:9px;letter-spacing:1.5px;user-select:none;-webkit-user-select:none;pointer-events:auto}
+.hcard-bar .title{flex:1;text-transform:uppercase;white-space:nowrap}
+.hcard-bar button{padding:2px 7px;font-size:8px;letter-spacing:1px;background:transparent;border:1px solid var(--line);cursor:pointer}
+.hud-collapsed>:not(.hcard-bar){display:none!important}
+.hud-collapsed .hcard-bar{margin:0}
+#roster{flex-direction:column;align-items:flex-start;flex-wrap:nowrap;overflow-y:auto;overflow-x:hidden}
+#roster>.hcard-bar{align-self:stretch}
+#caption{max-width:250px;pointer-events:auto}
+#caption h2{font-size:26px}
+#caption p{max-width:none;font-size:10px}
+#weather{width:172px}
+#shotCard{position:absolute;z-index:2;right:14px;top:200px;background:#12221ac9;border:1px solid #ffffff19;padding:6px 8px;max-width:220px}
+#shotCard .pill{display:block;white-space:normal;font-size:9px;padding:3px 6px}
+#camDock{position:absolute;right:14px;top:240px;z-index:3;width:184px;padding:8px;background:#14251bd9;border:1px solid #71875a66;backdrop-filter:blur(8px)}
+#camDock .cameraTitle{display:flex;justify-content:space-between;align-items:center;gap:6px;color:var(--acid);font-size:9px;letter-spacing:1px;margin-bottom:6px}
+.camreadout{color:var(--muted);font-size:8px;white-space:nowrap}
+.camshort{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:6px}
+.camdock button{padding:0;min-height:30px;font-size:9px;letter-spacing:.5px;line-height:1;touch-action:none;user-select:none;-webkit-user-select:none}
+.camshort button[aria-pressed=true]{border-color:var(--acid);color:var(--acid)}
+.camgrid{display:grid;grid-template-columns:auto 34px;gap:6px;align-items:start}
+.campan{display:grid;grid-template-columns:repeat(3,30px);gap:3px}
+.camtilt{display:grid;grid-template-rows:auto 30px 30px;gap:3px;width:34px}
+.camrow{display:grid;grid-template-columns:52px 1fr 1fr;gap:3px;align-items:center;margin-top:5px}
+.camlab{font-size:8px;color:var(--muted);letter-spacing:1px}
+body.inFlight .fadeable,body.hud-cam .fadeable,body.hud-aim .fadeable:not(#hud){opacity:.16}
+body.hud-aim #camDock{opacity:.16}
+.fadeable:hover,.fadeable:focus-within{opacity:1!important}
+.hudfab{position:fixed;z-index:6;width:44px;height:44px;padding:0;border-radius:50%;background:var(--acid);color:#182012;border:2px solid #182012;font:700 12px 'Barlow Condensed',sans-serif;letter-spacing:1px}
+.hudmenu{position:fixed;z-index:7;display:none;width:200px;padding:10px;background:#14251bf5;border:1px solid var(--acid)}
+.hudmenu.open{display:block}
+.hudmenu label{display:flex;align-items:center;gap:8px;padding:5px 2px;color:var(--ink);font-size:11px;cursor:pointer}
+.hudmenu button{width:100%;margin-top:6px;font-size:10px;padding:6px}
+body.editing #hudFab,body.editing .hudmenu,body.editing #shotCard{display:none!important}
+@media(max-height:760px) and (min-width:701px){#fps,#wallLabel{display:none}#hud .hudhead{display:none}#camDock{width:300px;display:grid;grid-template-columns:auto 1fr;column-gap:10px;align-items:start}#camDock>.hcard-bar,#camDock>.cameraTitle,#camDock>.camshort{grid-column:1/-1}#camDock>.camgrid{grid-row:span 2}#camDock .camshort{grid-template-columns:repeat(4,1fr)}#camDock>.camrow{margin-top:0;align-self:center}.camdock button{min-height:24px}.campan{grid-template-columns:repeat(3,26px)}.camtilt{grid-template-rows:auto 26px 26px}.camrow{margin-top:3px}.camshort{margin-bottom:4px}#camDock{padding:6px}#camDock .cameraTitle{margin-bottom:4px}}
+@media(max-width:700px){
+ /* Phones: the dock stays outside the middle third and the fire control stays in the bottom third. */
+ #camDock{width:100px;padding:4px;right:8px!important}
+ #camDock .cameraTitle{flex-wrap:wrap}
+ .camreadout{display:none}
+ #hud .hudhead{display:none}
+ #hud .bottomline>span:nth-child(2){display:none}
+ #hud .controls{padding:6px 10px;gap:8px}
+ #hud .control .row{margin-bottom:4px}
+ #hud .control select{padding:6px}
+ #hud .fire{padding:10px 8px!important;font-size:18px}
+ #hud .bottomline{padding:0 10px 6px}
+ .camgrid{grid-template-columns:1fr}
+ .camtilt{grid-template-rows:none;grid-template-columns:auto 30px 30px;width:auto;align-items:center}
+ .camrow{grid-template-columns:1fr 1fr}.camrow .camlab{grid-column:1/-1}
+ .campan{grid-template-columns:repeat(3,28px)}
+ .camdock button{min-height:28px}
+ #weather{width:140px}
+}
 </style></head><body>
 <canvas id="world" aria-label="3D artillery battlefield"></canvas><div id="labels"></div>
 <header><div class="brand">CHARRED <b>GROUND</b><small>TACTICAL ARTILLERY / OPEN HORIZONS</small></div><div class="topactions"><span class="pill"><span class="dot"></span><span id="modeLabel">LOCAL OPERATIONS</span></span><select id="quality" aria-label="Graphics quality"><option>Balanced</option><option>Low</option><option>High</option></select><button id="focusBtn">MY TANK [F]</button><button id="exploreBtn">EXPLORE [E]</button><button id="viewBtn">GUNNER [V]</button><button id="leaderboardBtn">LEADERBOARD</button><button id="accountBtn">ACCOUNT</button><button id="editBtn">EDITOR [M]</button><button id="helpBtn" aria-label="Help">?</button><button id="menuBtn">MENU</button></div></header>
 <div id="roster"></div><div id="weather"><div class="small">WIND VECTOR</div><strong id="wind">→ 0.0</strong><div class="windgauge" id="windGauge" aria-label="Wind gauge"><i id="windBar"></i></div><div class="small" id="windMeta">CALM · MAX 6.5 · EACH TURN</div><div class="small" id="wallLabel">CONCRETE BOUNDARIES</div><div class="small" id="fps">60 FPS · BALANCED</div></div>
 <div id="caption"><div class="small" id="roundLabel">ROUND 01 / ROLLING HILLS</div><h2 id="turnLabel">LEAVE YOUR MARK.</h2><p id="status">Pick your angle. Trust the wind. Leave a crater.</p></div>
-<div id="cameraPanel"><div class="cameraTitle"><span id="cameraMode">TACTICAL</span><button id="overviewBtn" title="Reset to full battlefield">RESET [R]</button></div><label>ORBIT <output id="orbitOut">0°</output><input id="orbit" aria-label="Camera orbit angle" type="range" min="-180" max="180" value="0"></label><label>TILT <output id="tiltOut">22°</output><input id="tilt" aria-label="Camera tilt" type="range" min="10" max="80" value="22"></label><label>ZOOM <output id="zoomOut">1.0×</output><input id="cameraZoom" aria-label="Camera zoom" type="range" min="0.65" max="5" step="0.05" value="1"></label><div class="small" id="cameraHint">Drag to orbit · Scroll to zoom</div></div><div id="aimhud"><div class="crosshair"></div><div id="rangeInfo"></div></div>
-<div id="hud"><div class="hudhead"><span id="turnInfo"><b>FIRE CONTROL</b> / AWAITING COMMANDER</span><span id="phaseInfo">TACTICAL OVERVIEW</span></div><div class="controls"><div class="control"><div class="row"><label for="angle">ELEVATION</label><output id="angleOut">45°</output></div><input id="angle" type="range" min="0" max="180" step="0.5" value="45"></div><div class="control"><div class="row"><label for="power">FIRING POWER</label><output id="powerOut">650</output></div><input id="power" type="range" min="0" max="1000" value="650"></div><div class="control weaponcontrol"><div class="row"><label for="weapon">PAYLOAD / EQUIPMENT</label><span id="ammo">∞</span></div><select id="weapon"></select></div><div class="control"><div class="row"><label for="azimuth">AZIMUTH</label><output id="azOut">0°</output></div><input id="azimuth" type="range" min="-180" max="180" value="0" step="0.5"></div><button class="primary fire" id="fireBtn">FIRE ↗</button></div><div class="bottomline"><span><button id="moveL" title="Drive left" style="padding:3px 9px">←</button> <button id="moveR" title="Drive right" style="padding:3px 9px">→</button> <button id="driveFwd" title="Drive forward [W]" style="padding:3px 9px">FWD ▲</button> <button id="driveRev" title="Reverse [S]" style="padding:3px 9px">REV ▼</button> <button id="turnL" title="Turn left [A]" style="padding:3px 9px">↺</button> <button id="turnR" title="Turn right [D]" style="padding:3px 9px">↻</button> <button id="moveStop" title="Stop driving" style="padding:3px 9px;display:none">STOP ■</button> <span id="fuel">FUEL 100</span> · <span id="hdg">HDG 000°</span></span><span><label>TARGET X <input id="targetX" type="number" min="0" max="960" placeholder="AUTO" style="width:65px;padding:3px 5px" aria-label="Drone target X coordinate"></label> <label>Z <input id="targetZ" type="number" min="-240" max="240" placeholder="AUTO" style="width:60px;padding:3px 5px" aria-label="Drone target Z coordinate"></label></span><span id="lastShotInfo" class="pill" style="padding:3px 8px" aria-label="Previous ballistic shot reference">LAST SHOT: NONE</span><span id="actionBadge" class="pill" style="padding:3px 8px;border-color:var(--acid);color:var(--acid)">ACTIONS 4/4 · TURN 1</span><span>WASD DRIVE · ARROWS AIM (SHIFT AZ) · SPACE FIRE · V CAM</span></div></div>
-<div id="toast" role="status"></div>
+<div id="camDock" class="camdock" role="group" aria-label="Camera controls"><div class="cameraTitle"><span id="cameraMode">TACTICAL</span><output id="camReadout" class="camreadout"></output></div>
+<div class="camshort" role="group" aria-label="Camera shortcuts"><button type="button" id="camFocus" data-cam-shortcut="focus" title="Focus active tank [F]" aria-label="Focus active tank (F)">MY TANK</button><button type="button" id="camExplore" data-cam-shortcut="explore" title="Explore [E]" aria-label="Explore (E)">EXPLORE</button><button type="button" id="camGunner" data-cam-shortcut="gunner" title="Barrel gunner view [V]" aria-label="Barrel gunner view (V)">GUNNER</button><button type="button" id="camReset" data-cam-shortcut="reset" title="Reset full map [R]" aria-label="Reset full map (R)">RESET</button></div>
+<div class="camgrid"><div class="campan" role="group" aria-label="Pan"><span></span><button type="button" data-cam="pan-up" aria-label="Pan up" title="Pan up (hold)">▲</button><span></span><button type="button" data-cam="pan-left" aria-label="Pan left" title="Pan left (hold)">◀</button><button type="button" data-cam="center" aria-label="Center on my tank" title="Center on my tank">⌖</button><button type="button" data-cam="pan-right" aria-label="Pan right" title="Pan right (hold)">▶</button><span></span><button type="button" data-cam="pan-down" aria-label="Pan down" title="Pan down (hold)">▼</button><span></span></div>
+<div class="camtilt" role="group" aria-label="Tilt"><span class="camlab">TILT</span><button type="button" data-cam="tilt-up" aria-label="Tilt up" title="Tilt up (hold)">⤒</button><button type="button" data-cam="tilt-down" aria-label="Tilt down" title="Tilt down (hold)">⤓</button></div></div>
+<div class="camrow" role="group" aria-label="Rotate"><span class="camlab">ROTATE</span><button type="button" data-cam="rot-left" aria-label="Rotate left" title="Rotate left (hold)">↺</button><button type="button" data-cam="rot-right" aria-label="Rotate right" title="Rotate right (hold)">↻</button></div>
+<div class="camrow" role="group" aria-label="Zoom"><span class="camlab">ZOOM</span><button type="button" data-cam="zoom-out" aria-label="Zoom out" title="Zoom out (hold)">−</button><button type="button" data-cam="zoom-in" aria-label="Zoom in" title="Zoom in (hold)">+</button></div></div><div id="aimhud"><div class="crosshair"></div><div id="rangeInfo"></div></div>
+<div id="hud"><div class="hudhead"><span id="turnInfo"><b>FIRE CONTROL</b> / AWAITING COMMANDER</span><span id="phaseInfo">TACTICAL OVERVIEW</span></div><div class="controls"><div class="control"><div class="row"><label for="angle">ELEVATION</label><output id="angleOut">45°</output></div><input id="angle" type="range" min="0" max="180" step="0.5" value="45"></div><div class="control"><div class="row"><label for="power">FIRING POWER</label><output id="powerOut">650</output></div><input id="power" type="range" min="0" max="1000" value="650"></div><div class="control weaponcontrol"><div class="row"><label for="weapon">PAYLOAD / EQUIPMENT</label><span id="ammo">∞</span></div><select id="weapon"></select></div><div class="control"><div class="row"><label for="azimuth">AZIMUTH</label><output id="azOut">0°</output></div><input id="azimuth" type="range" min="-180" max="180" value="0" step="0.5"></div><button class="primary fire" id="fireBtn">FIRE ↗</button></div><div class="bottomline"><span><button id="moveL" title="Drive left" style="padding:3px 9px">←</button> <button id="moveR" title="Drive right" style="padding:3px 9px">→</button> <button id="driveFwd" title="Drive forward [W]" style="padding:3px 9px">FWD ▲</button> <button id="driveRev" title="Reverse [S]" style="padding:3px 9px">REV ▼</button> <button id="turnL" title="Turn left [A]" style="padding:3px 9px">↺</button> <button id="turnR" title="Turn right [D]" style="padding:3px 9px">↻</button> <button id="moveStop" title="Stop driving" style="padding:3px 9px;display:none">STOP ■</button> <span id="fuel">FUEL 100</span> · <span id="hdg">HDG 000°</span></span><span><label>TARGET X <input id="targetX" type="number" min="0" max="960" placeholder="AUTO" style="width:65px;padding:3px 5px" aria-label="Drone target X coordinate"></label> <label>Z <input id="targetZ" type="number" min="-240" max="240" placeholder="AUTO" style="width:60px;padding:3px 5px" aria-label="Drone target Z coordinate"></label></span><span id="actionBadge" class="pill" style="padding:3px 8px;border-color:var(--acid);color:var(--acid)">ACTIONS 4/4 · TURN 1</span><span>WASD DRIVE · ARROWS AIM (SHIFT AZ) · SPACE FIRE · V CAM</span></div></div>
+<div id="shotCard"><span id="lastShotInfo" class="pill" aria-label="Previous ballistic shot reference">LAST SHOT: NONE</span></div><button type="button" id="hudFab" class="hudfab" aria-label="HUD panels" aria-expanded="false" aria-controls="hudMenu" title="Show or hide HUD panels">HUD</button><div id="hudMenu" class="hudmenu" role="group" aria-label="HUD panels"><div id="hudMenuItems"></div><button type="button" id="hudReset">SHOW ALL</button></div><div id="toast" role="status"></div>
 <div id="editorPanel"><h4><span>MAP EDITOR</span><span><button id="edCancelBtn" style="padding:3px 7px;font-size:9px">CANCEL</button> <button id="edCloseBtn" style="padding:3px 7px;font-size:9px">APPLY</button></span></h4><div class="edrow"><input id="mapName" maxlength="40" value="Custom Ridge" aria-label="Custom map name"></div><div class="edrow"><button id="toolRaise" class="chosen">RAISE</button><button id="toolLower">LOWER</button><button id="toolSmooth">SMOOTH</button><button id="toolFlat">FLAT</button><button id="toolWater">WATER</button></div><div class="edrow"><button id="toolPlat">+ PLATFORM</button><button id="toolDelPlat">- PLATFORM</button><button id="toolSpawn">SET SPAWN</button></div><div class="edrow"><label style="min-width:65px">BRUSH <output id="brushOut">18m</output></label><input id="brushSize" type="range" min="4" max="50" value="18"><select id="spawnSlot" style="width:68px" aria-label="Spawn slot"><option value="0">P1</option><option value="1">P2</option><option value="2">P3</option><option value="3">P4</option><option value="4">P5</option><option value="5">P6</option></select></div><div class="edrow"><label style="min-width:65px">PLAT W <output id="platWOut">28m</output></label><input id="platWidth" type="range" min="12" max="64" value="28"></div><div class="edrow"><button id="edSaveBtn">SAVE</button><select id="savedMaps" aria-label="Saved custom maps"><option value="">Saved Maps…</option></select><button id="edLoadBtn">LOAD</button></div><div class="edrow"><button id="edExportBtn">EXPORT JSON</button><button id="edImportBtn">IMPORT JSON</button><button id="edPlayBtn" class="primary">PLAY MAP</button></div><div class="edrow"><label for="platElev" style="min-width:65px">LIFT <output id="platElevOut">0m</output></label><input id="platElev" type="range" min="0" max="40" step="1" value="0" aria-label="Platform lift above water or terrain"></div><input id="edJsonIO" placeholder="Paste JSON to import or copy exported JSON" aria-label="Custom map JSON"><div class="small" style="margin-top:5px">Click/drag the battlefield to sculpt. Water is at 12m. Connect deck edges to shore; use Deck Lift to match bank height. All six spawn flags must be on land or decks.</div></div>
 
 <div class="modal" id="menu"><div class="sheet"><div class="menuhero"><div class="eyebrow">TURN-BASED WARFARE / FULLY REFORGED</div><h1>MAKE YOUR<br><span>SHOT COUNT.</span></h1><p>Explore a wider world of wooded ridges and blue water. Find your angle, fortify your tank, and leave your mark on a 960 × 480 meter destructible battlefield.</p></div><div class="menugrid"><section><h3>01 / Battlefield</h3><div class="fields"><div class="field"><label>TERRAIN</label><select id="terrainType"><option>Rolling Hills</option><option>Jagged Mountains</option><option>Valleys</option><option>Cliffs</option><option>Custom</option></select></div><div class="field"><label>BOUNDARIES</label><select id="wallType"><option>Concrete</option><option>Rubber</option><option>Spring</option><option>Wrap-Around</option><option>Erratic</option></select></div><div class="field"><label>AI DIFFICULTY</label><select id="difficulty"><option value="Easy">Easy</option><option value="Normal" selected>Normal</option><option value="Hard">Hard</option><option value="Gemini 4 Argon Mastermind">Gemini 4 Argon Mastermind</option></select></div><div class="field"><label>ECONOMY</label><select id="market"><option value="fixed">Fixed prices · 5% interest</option><option value="free">Free market · 5% interest</option></select></div><div class="field"><label>MOVE TIME (3-30S)</label><input id="moveDuration" type="number" min="3" max="30" step="1" value="11" aria-label="Movement duration in seconds"></div><div class="field"><label>MAX WIND (0-6.5 M/S)</label><input id="maxWind" type="number" min="0" max="6.5" step="0.5" value="6.5" aria-label="Maximum wind speed"></div><div class="field"><label>WIND CADENCE</label><select id="windCadence" aria-label="Wind shift cadence"><option value="turn" selected>Each turn</option><option value="cycle">Each cycle</option><option value="round">Whole round</option></select></div><div class="field wide"><label>COMMANDERS / MIX HUMANS & BOTS</label><div id="slots" class="slots"></div></div><div class="field wide"><button id="menuEditBtn" type="button">OPEN TERRAIN & BRIDGE EDITOR</button></div></div></section><section><h3>02 / Online operations</h3><p class="notice">Host a private battle or find an open public room. Up to six commanders. The host controls match settings.</p><div class="netbuttons"><button id="hostBtn">HOST PRIVATE</button><button id="publicBtn">FIND PUBLIC MATCH</button></div><div style="display:flex;gap:8px"><input id="roomCode" placeholder="CHARRED-XXXXXX" maxlength="30" aria-label="Room code"><button id="joinBtn">JOIN</button></div><p class="notice" id="netStatus">LOCAL / READY TO DEPLOY</p><div id="lobbyList" class="notice"></div><button id="leaveBtn" style="display:none">LEAVE ROOM</button><details><summary>Network & relay settings</summary><input id="turnUrl" placeholder="Optional TURN URL: turn:relay.example.com:3478" aria-label="TURN server URL"><input id="turnUser" placeholder="TURN username" aria-label="TURN username"><input id="turnPass" type="password" placeholder="TURN credential" aria-label="TURN credential"><p class="notice">PeerJS uses public signaling. Some networks require a TURN relay. Public rooms are discoverable; do not share private information.</p></details><p class="notice">STARTER KIT / Missiles, a Baby Nuke, MIRV, a shield, a battery, fuel, and a parachute. Earn credits and rearm between rounds.</p></section></div><div class="menufoot"><span class="small">NO INSTALL. NO MERCY.<br><span id="menuNote">960 × 480 M BATTLEFIELD / 43 WEAPONS & EQUIPMENT</span></span><div><button id="resumeBtn" style="display:none">RESUME</button> <button id="startBtn" class="primary">DEPLOY TO BATTLE ↗</button></div></div></div></div>
@@ -93,7 +154,7 @@ function quantH(v){return Math.round(v*100)/100}
 setWorld({w:960,d:240,cell:2});
 let pGeo,pPos,pCol,pPoints,projectileMesh,projectileDummy=new THREE.Object3D(),arc,arcGeo,arcPositions=new Float32Array(180*3),audio=null,muted=false;
 
-let viewMode='tactical',orbitYaw=0,orbitPitch=22,orbitZoom=1,exploreX=W/2,exploreZ=0,lastVisualPhase='aim',launchTimer=0,launchOwner=0,lastVisualRound=0;
+let viewMode='tactical',orbitYaw=0,orbitPitch=22,orbitZoom=1,exploreX=W/2,exploreZ=0,camPanY=0,camDist=200,lastVisualPhase='aim',launchTimer=0,launchOwner=0,lastVisualRound=0;
 const cameraGoal=new THREE.Vector3(),lookGoal=new THREE.Vector3(),natureDummy=new THREE.Object3D();
 let water,trunks,crowns,rocks,trailGeo,trailLine,trailBuffer=new Float32Array(64*512*6),traces=new Map();
 const WATER_LEVEL=12,MAX_PLATFORMS=16,MIN_PLAT_W=12,MAX_PLAT_W=64,MIN_SPAWN_GAP=8,MAX_MAP_TEXT=600000,CUSTOM_MAP_KEY='charred_custom_maps_v1';
@@ -110,11 +171,235 @@ function initNature(){
 function natureRand(i,s){let n=Math.sin(i*127.1+s*311.7+(S.round||1)*13.3)*43758.5453;return n-Math.floor(n)}
 function terrainSlope(x,z){let dx=height(clamp(x+CELL,0,W),z)-height(clamp(x-CELL,0,W),z),dz=height(x,clamp(z+CELL,-D,D))-height(x,clamp(z-CELL,-D,D));return Math.hypot(dx,dz)/(2*CELL)}
 function updateNature(){if(!trunks||!S)return;let areaScale=Math.pow((W*D)/(480*80),.32),treeBudget=clamp(Math.round(95*areaScale),40,MAX_TREES),rockBudget=clamp(Math.round(38*areaScale),16,MAX_ROCKS),count=0;for(let i=0;i<treeBudget*2&&count<treeBudget;i++){let x=8+natureRand(i,1)*(W-16),z=(natureRand(i,2)*2-1)*(D-8);if(Math.abs(z)<6)continue;let y=height(x,z);if(y<WATER_LEVEL+2||terrainSlope(x,z)>1.35)continue;let scale=.65+natureRand(i,3)*.8;natureDummy.rotation.set(0,natureRand(i,4)*6.28,0);natureDummy.scale.setScalar(scale);natureDummy.position.set(x,y+2.5*scale,z);natureDummy.updateMatrix();trunks.setMatrixAt(count,natureDummy.matrix);natureDummy.position.y=y+7*scale;natureDummy.updateMatrix();crowns.setMatrixAt(count,natureDummy.matrix);count++}trunks.count=crowns.count=count;for(let m of [trunks,crowns])m.instanceMatrix.needsUpdate=true;count=0;for(let i=0;i<rockBudget*2&&count<rockBudget;i++){let x=5+natureRand(i,5)*(W-10),z=(natureRand(i,6)*2-1)*(D-6),y=height(x,z);if(y<WATER_LEVEL+.5||terrainSlope(x,z)>1.8)continue;natureDummy.position.set(x,y+.7,z);natureDummy.scale.set(1.5+natureRand(i,7)*2,.7+natureRand(i,8),1.2+natureRand(i,9));natureDummy.rotation.set(.2,i,0);natureDummy.updateMatrix();rocks.setMatrixAt(count++,natureDummy.matrix)}rocks.count=count;rocks.instanceMatrix.needsUpdate=true;}
-function syncCameraUI(){fp=viewMode==='gunner';document.body.classList.toggle('inFlight',S?.phase==='flight');document.body.classList.toggle('immersive',viewMode!=='tactical');$('cameraMode').textContent=launchTimer>0?'LAUNCH CAMERA':viewMode.toUpperCase();$('orbit').value=orbitYaw;$('tilt').value=orbitPitch;$('cameraZoom').value=orbitZoom;$('orbitOut').textContent=Math.round(orbitYaw)+'°';$('tiltOut').textContent=Math.round(orbitPitch)+'°';$('zoomOut').textContent=orbitZoom.toFixed(1)+'×';$('cameraHint').textContent=viewMode==='explore'?'Drag / wheel · WASD to roam':viewMode==='gunner'?'Aim with elevation / azimuth':'Drag to orbit · Scroll to zoom';for(let[id,mode]of [['viewBtn','gunner'],['focusBtn','focus'],['exploreBtn','explore']])$(id).classList.toggle('selected',viewMode===mode);for(let id of ['orbit','tilt','cameraZoom'])$(id).disabled=viewMode==='gunner'||S?.phase==='flight';}
-function setCameraMode(mode){if(S?.phase==='flight'){notice('The flight camera follows the shot. Change views after impact.');return}viewMode=mode;launchTimer=0;let tk=current();if(mode==='explore'||mode==='focus'){exploreX=clamp(tk?.x??W/2,0,W);exploreZ=clamp(tk?.z||0,-D,D);orbitZoom=1;orbitPitch=mode==='explore'?32:20;orbitYaw=mode==='focus'?0:((tk?.x??W/2)>W/2?-30:30)}else if(mode==='tactical'){orbitYaw=0;orbitPitch=22;orbitZoom=1}syncCameraUI();}
-function resetCamera(){viewMode='tactical';orbitYaw=0;orbitPitch=22;orbitZoom=1;launchTimer=0;exploreX=W/2;exploreZ=0;syncCameraUI()}
+function syncCameraUI(){fp=viewMode==='gunner';document.body.classList.toggle('inFlight',S?.phase==='flight');document.body.classList.toggle('immersive',viewMode!=='tactical');$('cameraMode').textContent=launchTimer>0?'LAUNCH CAMERA':viewMode.toUpperCase();$('camReadout').textContent=Math.round(orbitYaw)+'° · '+Math.round(orbitPitch)+'° · '+orbitZoom.toFixed(1)+'×';for(let[id,mode]of [['viewBtn','gunner'],['focusBtn','focus'],['exploreBtn','explore']])$(id).classList.toggle('selected',viewMode===mode);for(let[id,on]of [['camFocus',viewMode==='focus'],['camExplore',viewMode==='explore'],['camGunner',viewMode==='gunner']])$(id).setAttribute('aria-pressed',String(on));}
+function setCameraMode(mode){if(S?.phase==='flight'){notice('The flight camera follows the shot. Change views after impact.');return}viewMode=mode;launchTimer=0;let tk=current();if(mode==='explore'||mode==='focus'){exploreX=clamp(tk?.x??W/2,0,W);exploreZ=clamp(tk?.z||0,-D,D);orbitZoom=1;orbitPitch=mode==='explore'?32:20;orbitYaw=mode==='focus'?0:((tk?.x??W/2)>W/2?-30:30)}else if(mode==='tactical'){orbitYaw=0;orbitPitch=22;orbitZoom=1;exploreX=W/2;exploreZ=0;camPanY=0}syncCameraUI();}
+function resetCamera(){viewMode='tactical';orbitYaw=0;orbitPitch=22;orbitZoom=1;launchTimer=0;exploreX=W/2;exploreZ=0;camPanY=0;syncCameraUI()}
 function panExplore(key){let yaw=orbitYaw*rad,step=Math.max(8,Math.hypot(W,D*2)*.008)/orbitZoom;let right=key==='d'?1:key==='a'?-1:0,forward=key==='w'?1:key==='s'?-1:0;exploreX=clamp(exploreX+(Math.cos(yaw)*right-Math.sin(yaw)*forward)*step,0,W);exploreZ=clamp(exploreZ+(-Math.sin(yaw)*right-Math.cos(yaw)*forward)*step,-D,D)}
-function initCameraControls(){for(let id of ['orbit','tilt','cameraZoom'])$(id).addEventListener('input',()=>{orbitYaw=+$('orbit').value;orbitPitch=+$('tilt').value;orbitZoom=+$('cameraZoom').value;syncCameraUI()});let drag=null;let canvas=$('world');canvas.addEventListener('pointerdown',e=>{if(editorOpen||viewMode==='gunner'||S?.phase==='flight')return;drag={id:e.pointerId,x:e.clientX,y:e.clientY};canvas.setPointerCapture(e.pointerId)});canvas.addEventListener('pointermove',e=>{if(!drag||drag.id!==e.pointerId)return;orbitYaw=((orbitYaw+(e.clientX-drag.x)*.3+540)%360)-180;orbitPitch=clamp(orbitPitch+(e.clientY-drag.y)*.18,10,80);drag.x=e.clientX;drag.y=e.clientY;syncCameraUI()});for(let name of ['pointerup','pointercancel','lostpointercapture'])canvas.addEventListener(name,()=>drag=null);canvas.addEventListener('wheel',e=>{if(viewMode==='gunner'||S?.phase==='flight')return;e.preventDefault();orbitZoom=clamp(orbitZoom*Math.exp(-e.deltaY*.001),.65,5);syncCameraUI()},{passive:false});}
+const wrapYaw=a=>((a+540)%360)-180;
+// Panning may look past the battlefield edge a little, so a corner can be centred on screen.
+function clampPan(){exploreX=clamp(exploreX,-W*.25,W*1.25);exploreZ=clamp(exploreZ,-D*1.5,D*1.5);camPanY=clamp(camPanY,-20,150)}
+// Grab-the-map pan: the ground under the pointer follows the drag. dx/dy are screen pixels.
+function panByScreen(dx,dy){let yaw=orbitYaw*rad,pitch=Math.max(.2,Math.sin(orbitPitch*rad)),perPx=2*camDist*Math.tan(camera.fov*rad/2)/Math.max(1,innerHeight);let rx=Math.cos(yaw),rz=-Math.sin(yaw),fx=-Math.sin(yaw),fz=-Math.cos(yaw);exploreX+=-rx*dx*perPx+fx*dy*perPx/pitch;exploreZ+=-rz*dx*perPx+fz*dy*perPx/pitch;clampPan()}
+// Panning out of follow-tank mode keeps the view and detaches the camera where the tank is.
+function leaveFocusForPan(){if(viewMode!=='focus')return;let tk=current();viewMode='explore';exploreX=clamp(tk?.x??W/2,0,W);exploreZ=clamp(tk?.z||0,-D,D);camPanY=0;syncCameraUI()}
+/* ---- Camera controls: on-screen dock, mouse/touch gestures, shortcuts (issue 14) ----
+   Every camera action goes through camAct(), which returns '' on success or the reason it was refused.
+   A refusal is shown in the toast: nothing fails silently. */
+const CAM_STEP={pan:12,yaw:3,tilt:2,zoom:1.06,aim:1};
+const aimMode=()=>viewMode==='gunner'&&S?.phase==='aim'&&launchTimer<=0;
+function camBlockReason(){
+ if(!S)return 'Start a match to use the camera.';
+ if(editorOpen)return 'Close the map editor to move the camera.';
+ let pd=activePilotDrone();
+ if(pd&&(!online||myId===pd.owner||host))return 'Your piloted drone is steering the camera. Stop piloting to move it.';
+ return '';
+}
+function aimBlockReason(){
+ if(S.phase!=='aim')return 'Aim is locked while the shot is in the air.';
+ if(current()?.ai)return 'An AI commander is taking its turn. Aim is locked.';
+ if(online&&myId!==S.turn)return 'Not your turn. You can only aim on your turn.';
+ if(!canControl())return 'Aim is locked while a menu or the shop is open.';
+ return '';
+}
+// In gunner view the camera IS the barrel, so the dock aims it: the same values the arrow keys change.
+function nudgeAim(which,delta){
+ if(which==='az'){let next=wrapAzDeg((+$('azimuth').value||0)+delta);$('azimuth').value=next;if(current())current().az=next}
+ else $('angle').value=clamp((+$('angle').value||0)+delta,0,180);
+ updateUI();
+}
+function camAct(name){
+ let why=camBlockReason();if(why)return why;
+ let aim=aimMode();
+ switch(name){
+  case 'pan-left':case 'pan-right':case 'pan-up':case 'pan-down':{
+   let dir=name.slice(4);
+   if(aim){why=aimBlockReason();if(why)return why;
+    if(dir==='left'||dir==='right')nudgeAim('az',dir==='left'?-CAM_STEP.aim:CAM_STEP.aim);
+    else nudgeAim('angle',dir==='up'?CAM_STEP.aim:-CAM_STEP.aim);
+    return '';}
+   let d={left:[CAM_STEP.pan,0],right:[-CAM_STEP.pan,0],up:[0,CAM_STEP.pan],down:[0,-CAM_STEP.pan]}[dir];
+   leaveFocusForPan();panByScreen(d[0],d[1]);syncCameraUI();return '';}
+  case 'rot-left':case 'rot-right':{
+   let sg=name==='rot-right'?1:-1;
+   if(aim){why=aimBlockReason();if(why)return why;nudgeAim('az',sg*CAM_STEP.aim);return '';}
+   orbitYaw=wrapYaw(orbitYaw+sg*CAM_STEP.yaw);syncCameraUI();return '';}
+  case 'tilt-up':case 'tilt-down':{
+   let sg=name==='tilt-up'?1:-1;
+   if(aim){why=aimBlockReason();if(why)return why;nudgeAim('angle',sg*CAM_STEP.aim);return '';}
+   orbitPitch=clamp(orbitPitch+sg*CAM_STEP.tilt,10,80);syncCameraUI();return '';}
+  case 'zoom-in':orbitZoom=clamp(orbitZoom*CAM_STEP.zoom,.65,5);syncCameraUI();return '';
+  case 'zoom-out':orbitZoom=clamp(orbitZoom/CAM_STEP.zoom,.65,5);syncCameraUI();return '';
+  case 'center':{
+   if(aim)return 'Gunner view is already centred on the barrel. Switch views to re-centre the map.';
+   let tk=current();leaveFocusForPan();exploreX=clamp(tk?.x??W/2,0,W);exploreZ=clamp(tk?.z||0,-D,D);camPanY=0;syncCameraUI();return '';}
+ }
+ return 'That camera control does not exist.';
+}
+// The shortcut buttons run exactly what F, E, V and R run.
+function camShortcut(k){
+ if(k==='focus')$('focusBtn').click();
+ else if(k==='explore')$('exploreBtn').click();
+ else if(k==='gunner')$('viewBtn').click();
+ else resetCamera();
+}
+// Painting in the map editor must not spam toasts, so refusals stay quiet there unless a dock button was pressed.
+function camRefuse(why,fromDock){if(why&&(fromDock||!editorOpen))notice(why)}
+const hudPulseTimers={};
+// Marks the body busy so the status cards fade out of the way while the player aims, moves the camera or watches a shot.
+function hudPulse(kind){let cls=kind==='aim'?'hud-aim':'hud-cam',b=document.body;b.classList.add(cls);clearTimeout(hudPulseTimers[kind]);hudPulseTimers[kind]=setTimeout(()=>b.classList.remove(cls),1500)}
+// One press = one small step; holding keeps moving. Keyboard activation (detail 0) = one step.
+// The hold is TIME-based: each tick catches up to the steps the elapsed time is owed, so a busy frame (software
+// WebGL, a slow phone) slows nothing down; it only delivers the same movement in fewer, larger updates.
+const HOLD_DELAY_MS=250,HOLD_RATE_MS=50;
+function camHold(btn){
+ const name=btn.dataset.cam;let timer=0,t0=0,done=0,live=false;
+ const step=()=>{hudPulse('cam');let why=camAct(name);if(why){live=false;clearInterval(timer);camRefuse(why,true)}return why};
+ // Times come from the EVENTS (e.timeStamp shares performance.now()'s clock): on a busy page a release can be
+ // handled long after it happened, and measuring at handling time turned a quick click into a long hold.
+ const catchUp=(at=performance.now())=>{let el=at-t0,due=1+(el>=HOLD_DELAY_MS?1+Math.floor((el-HOLD_DELAY_MS)/HOLD_RATE_MS):0);while(live&&done<due){done++;if(step())break}};
+ const stop=(e)=>{if(live)catchUp(e&&e.timeStamp?e.timeStamp:performance.now());live=false;clearInterval(timer);timer=0};
+ btn.addEventListener('pointerdown',e=>{if(e.button!==0)return;e.preventDefault();stop();t0=e.timeStamp||performance.now();done=0;live=true;catchUp(t0);if(live)timer=setInterval(()=>catchUp(),HOLD_RATE_MS)});
+ for(let n of ['pointerup','pointercancel','pointerleave','lostpointercapture'])btn.addEventListener(n,stop);
+ btn.addEventListener('click',e=>{if(e.detail===0){hudPulse('cam');camRefuse(camAct(name),true)}});
+}
+function initCameraControls(){
+ for(let b of document.querySelectorAll('#camDock [data-cam]'))camHold(b);
+ for(let b of document.querySelectorAll('#camDock [data-cam-shortcut]'))b.addEventListener('click',()=>camShortcut(b.dataset.camShortcut));
+ for(let id of ['angle','power','azimuth','weapon']){$(id).addEventListener('pointerdown',()=>hudPulse('aim'));$(id).addEventListener('input',()=>hudPulse('aim'))}
+ document.addEventListener('keydown',e=>{if((e.key||'').startsWith('Arrow'))hudPulse('aim')});
+ let canvas=$('world'),ptrs=new Map(),mode=null,gest=null;
+ const canMove=()=>!editorOpen&&!camBlockReason()&&!aimMode();
+ const snap=()=>{let[a,b]=[...ptrs.values()];return{d:Math.hypot(a.x-b.x,a.y-b.y)||1,mx:(a.x+b.x)/2,my:(a.y+b.y)/2,ang:Math.atan2(b.y-a.y,b.x-a.x)}};
+ canvas.addEventListener('contextmenu',e=>e.preventDefault());
+ // Left drag (or one finger) rotates, as it always has. Right, middle or Shift drag pans. Two fingers pinch-zoom, pan and twist.
+ canvas.addEventListener('pointerdown',e=>{
+  if(editorOpen)return;
+  let why=camBlockReason()||(aimMode()?'Gunner view is locked to the barrel. Use the aim buttons, or change view to move the camera.':'');
+  if(why){camRefuse(why);return}
+  ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  try{canvas.setPointerCapture(e.pointerId)}catch(_){}
+  if(ptrs.size===1)mode=(e.button===1||e.button===2||e.shiftKey)?'pan':'orbit';
+  else{mode='pinch';gest=snap()}
+  hudPulse('cam');
+ });
+ canvas.addEventListener('pointermove',e=>{
+  let p=ptrs.get(e.pointerId);if(!p)return;
+  let dx=e.clientX-p.x,dy=e.clientY-p.y;p.x=e.clientX;p.y=e.clientY;
+  if(!canMove())return;
+  if(mode==='pinch'&&ptrs.size>=2&&gest){let g=snap();leaveFocusForPan();orbitZoom=clamp(orbitZoom*g.d/gest.d,.65,5);panByScreen(g.mx-gest.mx,g.my-gest.my);orbitYaw=wrapYaw(orbitYaw+(g.ang-gest.ang)/rad);gest=g}
+  else if(mode==='orbit'){orbitYaw=wrapYaw(orbitYaw+dx*.3);orbitPitch=clamp(orbitPitch+dy*.18,10,80)}
+  else if(mode==='pan'){leaveFocusForPan();panByScreen(dx,dy)}
+  else return;
+  hudPulse('cam');syncCameraUI();
+ });
+ const up=e=>{if(!ptrs.has(e.pointerId))return;ptrs.delete(e.pointerId);gest=null;if(ptrs.size===0)mode=null;else if(ptrs.size===1)mode='orbit';else{mode='pinch';gest=snap()}};
+ for(let name of ['pointerup','pointercancel','lostpointercapture'])canvas.addEventListener(name,up);
+ canvas.addEventListener('wheel',e=>{
+  e.preventDefault();
+  let why=editorOpen?'':camBlockReason()||(aimMode()?'Gunner view has a fixed optic. Use the zoom buttons, or change view to use the wheel.':'');
+  if(why){camRefuse(why);return}
+  if(e.shiftKey)camPanY=clamp(camPanY-(e.deltaY||e.deltaX)*.05,-20,150);else orbitZoom=clamp(orbitZoom*Math.exp(-e.deltaY*.001),.65,5);
+  hudPulse('cam');syncCameraUI();
+ },{passive:false});
+}
+/* ---- HUD cards: anchored to the screen edges, one click to collapse to a tab, stacked so nothing overlaps
+   and the middle of the battlefield stays clear. Collapsed flags are UI state in localStorage only. */
+const HUD_LAYOUT_KEY='charred_hud_layout_v2';
+const HUD_CARDS=[
+ {id:'caption',title:'Round',side:'L',phoneCollapsed:true,fade:true},
+ {id:'roster',title:'Players',side:'L',phoneCollapsed:true,fade:true},
+ {id:'weather',title:'Wind',side:'R',phoneCollapsed:true,fade:true},
+ {id:'shotCard',title:'Last shot',side:'R',phoneCollapsed:true,fade:true},
+ {id:'camDock',title:'Camera',side:'R',fade:false},
+ {id:'hud',title:'Fire control',side:'B',fade:true},
+];
+let hudLayout=null;
+function hudStore(){if(!hudLayout){try{hudLayout=JSON.parse(localStorage.getItem(HUD_LAYOUT_KEY))}catch(e){hudLayout=null}if(!hudLayout||typeof hudLayout!=='object'||typeof hudLayout.collapsed!=='object')hudLayout={collapsed:{}}}return hudLayout}
+function hudSave(){try{localStorage.setItem(HUD_LAYOUT_KEY,JSON.stringify(hudStore()))}catch(e){}}
+// Short screens: status cards the player has not explicitly opened or closed fold to their tabs, in this order,
+// until both columns fit above the fire control. Never saved; recomputed on every refresh.
+const HUD_AUTO_ORDER=['shotCard','weather','caption','roster'];
+const hudAutoCollapsed=new Set();
+function hudCollapsed(card){let v=hudStore().collapsed[card.id];return typeof v==='boolean'?v:hudAutoCollapsed.has(card.id)||(innerWidth<=700&&!!card.phoneCollapsed)}
+function hudToggleCard(card,force){hudStore().collapsed[card.id]=typeof force==='boolean'?force:!hudCollapsed(card);hudSave();hudRefresh()}
+function hudRefresh(){
+ hudAutoCollapsed.clear();
+ for(let pass=0;pass<=HUD_AUTO_ORDER.length;pass++){
+  hudApplyCollapse();
+  if(hudAutoStack())break;
+  let next=HUD_AUTO_ORDER.find((id)=>typeof hudStore().collapsed[id]!=='boolean'&&!hudCollapsed(HUD_CARDS.find((c)=>c.id===id)));
+  if(!next)break;
+  hudAutoCollapsed.add(next);
+ }
+ if($('hudMenu').classList.contains('open'))hudRenderMenu();
+}
+function hudApplyCollapse(){
+ for(let card of HUD_CARDS){
+  let el=$(card.id);if(!el)continue;
+  let c=hudCollapsed(card);el.classList.toggle('hud-collapsed',c);
+  let btn=el.querySelector(':scope>.hcard-bar .hcard-toggle');
+  if(btn){btn.textContent=c?'SHOW':'HIDE';btn.setAttribute('aria-label',(c?'Show ':'Hide ')+card.title+' panel');btn.setAttribute('aria-expanded',String(!c))}
+ }
+}
+// Left column (round, players) and right column (wind, last shot, camera) stack under the header and stop above
+// the fire control, so no card sits over another or over the middle of the battlefield.
+let hudDeckTop=0;
+function hudAutoStack(){
+ const deck=$('hud'),head=document.querySelector('header');
+ // The fire control's top, remembered while it is hidden (map editor) so nothing anchored to it jumps.
+ if(deck.offsetHeight)hudDeckTop=deck.getBoundingClientRect().top;else if(!hudDeckTop)hudDeckTop=innerHeight;
+ const deckTop=hudDeckTop;
+ const top0=(head?head.getBoundingClientRect().bottom:60)+8;
+ // The camera dock is anchored to the BOTTOM of the right column, just above the fire control. The status
+ // cards stack from the top, so wind text wrapping or a card opening never moves the buttons under a finger.
+ const dock=$('camDock');
+ const dockTop=Math.max(top0,deckTop-dock.offsetHeight-8);
+ dock.style.right='14px';dock.style.left='auto';dock.style.bottom='auto';dock.style.top=dockTop+'px';
+ let yL=top0,yR=top0;
+ for(let card of HUD_CARDS){
+  if(card.side==='B'||card.id==='camDock')continue;
+  let el=$(card.id);if(!el||getComputedStyle(el).display==='none')continue;
+  el.style.bottom='auto';
+  if(card.side==='L'){el.style.left='14px';el.style.right='auto';el.style.top=yL+'px';if(card.id==='roster')el.style.maxHeight=Math.max(40,deckTop-yL-14)+'px';yL+=el.offsetHeight+8}
+  else{el.style.right='14px';el.style.left='auto';el.style.top=yR+'px';yR+=el.offsetHeight+8}
+ }
+ const fits=yR-8<=dockTop-6&&yL-8<=deckTop-6;
+ let f=$('hudFab'),fw=f.offsetWidth||44,fh=f.offsetHeight||44;
+ f.style.bottom='auto';
+ if(yL+fh<=deckTop-6){f.style.left='14px';f.style.right='auto';f.style.top=yL+'px'}
+ else{f.style.right='auto';f.style.left=Math.max(14,innerWidth-14-(dock.offsetWidth||184)-8-fw)+'px';f.style.top=Math.max(top0,deckTop-fh-8)+'px'}
+ return fits;
+}
+function hudRenderMenu(){
+ let box=$('hudMenuItems');box.replaceChildren();
+ for(let card of HUD_CARDS){
+  let lab=document.createElement('label'),cb=document.createElement('input'),name=document.createElement('span');
+  cb.type='checkbox';cb.checked=!hudCollapsed(card);cb.addEventListener('change',()=>hudToggleCard(card,!cb.checked));
+  name.textContent=card.title;lab.append(cb,name);box.appendChild(lab);
+ }
+}
+function hudSetMenu(open){let m=$('hudMenu'),f=$('hudFab');m.classList.toggle('open',open);f.setAttribute('aria-expanded',String(open));if(!open)return;hudRenderMenu();let r=f.getBoundingClientRect(),w=m.offsetWidth||200,h=m.offsetHeight||220;m.style.left=clamp(r.left,4,innerWidth-w-4)+'px';m.style.top=clamp(r.bottom+6,4,innerHeight-h-4)+'px'}
+function initHudCards(){
+ for(let card of HUD_CARDS){
+  let el=$(card.id);if(!el)continue;
+  el.classList.add('hcard');if(card.fade)el.classList.add('fadeable');
+  let bar=document.createElement('div'),title=document.createElement('span'),toggle=document.createElement('button');
+  bar.className='hcard-bar';title.className='title';title.textContent=card.title;
+  toggle.type='button';toggle.className='hcard-toggle';toggle.addEventListener('click',()=>hudToggleCard(card));
+  bar.append(title,toggle);el.prepend(bar);
+ }
+ // updateUI rebuilds the player cards: keep the roster's bar first and in place.
+ let roster=$('roster'),rbar=roster.querySelector(':scope>.hcard-bar');
+ new MutationObserver(()=>{if(rbar&&roster.firstElementChild!==rbar)roster.prepend(rbar)}).observe(roster,{childList:true});
+ $('hudFab').addEventListener('click',()=>hudSetMenu(!$('hudMenu').classList.contains('open')));
+ $('hudReset').addEventListener('click',()=>{for(let card of HUD_CARDS)hudStore().collapsed[card.id]=false;hudSave();hudRefresh()});
+ document.addEventListener('pointerdown',e=>{let m=$('hudMenu');if(m.classList.contains('open')&&!m.contains(e.target)&&!$('hudFab').contains(e.target))hudSetMenu(false)});
+ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('hudMenu').classList.contains('open'))hudSetMenu(false)});
+ window.addEventListener('resize',hudRefresh);
+ if(window.ResizeObserver){let raf=0;const ro=new ResizeObserver(()=>{cancelAnimationFrame(raf);raf=requestAnimationFrame(hudRefresh)});for(let card of HUD_CARDS){let el=$(card.id);if(el)ro.observe(el)}}
+ if(document.fonts?.ready)document.fonts.ready.then(hudRefresh);
+ hudRefresh();
+}
 function activePilotDrone(){return S?.phase==='flight'?S.drones?.find(o=>o&&o.piloted&&o.hp>0&&!o.hover):null}
 function updateCamera(dt,t,a,az,d){
  if(S.round!==lastVisualRound){lastVisualRound=S.round;lastVisualPhase='aim';resetTrails()}
@@ -122,8 +407,8 @@ function updateCamera(dt,t,a,az,d){
  let tz=t.z||0,hdg=Number.isFinite(Number(t.heading))?Number(t.heading):(t.angle>90?Math.PI:0);
  if(S.phase==='flight'&&lastVisualPhase!=='flight'){resetTrails();launchOwner=S.turn;launchTimer=viewMode!=='tactical'?.95:0;if(launchTimer>0){camera.position.set(t.x-d.x*18,t.y+15,tz-d.z*18);camTarget.set(t.x+d.x*12,t.y+7,tz+d.z*12)}else resetCamera();syncCameraUI()}
  if(launchTimer>0){launchTimer=Math.max(0,launchTimer-dt);let owner=S.tanks[launchOwner]||t,oz=owner.z||0,dir=direction(owner.angle,owner.az);cameraGoal.set(owner.x-dir.x*18,owner.y+15,oz-dir.z*18);let p=S.shots.find(p=>p.owner===owner.id);lookGoal.set(p?owner.x+(p.x-owner.x)*.4:owner.x+dir.x*16,p?owner.y+5+(p.y-owner.y)*.25:owner.y+8,p?oz+(p.z-oz)*.3:oz+dir.z*16);if(launchTimer===0)resetCamera()}
- if(launchTimer<=0){let span=Math.hypot(W,D*2);if(viewMode==='gunner'&&S.phase==='aim'){let lookD=Math.max(120,span*.25),azRad=(az||0)*rad,ch=Math.cos(d.x===0&&d.z===0?azRad:Math.atan2(d.z,d.x)),sh=Math.sin(d.x===0&&d.z===0?azRad:Math.atan2(d.z,d.x));cameraGoal.set(t.x-ch*2,t.y+5.5,tz-sh*2);lookGoal.set(t.x+d.x*lookD,t.y+5+d.y*lookD,tz+d.z*lookD)}else if(viewMode==='focus'){let focusDist=clamp(span*.08,65,110)/orbitZoom,p=orbitPitch*rad,yaw=hdg+orbitYaw*rad,fx=Math.cos(yaw),fz=Math.sin(yaw),y=t.y+4;lookGoal.set(t.x+fx*18,y,tz+fz*18);cameraGoal.set(t.x-fx*Math.cos(p)*focusDist,y+Math.sin(p)*focusDist,tz-fz*Math.cos(p)*focusDist);if(cameraGoal.x>=0&&cameraGoal.x<=W&&Math.abs(cameraGoal.z)<=D)cameraGoal.y=Math.max(cameraGoal.y,height(cameraGoal.x,cameraGoal.z)+8)}else{let flightTop=S.phase==='flight'?S.shots.reduce((m,p)=>Math.max(m,p.y+Math.max(0,p.vy)**2/(2*GRAV)),65):65,tanHalf=Math.tan(47*rad/2),aspect=Math.max(.5,camera.aspect||16/9);let full=Math.max(span*.55,(W/(2*tanHalf*aspect))*1.18+D*.55,(D*2/(2*tanHalf))*1.25,(flightTop+D*.4+65)/(2*tanHalf)*1.35),exploreDist=clamp(span*.14,120,220),distance=(viewMode==='tactical'?full:exploreDist)/orbitZoom;let x=viewMode==='tactical'?W/2:(exploreX=clamp(exploreX,0,W)),z=viewMode==='tactical'?0:(exploreZ=clamp(exploreZ,-D,D)),y=viewMode==='tactical'?Math.max(29,flightTop*.43):height(x,z)+4;lookGoal.set(x,y,z);let p=orbitPitch*rad,yaw=orbitYaw*rad;cameraGoal.set(x+Math.sin(yaw)*Math.cos(p)*distance,y+Math.sin(p)*distance,z+Math.cos(yaw)*Math.cos(p)*distance);if(cameraGoal.x>=0&&cameraGoal.x<=W&&Math.abs(cameraGoal.z)<=D)cameraGoal.y=Math.max(cameraGoal.y,height(cameraGoal.x,cameraGoal.z)+8)}}
- let desiredFov=viewMode==='gunner'?88:launchTimer>0?65:47;if(Math.abs(camera.fov-desiredFov)>.1){camera.fov+=(desiredFov-camera.fov)*Math.min(1,dt*9);camera.updateProjectionMatrix()}camera.position.lerp(cameraGoal,Math.min(1,dt*5));camTarget.lerp(lookGoal,Math.min(1,dt*7));camera.lookAt(camTarget);if(lastVisualPhase!==S.phase)syncCameraUI();lastVisualPhase=S.phase;
+ if(launchTimer<=0){let span=Math.hypot(W,D*2);if(viewMode==='gunner'&&S.phase==='aim'){let lookD=Math.max(120,span*.25),azRad=(az||0)*rad,ch=Math.cos(d.x===0&&d.z===0?azRad:Math.atan2(d.z,d.x)),sh=Math.sin(d.x===0&&d.z===0?azRad:Math.atan2(d.z,d.x));cameraGoal.set(t.x-ch*2,t.y+5.5,tz-sh*2);lookGoal.set(t.x+d.x*lookD,t.y+5+d.y*lookD,tz+d.z*lookD)}else if(viewMode==='focus'){let focusDist=clamp(span*.08,65,110)/orbitZoom,p=orbitPitch*rad,yaw=hdg+orbitYaw*rad,fx=Math.cos(yaw),fz=Math.sin(yaw),y=t.y+4;lookGoal.set(t.x+fx*18,y,tz+fz*18);cameraGoal.set(t.x-fx*Math.cos(p)*focusDist,y+Math.sin(p)*focusDist,tz-fz*Math.cos(p)*focusDist);if(cameraGoal.x>=0&&cameraGoal.x<=W&&Math.abs(cameraGoal.z)<=D)cameraGoal.y=Math.max(cameraGoal.y,height(cameraGoal.x,cameraGoal.z)+8)}else{let flightTop=S.phase==='flight'?S.shots.reduce((m,p)=>Math.max(m,p.y+Math.max(0,p.vy)**2/(2*GRAV)),65):65,tanHalf=Math.tan(47*rad/2),aspect=Math.max(.5,camera.aspect||16/9);let full=Math.max(span*.55,(W/(2*tanHalf*aspect))*1.18+D*.55,(D*2/(2*tanHalf))*1.25,(flightTop+D*.4+65)/(2*tanHalf)*1.35),exploreDist=clamp(span*.14,120,220),distance=(viewMode==='tactical'?full:exploreDist)/orbitZoom;camDist=distance;clampPan();let x=exploreX,z=exploreZ,y=viewMode==='tactical'?Math.max(29,flightTop*.43)+camPanY:Math.max(height(clamp(x,0,W),clamp(z,-D,D))+4,height(clamp(x,0,W),clamp(z,-D,D))+4+camPanY);lookGoal.set(x,y,z);let p=orbitPitch*rad,yaw=orbitYaw*rad;cameraGoal.set(x+Math.sin(yaw)*Math.cos(p)*distance,y+Math.sin(p)*distance,z+Math.cos(yaw)*Math.cos(p)*distance);if(cameraGoal.x>=0&&cameraGoal.x<=W&&Math.abs(cameraGoal.z)<=D)cameraGoal.y=Math.max(cameraGoal.y,height(cameraGoal.x,cameraGoal.z)+8)}}
+ let desiredFov=viewMode==='gunner'?clamp(88/orbitZoom,20,110):launchTimer>0?65:47;if(Math.abs(camera.fov-desiredFov)>.1){camera.fov+=(desiredFov-camera.fov)*Math.min(1,dt*9);camera.updateProjectionMatrix()}camera.position.lerp(cameraGoal,Math.min(1,dt*5));camTarget.lerp(lookGoal,Math.min(1,dt*7));camera.lookAt(camTarget);if(lastVisualPhase!==S.phase)syncCameraUI();lastVisualPhase=S.phase;
 }
 function initTrails(){trailGeo=new THREE.BufferGeometry();trailGeo.setAttribute('position',new THREE.BufferAttribute(trailBuffer,3));trailGeo.setDrawRange(0,0);trailLine=new THREE.LineSegments(trailGeo,new THREE.LineBasicMaterial({color:'#ffdf8d',transparent:true,opacity:.9,depthTest:false}));trailLine.frustumCulled=false;trailLine.renderOrder=4;scene.add(trailLine)}
 function resetTrails(){traces.clear();if(trailGeo)trailGeo.setDrawRange(0,0)}
@@ -143,7 +428,7 @@ function initGraphics(){let span=Math.hypot(W,D*2),far=Math.max(1800,span*3.2);s
  pGeo=new THREE.BufferGeometry();pPos=new Float32Array(1200);pCol=new Float32Array(1200);pGeo.setAttribute('position',new THREE.BufferAttribute(pPos,3));pGeo.setAttribute('color',new THREE.BufferAttribute(pCol,3));pPoints=new THREE.Points(pGeo,new THREE.PointsMaterial({size:2,vertexColors:true,transparent:true,opacity:.8,depthWrite:false}));pPoints.material.onBeforeCompile=shader=>{shader.fragmentShader=shader.fragmentShader.replace('#include <clipping_planes_fragment>','#include <clipping_planes_fragment>\nif(distance(gl_PointCoord,vec2(.5))>.5) discard;')};pPoints.frustumCulled=false;scene.add(pPoints);
  projectileMesh=new THREE.InstancedMesh(new THREE.SphereGeometry(.65,6,4),new THREE.MeshBasicMaterial({color:'#ffe79b'}),64);projectileMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);projectileMesh.count=0;projectileMesh.frustumCulled=false;scene.add(projectileMesh);
  arcGeo=new THREE.BufferGeometry();arcGeo.setAttribute('position',new THREE.BufferAttribute(arcPositions,3));arcGeo.setDrawRange(0,0);arc=new THREE.Line(arcGeo,new THREE.LineDashedMaterial({color:'#e4f7a4',dashSize:2,gapSize:1.8,transparent:true,opacity:0}));arc.visible=false;
- initNature();syncWorldScenery();initTrails();initCameraControls();window.addEventListener('resize',resize);resize();}
+ initNature();syncWorldScenery();initTrails();initCameraControls();initHudCards();window.addEventListener('resize',resize);resize();}
 function createRenderer(){if(renderer)renderer.dispose();renderer=new THREE.WebGLRenderer({canvas:$('world'),antialias:$('quality').value==='High',powerPreference:'high-performance'});renderer.setPixelRatio(Math.min(devicePixelRatio,$('quality').value==='Low'?1:1.5));renderer.outputEncoding=THREE.sRGBEncoding;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=.68;renderer.setSize(innerWidth,innerHeight)}
 function resize(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)}
 function _sampleH(h,x,z=0,w=W,d=D,cell=CELL,nx=NX,nz=NZ){if(!h||!h.length)return 0;let gx=clamp(x,0,w)/cell,gz=(clamp(z,-d,d)+d)/cell,ix0=clamp(Math.floor(gx),0,nx-1),iz0=clamp(Math.floor(gz),0,nz-1),ix1=Math.min(nx-1,ix0+1),iz1=Math.min(nz-1,iz0+1),fx=gx-ix0,fz=gz-iz0,r0=iz0*nx,r1=iz1*nx,h00=h[r0+ix0],h10=h[r0+ix1],h01=h[r1+ix0],h11=h[r1+ix1];return(h00+(h10-h00)*fx)*(1-fz)+(h01+(h11-h01)*fx)*fz}
@@ -339,7 +624,7 @@ function attachClient(p,c,d){peer=p;online=true;host=false;myId=d.id;roomId=d.ro
 async function joinRoom(id){if(!window.Peer){notice('PeerJS unavailable.');return}leaveNetwork();running=false;$('resumeBtn').style.display='none';let gen=netGeneration;netStatus('Connecting to '+id.toUpperCase()+'…');try{let p=await createPeer();if(gen!==netGeneration){p.destroy();return}peer=p;p.on('error',()=>{});let{c,d}=await connectTo(p,id,7000);if(gen!==netGeneration){p.destroy();return}attachClient(p,c,d)}catch(e){netStatus('Could not join: '+e.message);peer?.destroy();peer=null}}
 async function publicMatch(){if(!window.Peer)return notice('PeerJS unavailable.');leaveNetwork();running=false;$('resumeBtn').style.display='none';let gen=netGeneration,p;try{p=await createPeer();peer=p;p.on('error',()=>{});for(let i=1;i<=10;i++){if(gen!==netGeneration){p.destroy();return}let id='charred-pub-lobby-'+i;netStatus('Scanning public sector '+i+' / 10…');try{let{c,d}=await connectTo(p,id,1400);if(gen!==netGeneration){p.destroy();return}attachClient(p,c,d);return}catch(e){}}p.destroy();for(let i=1;i<=10;i++){if(gen!==netGeneration)return;let id='charred-pub-lobby-'+i;try{let hp=await createPeer(id);if(gen!==netGeneration){hp.destroy();return}peer=hp;online=true;host=true;roomId=id;lobby=[{id:0,name:'Commander 1',peer:id}];hostConnections(hp);hp.on('error',e=>netStatus('Network error: '+e.type));$('leaveBtn').style.display='inline-block';netStatus('PUBLIC ROOM OPEN / '+id.toUpperCase());lobbyUpdate();return}catch(e){}}netStatus('Public sectors busy. Try a private room.')}catch(e){netStatus('Matchmaking unavailable: '+e.message)}}
 for(let i=0;i<6;i++){let d=document.createElement('div');d.className='slot';let label=document.createElement('span');label.textContent='P'+(i+1);label.style.color=COLORS[i];let select=document.createElement('select');select.setAttribute('aria-label','Player '+(i+1)+' type');select.innerHTML='<option value="human">Human</option><option value="ai">Local AI</option><option value="gemini">Gemini 4 Argon</option><option value="openai">ChatGPT</option><option value="off">Empty</option>';select.value=i===0?'human':i===1?'ai':'off';d.append(label,select);$('slots').appendChild(d)}loadAiProviders();
-$('startBtn').onclick=startMatch;$('fireBtn').onclick=fire;$('menuBtn').onclick=()=>{$('menu').classList.remove('hidden');updateUI()};$('resumeBtn').onclick=()=>{$('menu').classList.add('hidden');updateUI()};$('viewBtn').onclick=()=>setCameraMode(viewMode==='gunner'?'tactical':'gunner');$('exploreBtn').onclick=()=>setCameraMode(viewMode==='explore'?'tactical':'explore');$('focusBtn').onclick=()=>setCameraMode('focus');$('overviewBtn').onclick=resetCamera;$('helpBtn').onclick=()=>$('help').classList.remove('hidden');$('closeHelp').onclick=()=>$('help').classList.add('hidden');$('quality').onchange=()=>{createRenderer();resize()};for(let id of ['angle','power','azimuth','weapon'])$(id).oninput=updateUI;for(let[id,dir]of [['moveL',-1],['moveR',1]])$(id).onclick=()=>{if(canSteerDrive())sendDrive({dir});else if(canControl())command({action:'move',dir})};for(let[id,key,spec]of [['driveFwd','w',{throttle:1,turn:0}],['driveRev','s',{throttle:-1,turn:0}],['turnL','a',{throttle:0,turn:-1}],['turnR','d',{throttle:0,turn:1}]]){let btn=$(id);if(btn){btn.onclick=()=>{if(canSteerDrive())sendDrive(spec);else if(canControl())command({action:'move',...spec})};btn.addEventListener?.('pointerdown',e=>{e.preventDefault?.();driveKeys.add('btn:'+key);syncDriveKeys()});for(let ev of ['pointerup','pointercancel','pointerleave'])btn.addEventListener?.(ev,()=>{if(driveKeys.delete('btn:'+key)&&canSteerDrive())syncDriveKeys()})}}if($('moveStop'))$('moveStop').onclick=()=>{driveKeys.clear();if(canSteerDrive())sendDrive({stop:true})};$('readyBtn').onclick=()=>{if(online&&!host)connections.get('host')?.send({type:'ready'});else ready(shopId)};$('hostBtn').onclick=()=>{let chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789',r=crypto.getRandomValues(new Uint32Array(6));hostRoom('charred-'+Array.from(r,n=>chars[n%chars.length]).join('').toLowerCase())};$('joinBtn').onclick=()=>{let id=$('roomCode').value.trim().toLowerCase();if(/^[a-z0-9]{6}$/.test(id))id='charred-'+id;if(!/^charred-([a-z0-9]{6}|pub-lobby-(10|[1-9]))$/.test(id))return notice('Enter a six-character code, CHARRED-XXXXXX.');joinRoom(id)};$('publicBtn').onclick=publicMatch;$('leaveBtn').onclick=leaveNetwork;
+$('startBtn').onclick=startMatch;$('fireBtn').onclick=fire;$('menuBtn').onclick=()=>{$('menu').classList.remove('hidden');updateUI()};$('resumeBtn').onclick=()=>{$('menu').classList.add('hidden');updateUI()};$('viewBtn').onclick=()=>setCameraMode(viewMode==='gunner'?'tactical':'gunner');$('exploreBtn').onclick=()=>setCameraMode(viewMode==='explore'?'tactical':'explore');$('focusBtn').onclick=()=>setCameraMode('focus');$('helpBtn').onclick=()=>$('help').classList.remove('hidden');$('closeHelp').onclick=()=>$('help').classList.add('hidden');$('quality').onchange=()=>{createRenderer();resize()};for(let id of ['angle','power','azimuth','weapon'])$(id).oninput=updateUI;for(let[id,dir]of [['moveL',-1],['moveR',1]])$(id).onclick=()=>{if(canSteerDrive())sendDrive({dir});else if(canControl())command({action:'move',dir})};for(let[id,key,spec]of [['driveFwd','w',{throttle:1,turn:0}],['driveRev','s',{throttle:-1,turn:0}],['turnL','a',{throttle:0,turn:-1}],['turnR','d',{throttle:0,turn:1}]]){let btn=$(id);if(btn){btn.onclick=()=>{if(canSteerDrive())sendDrive(spec);else if(canControl())command({action:'move',...spec})};btn.addEventListener?.('pointerdown',e=>{e.preventDefault?.();driveKeys.add('btn:'+key);syncDriveKeys()});for(let ev of ['pointerup','pointercancel','pointerleave'])btn.addEventListener?.(ev,()=>{if(driveKeys.delete('btn:'+key)&&canSteerDrive())syncDriveKeys()})}}if($('moveStop'))$('moveStop').onclick=()=>{driveKeys.clear();if(canSteerDrive())sendDrive({stop:true})};$('readyBtn').onclick=()=>{if(online&&!host)connections.get('host')?.send({type:'ready'});else ready(shopId)};$('hostBtn').onclick=()=>{let chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789',r=crypto.getRandomValues(new Uint32Array(6));hostRoom('charred-'+Array.from(r,n=>chars[n%chars.length]).join('').toLowerCase())};$('joinBtn').onclick=()=>{let id=$('roomCode').value.trim().toLowerCase();if(/^[a-z0-9]{6}$/.test(id))id='charred-'+id;if(!/^charred-([a-z0-9]{6}|pub-lobby-(10|[1-9]))$/.test(id))return notice('Enter a six-character code, CHARRED-XXXXXX.');joinRoom(id)};$('publicBtn').onclick=publicMatch;$('leaveBtn').onclick=leaveNetwork;
 $('editBtn').onclick=()=>editorOpen?closeEditor(true):openEditor();$('menuEditBtn').onclick=()=>openEditor();$('edCloseBtn').onclick=()=>closeEditor(true);$('edCancelBtn').onclick=()=>cancelEditor();
 for(let[id,t]of [['toolRaise','raise'],['toolLower','lower'],['toolSmooth','smooth'],['toolFlat','flat'],['toolWater','water'],['toolPlat','plat'],['toolDelPlat','delplat'],['toolSpawn','spawn']])$(id).onclick=()=>setEditorTool(t);
 $('brushSize').oninput=()=>$('brushOut').textContent=$('brushSize').value+'m';$('platWidth').oninput=()=>$('platWOut').textContent=$('platWidth').value+'m';$('platElev').oninput=()=>{if($('platElevOut'))$('platElevOut').textContent=$('platElev').value+'m'};

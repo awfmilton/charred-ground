@@ -33,12 +33,12 @@ Add selectable and unlockable visual rendering themes in `index.html` (Three.js 
 
 ---
 
-## Phase 4: Unobstructed Map View & On-Screen Camera Controls (Pan, Tilt, Zoom, Rotate) (~8 hours)
+## Phase 4: Unobstructed Map View & On-Screen Camera Controls (Pan, Tilt, Zoom, Rotate) (~8 hours) — DONE
 
 Declutter the combat viewport so HUD panels never obscure the battlefield, and provide intuitive on-screen controls for exploring the 3D terrain:
 
-- [ ] **HUD Repositioning & Collapsible Panels:** Move overlapping weapon cards, wind/previous-shot telemetry, and status banners out of the central line of sight; auto-collapse non-essential HUD chrome during aiming, camera exploration, and projectile flight.
-- [ ] **On-Screen Camera Control Widget:** Add a dedicated, touch- and mouse-friendly on-screen camera gimbal pad in `index.html` supporting continuous and stepped **Pan** (`X/Z` translation), **Tilt** (pitch angle), **Zoom** (dolly in/out), and **Rotate** (orbit yaw), alongside quick-snap buttons (`Focus Tank`, `Overhead Tactical`, `Gunner View`, `Reset Full Map`).
+- [x] **HUD Repositioning & Collapsible Panels:** Move overlapping weapon cards, wind/previous-shot telemetry, and status banners out of the central line of sight; auto-collapse non-essential HUD chrome during aiming, camera exploration, and projectile flight.
+- [x] **On-Screen Camera Control Widget:** Add a dedicated, touch- and mouse-friendly on-screen camera gimbal pad in `index.html` supporting continuous and stepped **Pan** (`X/Z` translation), **Tilt** (pitch angle), **Zoom** (dolly in/out), and **Rotate** (orbit yaw), alongside quick-snap buttons (`Focus Tank`, `Explore`, `Gunner View`, `Reset Full Map`). The four snap buttons run exactly what F, E, V and R run. Left-drag rotates; right-drag or Shift-drag pans. Blocked camera actions explain why. Verified by `npm run test:browser` (HUD and camera suite).
 
 ---
 
