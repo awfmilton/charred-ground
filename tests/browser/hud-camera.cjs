@@ -100,13 +100,16 @@ const tests = {
         if (a.x < b.right - 1 && b.x < a.right - 1 && a.y < b.bottom - 1 && b.y < a.bottom - 1) fails.push(`${size.name}: ${a.id} overlaps ${b.id}`);
       }
       // Every camera button must be the element a finger or cursor actually hits.
-      const reach = await g.page.evaluate(() => [...document.querySelectorAll('#camDock button')].map((b) => {
+      // Touch-first phones get the touch HUD (index.html, docs/TELEGRAM_MINI_APP.md) instead of the camera
+      // dock; then every visible touch control must be reachable instead.
+      const touchHud = await g.page.evaluate(() => document.body.classList.contains('tc'));
+      const reach = await g.page.evaluate((sel) => [...document.querySelectorAll(sel)].filter((b) => !sel.startsWith('#tHud') || (b.offsetParent && getComputedStyle(b).display !== 'none')).map((b) => {
         const r = b.getBoundingClientRect(), hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-        return { label: b.getAttribute('aria-label'), ok: !!hit && (hit === b || b.contains(hit)), visible: r.width > 0 && r.height > 0 && r.bottom <= innerHeight && r.right <= innerWidth };
-      }));
-      for (const b of reach) if (!b.ok || !b.visible) fails.push(`${size.name}: camera button "${b.label}" is hidden or covered`);
+        return { label: b.getAttribute('aria-label') || b.textContent, ok: !!hit && (hit === b || b.contains(hit)), visible: r.width > 0 && r.height > 0 && r.bottom <= innerHeight && r.right <= innerWidth };
+      }), touchHud ? '#tHud button' : '#camDock button');
+      for (const b of reach) if (!b.ok || !b.visible) fails.push(`${size.name}: ${touchHud ? 'touch' : 'camera'} button "${b.label}" is hidden or covered`);
       const collapsedDefault = (await rects(g.page)).filter((r) => r.h < 40 && r.display !== 'none' && r.id !== 'hudFab').map((r) => r.id);
-      notes.push(`${size.name}: ${list.length} panels, ${reach.length} camera buttons reachable${collapsedDefault.length ? ', collapsed by default: ' + collapsedDefault.join('/') : ''}`);
+      notes.push(`${size.name}: ${list.length} panels, ${reach.length} ${touchHud ? 'touch' : 'camera'} buttons reachable${collapsedDefault.length ? ', collapsed by default: ' + collapsedDefault.join('/') : ''}`);
       fs.mkdirSync(OUT, { recursive: true });
       await g.page.screenshot({ path: path.join(OUT, size.name + '.png') });
       if (g.errors.length) fails.push(`${size.name}: ${g.errors.join(' | ')}`);

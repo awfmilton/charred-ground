@@ -67,3 +67,10 @@ Argon drafted the feature and correction patches through the user-authorized #ch
 316 checks pass across 39 items. New assertions cover both players’ first four personal turns, invalid/zero-cost commands, action retention after flight, piloted 3D steering, wind independent of throttle, stale/non-owner/malformed input rejection, snapshot state, three-shot limits, orbital movement, shield/canopy laser interception, silo destruction, friendly-target rejection, net/shotgun defenses, satellite caps, blast cover, deck-supported structures, and round resets.
 
 The test fixture does not certify real DOM keyboard events, WebGL presentation or live PeerJS steering. The embedded browser showed both existing tabs as crashed; reconnecting could not inspect the crash document, and a fresh local preview timed out. New visual/UI and live network checks remain outstanding.
+
+## Telegram Mini App and touch HUD
+
+- `node tests/telegram.cjs` (part of `npm test`) covers initData verification, sign-in and linking, the webhook with its secret token, bot commands, inline invites, Stars invoices, pre-checkout, idempotent payments, refunds, subscriptions, shares, turn notifications, TURN credentials and the group leaderboard. It uses a fake Bot API.
+- `node tests/browser/telegram-mobile.cjs` (part of `npm run test:browser`) runs the real server with a stubbed `telegram-web-app.js` on emulated iPhone 13 screens, landscape and portrait. It covers boot, sign-in and native buttons, the touch HUD layout, steppers and haptics, drag-to-aim (no arc, camera untouched), the weapon sheet, Back handling, firing, a full Stars purchase through the webhook with the cosmetic rendered, room deep links, and an unchanged desktop build.
+- The HUD/camera layout check at 390×844 with touch now verifies the touch HUD's controls instead of the camera dock.
+- Not certified: real iOS and Android Telegram clients, the live Bot API and Stars, carrier-network TURN, and a live MySQL run of the `tg_*` tables. See the device matrix in `docs/TELEGRAM_MINI_APP.md` §13.
