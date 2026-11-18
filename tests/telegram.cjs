@@ -171,7 +171,8 @@ async function runTelegramTests() {
     assert(share.link.startsWith('https://t.me/charred_bot?startapp=m_'));
     r = await get('/api/shares/' + share.id);
     assert.equal((await r.json()).payload.name, 'Twin Peaks');
-    assert.equal((await post('/api/shares', { kind: 'map', payload: { big: 'x'.repeat(60000) } }, authA)).status, 400);
+    assert.equal((await post('/api/shares', { kind: 'map', payload: { big: 'x'.repeat(320000) } }, authA)).status, 201, 'a full custom map fits');
+    assert.equal((await post('/api/shares', { kind: 'map', payload: { big: 'x'.repeat(600000) } }, authA)).status, 413);
     assert.equal((await post('/api/telegram/prepared', { kind: 'map', shareId: share.id }, authA)).status, 200);
     assert.equal((await post('/api/telegram/prepared', { kind: 'map', shareId: share.id }, authW)).status, 404, 'only the owner shares it');
 

@@ -17,7 +17,8 @@ const { getCatalog, findSku, summarizeEntitlements, SUBSCRIPTION_PERIOD } = requ
 const DEFAULT_INITDATA_MAX_AGE_SEC = 24 * 3600;
 const START_PARAM_RE = /^[A-Za-z0-9_-]{0,64}$/;
 const ROOM_RE = /^[a-z0-9]{6}$/;
-const MAX_SHARE_BYTES = 48 * 1024;
+// A custom map's encoded heightfield is ~310 KB of base64, so shares get a larger body limit.
+const MAX_SHARE_BYTES = 480 * 1024;
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 const IMAGE_TTL_MS = 60 * 60 * 1000;
 const MAX_IMAGES = 64;
@@ -624,7 +625,13 @@ function createTelegramService({ core, getTgStore, env = process.env, fetchImpl 
     if (method === 'POST' && pathname === '/api/shares') {
       const sess = await requireSession(req, res);
       if (!sess) return true;
-      const body = await readJsonBody(req);
+      let body;
+      try {
+        body = JSON.parse((await readRawBody(req, MAX_SHARE_BYTES + 1024)).toString('utf8') || '{}');
+      } catch (err) {
+        json(res, err.status || 400, { error: err.status === 413 ? 'Share payload too large.' : 'Invalid JSON body' });
+        return true;
+      }
       if (body.kind !== 'map' && body.kind !== 'challenge') {
         json(res, 400, { error: 'kind must be map or challenge.' });
         return true;
