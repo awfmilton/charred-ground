@@ -2,8 +2,10 @@
 
 const crypto = require('node:crypto');
 const auth = require('./auth.cjs');
-const { publicProfile } = require('./db.cjs');
+const { publicProfile, formatLeaderboardRows } = require('./db.cjs');
 const { createAiDecisionService, getAiProvidersStatus } = require('./ai.cjs');
+const { createTelegramService } = require('./telegram.cjs');
+const { createTelegramStore } = require('./telegram-store.cjs');
 
 const MAX_BODY_BYTES = 64 * 1024;
 const SESSION_COOKIE = 'cg_session';
@@ -596,6 +598,24 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch, clo
     };
   }
 
+  const telegram = createTelegramService({
+    core: store,
+    getTgStore: () => createTelegramStore(store, { clock }),
+    env,
+    fetchImpl,
+    clock,
+    helpers: {
+      json,
+      readJsonBody,
+      getAuthSession,
+      issueSessionForUser,
+      formatSelfUser,
+      checkRateLimit,
+      sanitizeUsername,
+      formatLeaderboardRows
+    }
+  });
+
   async function handleApi(req, res) {
     const url = new URL(req.url, 'http://localhost');
     const pathname = url.pathname;
@@ -628,8 +648,17 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch, clo
           json(res, 401, { error: 'Authentication required.' });
           return true;
         }
+        if (!(await telegram.aiAllowed(sess.user))) {
+          json(res, 402, { code: 'ai_pass_required', error: 'The Mastermind AI pass unlocks server-hosted AI commanders.' });
+          return true;
+        }
         const result = await decideAi(sess.user, await readJsonBody(req));
         json(res, 200, result);
+        return true;
+      }
+
+      // Telegram Mini App, bot webhook, Stars store, shares and TURN (scripts/telegram.cjs).
+      if (await telegram.handle(req, res, { url, pathname, method })) {
         return true;
       }
 
@@ -1387,6 +1416,7 @@ function createApi({ store, env = process.env, fetchImpl = globalThis.fetch, clo
   handleApi.pruneRateLimitMap = pruneRateLimitMap;
   handleApi.rateLimitMap = rateLimitMap;
   handleApi.totpAttemptMap = totpAttemptMap;
+  handleApi.telegram = telegram;
 
   return handleApi;
 }

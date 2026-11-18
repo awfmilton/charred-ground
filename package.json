@@ -7,7 +7,7 @@
   "author": "Alexander Milton <awfmilton@gmail.com>",
   "scripts": {
     "start": "node scripts/serve.cjs",
-    "test": "node tests/game.cjs && node tests/ai.cjs",
+    "test": "node tests/game.cjs && node tests/ai.cjs && node tests/telegram.cjs",
     "db:check": "node scripts/db-check.cjs",
     "test:browser": "node tests/browser/run.cjs && node tests/browser/hud-camera.cjs",
     "test:browser:hud": "node tests/browser/hud-camera.cjs",

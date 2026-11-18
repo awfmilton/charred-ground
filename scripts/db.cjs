@@ -1417,5 +1417,6 @@ module.exports = {
   formatTlsError,
   redactPassword,
   publicProfile,
+  formatLeaderboardRows,
   MAX_EMAIL_VERIFY_ATTEMPTS
 };
