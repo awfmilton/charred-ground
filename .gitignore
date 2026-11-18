@@ -6,6 +6,7 @@ data/
 !.env.example
 *.log
 .claude/triage.lock
+.claude/stop-state
 .openai/
 .scaffold-cache/
 .codex/
