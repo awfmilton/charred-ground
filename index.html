@@ -65,6 +65,101 @@ body.editing #hudFab,body.editing .hudmenu,body.editing #shotCard{display:none!i
  .camdock button{min-height:28px}
  #weather{width:140px}
 }
+/* ---- Touch HUD and Telegram Mini App (docs/TELEGRAM_MINI_APP.md) ---- */
+:root{--st:calc(max(env(safe-area-inset-top,0px),var(--tg-safe-area-inset-top,0px)) + var(--tg-content-safe-area-inset-top,0px));--sb:max(env(safe-area-inset-bottom,0px),var(--tg-safe-area-inset-bottom,0px));--sl:max(env(safe-area-inset-left,0px),var(--tg-safe-area-inset-left,0px));--sr:max(env(safe-area-inset-right,0px),var(--tg-safe-area-inset-right,0px))}
+body.tg header{padding-top:calc(var(--st) + 6px)}
+body.tg .modal{padding-top:calc(var(--st) + 8px);padding-bottom:calc(var(--sb) + 8px)}
+body.touch button,body.touch select{touch-action:manipulation}
+#tHud,#tAimInd{display:none}
+#tHud{position:fixed;inset:0;z-index:8;pointer-events:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+#tHud>*{pointer-events:auto}
+body.tc.tmatch #tHud{display:block}
+body.tc.tmatch header,body.tc.tmatch #roster,body.tc.tmatch #weather,body.tc.tmatch #caption,body.tc.tmatch #shotCard,body.tc.tmatch #camDock,body.tc.tmatch #hud,body.tc.tmatch #hudFab,body.tc.tmatch #hudMenu{display:none!important}
+#tHud button{background:#1a241ccc;border:1px solid #ffffff2b;border-radius:10px;padding:0;color:var(--ink);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+#tHud button:active{background:#3a4730}
+#tHud button:disabled{opacity:.35}
+#tTop{position:absolute;top:calc(var(--st) + 6px);left:calc(var(--sl) + 8px);right:calc(var(--sr) + 8px);display:flex;gap:6px;align-items:center;pointer-events:none}
+#tTop>*{pointer-events:auto}
+#tMenuBtn{width:42px;height:38px;font-size:18px;flex:none}
+#tPlayers{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+#tPlayers::-webkit-scrollbar{display:none}
+.tp{display:flex;align-items:center;gap:4px;padding:4px 7px;background:#101713c4;border:1px solid #ffffff1c;border-radius:8px;font-size:10px;white-space:nowrap;flex:none}
+.tp i{width:8px;height:8px;border-radius:50%;background:var(--c)}
+.tp b{max-width:9ch;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+.tp em{font-style:normal;color:var(--acid)}
+.tp.active{border-color:var(--acid);box-shadow:0 0 0 1px var(--acid) inset}
+.tp.me b{color:var(--acid)}
+.tp.dead{opacity:.4;text-decoration:line-through}
+#tChips{display:flex;gap:4px;flex:none}
+.tchip{padding:5px 8px;background:#101713c4;border:1px solid #ffffff1c;border-radius:8px;font-size:10px;white-space:nowrap}
+#tStatus{position:absolute;top:calc(var(--st) + 50px);left:50%;transform:translateX(-50%);max-width:min(70vw,560px);text-align:center;font-size:10px;color:var(--muted);text-shadow:0 1px 2px #000;pointer-events:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#tCam{position:absolute;top:calc(var(--st) + 52px);right:calc(var(--sr) + 8px);display:flex;flex-direction:column;gap:5px}
+#tCam button{width:54px;height:34px;font-size:9px;letter-spacing:1px}
+#tCam button[aria-pressed=true]{border-color:var(--acid);color:var(--acid)}
+#tFire{position:absolute;right:calc(var(--sr) + 12px);bottom:calc(var(--sb) + 12px);width:86px;height:86px;border-radius:50%!important;background:var(--acid)!important;color:#182012!important;border:3px solid #182012!important;font:800 22px 'Barlow Condensed',sans-serif;letter-spacing:1px;box-shadow:0 4px 18px #0009}
+#tFire:disabled{background:#4a5532!important;color:#18201299!important}
+#tDrive{position:absolute;left:calc(var(--sl) + 10px);bottom:calc(var(--sb) + 10px);display:grid;grid-template-columns:repeat(3,44px);grid-auto-rows:42px;gap:4px}
+.tdrv{font-size:16px}
+.tdrv.wide{grid-column:1/-1;font-size:11px;letter-spacing:1px;display:none;border-color:var(--orange)!important;color:var(--orange)}
+#tAim{position:absolute;bottom:calc(var(--sb) + 10px);left:calc(var(--sl) + 166px);right:calc(var(--sr) + 110px);display:flex;flex-wrap:wrap;gap:6px;align-items:flex-end;justify-content:center}
+#tWeaponBtn{flex:1 1 104px;max-width:200px;height:44px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;padding:0 10px!important;text-align:left;overflow:hidden}
+#tWeaponBtn small,.tval small{font-size:8px;letter-spacing:1px;color:var(--muted)}
+#tWeaponBtn b{font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.tstep{flex:1 1 104px;max-width:170px;display:grid;grid-template-columns:36px 1fr 36px;gap:3px;align-items:center;background:#101713b8;border:1px solid #ffffff1c;border-radius:12px;padding:2px}
+.tstep button{height:40px;font-size:20px;border-radius:9px!important}
+.tval{text-align:center;line-height:1.1}
+.tval b{display:block;font-size:14px;color:var(--ink);font-variant-numeric:tabular-nums}
+body.tc.tmatch:not(.tmyturn) #tAim,body.tc.tmatch:not(.tmyturn) #tDrive{opacity:.45}
+body.tc.tdriving .tdrv.wide{display:block}
+#tPilot{display:none}
+body.tc.tpilot #tPilot{display:block}
+body.tc.tpilot #tAim,body.tc.tpilot #tDrive{display:none}
+#tStick{position:absolute;left:calc(var(--sl) + 18px);bottom:calc(var(--sb) + 18px);width:128px;height:128px;border-radius:50%;background:#101713b0;border:2px solid #ffffff33;touch-action:none}
+#tKnob{position:absolute;left:50%;top:50%;width:52px;height:52px;margin:-26px 0 0 -26px;border-radius:50%;background:var(--acid);opacity:.85}
+#tThrottle{position:absolute;right:calc(var(--sr) + 110px);bottom:calc(var(--sb) + 18px);display:flex;flex-direction:column;align-items:center;gap:4px;background:#101713b0;border:1px solid #ffffff22;border-radius:10px;padding:6px}
+#tThrottle input{writing-mode:vertical-lr;direction:rtl;width:28px;height:110px}
+#tThrottle small{font-size:8px;color:var(--muted)}
+#tTilt{position:absolute;left:calc(var(--sl) + 156px);bottom:calc(var(--sb) + 18px);width:56px;height:38px;font-size:10px}
+#tTilt[aria-pressed=true]{border-color:var(--acid);color:var(--acid)}
+#tAimInd{position:fixed;inset:0;pointer-events:none;z-index:9}
+#tAimInd i{position:absolute;height:3px;background:var(--acid);transform-origin:0 50%;border-radius:2px;box-shadow:0 0 6px #000}
+#tAimInd span{position:absolute;transform:translate(-50%,-50%);padding:5px 9px;background:#101713e6;border:1px solid var(--acid);border-radius:8px;color:var(--acid);font:600 14px 'IBM Plex Mono',monospace;white-space:nowrap}
+body.tlefty #tFire{right:auto;left:calc(var(--sl) + 12px)}
+body.tlefty #tDrive{left:auto;right:calc(var(--sr) + 10px)}
+body.tlefty #tAim{left:calc(var(--sl) + 110px);right:calc(var(--sr) + 166px)}
+body.tlefty #tCam{right:auto;left:calc(var(--sl) + 8px)}
+@media(orientation:portrait){
+ #tAim{left:calc(var(--sl) + 8px);right:calc(var(--sr) + 8px);bottom:calc(var(--sb) + 112px)}
+ #tWeaponBtn{flex-basis:100%;max-width:none}
+ .tstep{flex:1 1 30%;max-width:none;grid-template-columns:34px 1fr 34px}
+ .tstep button{height:38px}
+ body.tlefty #tAim{left:calc(var(--sl) + 8px);right:calc(var(--sr) + 8px)}
+ #tStatus{white-space:normal;max-width:84vw}
+}
+@media(max-height:380px){#tDrive{grid-template-columns:repeat(3,40px);grid-auto-rows:38px}#tFire{width:74px;height:74px;font-size:19px}#tCam button{height:30px}}
+.tsheet{position:fixed;inset:0;z-index:30;background:#000a;display:flex;align-items:flex-end;justify-content:center}
+.tsheet.hidden{display:none}
+.tsheet-in{width:min(720px,100%);max-height:min(82vh,calc(100vh - var(--st) - 12px));overflow:auto;background:#14201a;border:1px solid var(--acid);border-bottom:0;border-radius:16px 16px 0 0;padding:14px 16px calc(var(--sb) + 18px)}
+.tsheet-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;position:sticky;top:-14px;background:#14201a;padding:6px 0;z-index:1}
+.tsheet-head b{font:700 20px 'Barlow Condensed',sans-serif;letter-spacing:1px;color:var(--acid);text-transform:uppercase}
+.tclose{padding:8px 12px!important;font-size:10px}
+.tsheet h4,.tsheet h3{margin:12px 0 6px;font-size:10px;letter-spacing:2px;color:var(--muted)}
+.tcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:6px}
+.tcard{display:flex;flex-direction:column;align-items:flex-start;gap:3px;padding:10px!important;text-align:left;min-height:54px;border-radius:10px!important}
+.tcard b{font-size:11px;font-weight:600}
+.tcard small{font-size:9px;color:var(--muted)}
+.tcard i{display:block;width:100%;height:8px;border-radius:4px}
+.tcard.chosen{border-color:var(--acid);background:#2b3b28}
+.trow{display:flex;width:100%;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px;padding:14px!important;text-align:left;font-size:12px;border-radius:10px!important}
+.trow b{color:var(--acid)}
+.trow.acid{border-color:var(--acid);color:var(--acid)}
+.trow select{width:auto;min-width:120px}
+.titem{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line)}
+.titem b{display:block;font-size:12px}
+.titem small{display:block;font-size:10px;color:var(--muted);margin-top:3px}
+.tbuy{flex:none;min-width:96px;padding:10px!important;background:var(--acid)!important;color:#182012!important;font-weight:700;border-radius:10px!important}
+.tbuy.owned,.tbuy:disabled{background:#2b3b28!important;color:var(--acid)!important}
+@media(prefers-reduced-motion:reduce){#tHud button{transition:none}}
 </style></head><body>
 <canvas id="world" aria-label="3D artillery battlefield"></canvas><div id="labels"></div>
 <header><div class="brand">CHARRED <b>GROUND</b><small>TACTICAL ARTILLERY / OPEN HORIZONS</small></div><div class="topactions"><span class="pill"><span class="dot"></span><span id="modeLabel">LOCAL OPERATIONS</span></span><select id="quality" aria-label="Graphics quality"><option>Balanced</option><option>Low</option><option>High</option></select><button id="focusBtn">MY TANK [F]</button><button id="exploreBtn">EXPLORE [E]</button><button id="viewBtn">GUNNER [V]</button><button id="leaderboardBtn">LEADERBOARD</button><button id="accountBtn">ACCOUNT</button><button id="editBtn">EDITOR [M]</button><button id="helpBtn" aria-label="Help">?</button><button id="menuBtn">MENU</button></div></header>
@@ -669,4 +764,421 @@ $('totpEnableBtn').onclick=async()=>{let r=await apiFetch('/api/auth/totp/enable
 $('totpDisableBtn').onclick=async()=>{let r=await apiFetch('/api/auth/totp/disable',{method:'POST',body:JSON.stringify({code:$('totpVerifyInput').value})});if(!r.ok){$('profStatus').textContent=r.data.error||'Enter current 2FA code to disable.';return}account.user=r.data.user;$('totpVerifyInput').value='';syncAccountUI();$('profStatus').textContent='Two-factor authentication disabled.'};
 bootstrapAccount();
 window.addEventListener('beforeunload',()=>{peer?.destroy();renderer?.dispose();terrainGeo?.dispose();pGeo?.dispose();arcGeo?.dispose();trailGeo?.dispose();for(let m of [water,trunks,crowns,rocks])if(m)dispose(m);audio?.close()?.catch?.(()=>{});audio=null});
+/* ==== Touch controls and Telegram Mini App (docs/TELEGRAM_MINI_APP.md) ====
+   Everything below is additive. Outside Telegram it only adds the touch HUD on touch-first devices;
+   inside Telegram it also wires the Mini App SDK: sign-in, native buttons, haptics, Stars, sharing.
+   Camera state and credentials never enter peer messages: the only new peer messages are a cosmetic
+   choice and an away flag with an opaque notification token. */
+const TOUCH=(()=>{
+ const qs=new URLSearchParams(location.search);
+ const tgLaunch=/(^|[#&?])tgWebApp(Data|Platform|Version)=/.test(location.hash+'&'+location.search);
+ const coarse=matchMedia('(pointer:coarse)').matches&&!matchMedia('(any-pointer:fine)').matches;
+ const st={
+  on:qs.get('touch')==='1'||coarse||tgLaunch,
+  settings:{haptics:true,lefty:false,tiltDrone:false,tiltGunner:false,cos:{accent:'',trail:''},terms:false,tipSeen:false,homeAsked:false},
+  ent:{accents:[],trails:[],supporter:false,aiPass:false,owned:[]},
+  aimDrag:null,lastPhase:null,lastHp:null
+ };
+ const el=(tag,props={},kids=[])=>{let e=document.createElement(tag);for(let[k,v]of Object.entries(props)){if(k==='class')e.className=v;else if(k==='text')e.textContent=v;else e.setAttribute(k,v)}for(let c of kids)e.append(c);return e};
+ const ACCENT_COLORS={ember:'#ff7a2f',glacier:'#8fd8ff',venom:'#8dff5a',royal:'#9b6bff',chrome:'#d9dde2'};
+ const TRAIL_COLORS={tracer:'#ffd24a',plasma:'#c78bff',inferno:'#ff5a3c'};
+ return {st,el,ACCENT_COLORS,TRAIL_COLORS,tgLaunch};
+})();
+
+/* ---- Telegram SDK bridge: every call is feature-detected so older clients and the web build work ---- */
+const TG={wa:null,user:null,startParam:'',chatInstance:null,config:null,ready:false,
+ ok(v){return !!(this.wa&&this.wa.isVersionAtLeast&&this.wa.isVersionAtLeast(v))},
+ mobile(){return !!this.wa&&['ios','android','android_x'].includes(this.wa.platform)},
+ haptic(kind,style){if(!TOUCH.st.settings.haptics)return;let h=this.wa?.HapticFeedback;try{if(h&&this.ok('6.1')){if(kind==='impact')h.impactOccurred(style||'light');else if(kind==='note')h.notificationOccurred(style||'success');else h.selectionChanged()}else if(TOUCH.st.on&&navigator.vibrate&&kind!=='select')navigator.vibrate(kind==='note'?[20,40,20]:style==='heavy'?35:12)}catch(e){}},
+ popup(params){return new Promise(res=>{if(this.wa&&this.ok('6.2')){try{this.wa.showPopup(params,id=>res(id||null));return}catch(e){}}let ok=window.confirm((params.title?params.title+'\n\n':'')+params.message);res(ok?(params.buttons?.find(b=>b.type!=='cancel'&&b.type!=='close')?.id||'ok'):null)})},
+ cloudGet(key){return new Promise(res=>{let cs=this.wa?.CloudStorage;if(cs&&this.ok('6.9')){try{cs.getItem(key,(err,v)=>res(err?null:v||null));return}catch(e){}}try{res(localStorage.getItem('tg_'+key))}catch(e){res(null)}})},
+ cloudSet(key,val){let cs=this.wa?.CloudStorage;if(cs&&this.ok('6.9')){try{cs.setItem(key,val,()=>{});return}catch(e){}}try{localStorage.setItem('tg_'+key,val)}catch(e){}},
+ deviceGet(key){return new Promise(res=>{let ds=this.wa?.DeviceStorage;if(ds&&this.ok('9.0')){try{ds.getItem(key,(err,v)=>res(err?null:v||null));return}catch(e){}}res(null)})},
+ deviceSet(key,val){let ds=this.wa?.DeviceStorage;if(ds&&this.ok('9.0')&&val!=null){try{ds.setItem(key,val,()=>{})}catch(e){}}}
+};
+
+function loadTelegramSdk(){return new Promise(resolve=>{if(window.Telegram?.WebApp)return resolve(window.Telegram.WebApp);let s=document.createElement('script');s.src='https://telegram.org/js/telegram-web-app.js?59';s.onload=()=>resolve(window.Telegram?.WebApp||null);s.onerror=()=>resolve(null);document.head.appendChild(s);setTimeout(()=>resolve(window.Telegram?.WebApp||null),6000)})}
+
+/* ---- Touch HUD markup ---- */
+function buildTouchHud(){
+ const {el}=TOUCH;
+ const stepper=(id,label)=>el('div',{class:'tstep',id:'tStep_'+id},[el('button',{type:'button','data-step':id,'data-dir':'-1','aria-label':label+' down',text:'−'}),el('div',{class:'tval'},[el('small',{text:label}),el('b',{id:'tVal_'+id,text:'0'})]),el('button',{type:'button','data-step':id,'data-dir':'1','aria-label':label+' up',text:'+'})]);
+ const drive=(id,label,txt)=>el('button',{type:'button',class:'tdrv',id,'aria-label':label,text:txt});
+ const hud=el('div',{id:'tHud','aria-label':'Touch controls'},[
+  el('div',{id:'tTop'},[
+   el('button',{type:'button',id:'tMenuBtn','aria-label':'Menu',text:'☰'}),
+   el('div',{id:'tPlayers'}),
+   el('div',{id:'tChips'},[el('span',{class:'tchip',id:'tWind',text:'· 0.0'}),el('span',{class:'tchip',id:'tActs',text:'ACT 4/4'})])
+  ]),
+  el('div',{id:'tStatus',role:'status'}),
+  el('div',{id:'tCam',role:'group','aria-label':'Camera'},[
+   el('button',{type:'button','data-cam-shortcut':'focus','aria-label':'Focus my tank',text:'TANK'}),
+   el('button',{type:'button','data-cam-shortcut':'explore','aria-label':'3D explore',text:'3D'}),
+   el('button',{type:'button','data-cam-shortcut':'gunner','aria-label':'Gunner scope',text:'SCOPE'}),
+   el('button',{type:'button','data-cam-shortcut':'reset','aria-label':'Reset view',text:'MAP'})
+  ]),
+  el('div',{id:'tAim'},[
+   el('button',{type:'button',id:'tWeaponBtn','aria-label':'Choose weapon'},[el('small',{text:'PAYLOAD'}),el('b',{id:'tWeaponName',text:'Baby Missile'})]),
+   stepper('angle','ANGLE'),stepper('power','POWER'),stepper('az','AZIMUTH')
+  ]),
+  el('div',{id:'tDrive',role:'group','aria-label':'Drive'},[
+   drive('tTurnL','Turn left','↺'),drive('tFwd','Drive forward','▲'),drive('tTurnR','Turn right','↻'),
+   drive('tLeft','Drive left','◀'),drive('tRev','Reverse','▼'),drive('tRight','Drive right','▶'),
+   el('button',{type:'button',id:'tStop',class:'tdrv wide',text:'STOP ■'})
+  ]),
+  el('button',{type:'button',id:'tFire',class:'primary','aria-label':'Fire',text:'FIRE'}),
+  el('div',{id:'tPilot','aria-label':'Drone controls'},[
+   el('div',{id:'tStick'},[el('i',{id:'tKnob'})]),
+   el('div',{id:'tThrottle'},[el('small',{text:'THR'}),el('input',{type:'range',id:'tThr',min:'-1',max:'1',step:'1',value:'0','aria-label':'Drone throttle'})]),
+   el('button',{type:'button',id:'tTilt','aria-pressed':'false',text:'TILT'})
+  ]),
+  el('div',{id:'tAimInd','aria-hidden':'true'},[el('i'),el('span')])
+ ]);
+ const sheet=(id,title,kids)=>el('div',{id,class:'tsheet hidden',role:'dialog','aria-label':title},[el('div',{class:'tsheet-in'},[el('div',{class:'tsheet-head'},[el('b',{text:title}),el('button',{type:'button',class:'tclose','data-close':id,text:'CLOSE'})]),...kids])]);
+ document.body.append(hud,
+  sheet('tWeapons','Payload & equipment',[el('div',{id:'tWeaponGrid'})]),
+  sheet('tMenu','Command menu',[el('div',{id:'tMenuList'})]),
+  sheet('tStore','Armory store',[el('p',{class:'notice',id:'tStoreNote'}),el('div',{id:'tStoreGrid'}),el('h3',{text:'EQUIPPED COSMETICS'}),el('div',{id:'tEquip'})]),
+  sheet('tSettings','Settings',[el('div',{id:'tSettingsList'})]));
+}
+
+/* ---- Touch HUD behaviour ---- */
+function myTank(){if(!S)return null;if(online)return S.tanks[myId]||null;let c=current();return c&&!c.ai?c:S.tanks.find(t=>!t.ai)||null}
+function compactTouch(){return TOUCH.st.on&&(innerWidth<1000||innerHeight<620)}
+function anySheetOpen(){return [...document.querySelectorAll('.tsheet')].some(s=>!s.classList.contains('hidden'))}
+function openSheet(id){for(let s of document.querySelectorAll('.tsheet'))s.classList.toggle('hidden',s.id!==id);TG.haptic('select');syncTelegramChrome()}
+function closeSheets(){for(let s of document.querySelectorAll('.tsheet'))s.classList.add('hidden');syncTelegramChrome()}
+
+function stepValue(which,dir,mult=1){
+ if(!S||!canControl()||aimBlockReason())return false;
+ if(which==='angle')$('angle').value=clamp((+$('angle').value||0)+dir*.5*mult,0,180);
+ else if(which==='power')$('power').value=clamp((+$('power').value||0)+dir*5*mult,0,Math.floor((current()?.hp||100)*10));
+ else{let next=wrapAzDeg((+$('azimuth').value||0)+dir*mult);$('azimuth').value=next;if(current())current().az=next}
+ hudPulse('aim');updateUI();syncTouchHud();TG.haptic('select');return true}
+
+function bindStepper(btn){
+ let timer=0,t0=0,n=0;
+ const stop=()=>{clearTimeout(timer);timer=0};
+ const tick=()=>{let held=performance.now()-t0,mult=held>2200?8:held>1200?4:held>600?2:1;stepValue(btn.dataset.step,+btn.dataset.dir,mult);n++;timer=setTimeout(tick,n<3?160:70)};
+ btn.addEventListener('pointerdown',e=>{e.preventDefault();stop();t0=performance.now();n=0;stepValue(btn.dataset.step,+btn.dataset.dir);timer=setTimeout(tick,350)});
+ for(let ev of ['pointerup','pointercancel','pointerleave','lostpointercapture'])btn.addEventListener(ev,stop);
+ btn.addEventListener('contextmenu',e=>e.preventDefault())}
+
+function bindDrive(id,key){
+ let b=$(id);
+ b.addEventListener('pointerdown',e=>{e.preventDefault();try{b.setPointerCapture(e.pointerId)}catch(_){}driveKeys.add('btn:'+key);syncDriveKeys();TG.haptic('impact','soft')});
+ for(let ev of ['pointerup','pointercancel','lostpointercapture'])b.addEventListener(ev,()=>{if(driveKeys.delete('btn:'+key)&&canSteerDrive())syncDriveKeys()})}
+
+function renderWeaponSheet(){
+ let grid=$('tWeaponGrid');grid.replaceChildren();let byCat=new Map();
+ for(let o of $('weapon').options){let cat=WEAPONS_CONFIG[o.value]?.cat||'Actions';if(!byCat.has(cat))byCat.set(cat,[]);byCat.get(cat).push(o)}
+ for(let[cat,opts]of byCat){grid.append(TOUCH.el('h4',{text:cat.toUpperCase()}));let row=TOUCH.el('div',{class:'tcards'});for(let o of opts){let cfg=WEAPONS_CONFIG[o.value],card=TOUCH.el('button',{type:'button',class:'tcard'+(o.value===$('weapon').value?' chosen':''),title:cfg?.desc||''},[TOUCH.el('b',{text:o.value}),TOUCH.el('small',{text:(o.textContent.split('·')[1]||'').trim()||'∞'})]);card.disabled=o.disabled;card.onclick=()=>{$('weapon').value=o.value;$('weapon').dispatchEvent(new Event('input'));$('weapon').dispatchEvent(new Event('change'));closeSheets();syncTouchHud();TG.haptic('impact','light')};row.append(card)}grid.append(row)}}
+
+const SHOT_KINDS=new Set(['blast','nuke','split','leap','funky','roller','digger','dirt','liquid','riot','napalm','laser','plasma']);
+function syncTouchHud(){
+ let compact=compactTouch(),b=document.body;
+ b.classList.toggle('tc',compact);b.classList.toggle('tlefty',!!TOUCH.st.settings.lefty);
+ if(!compact||!S){b.classList.remove('tmatch');return}
+ let inMatch=running&&$('menu').classList.contains('hidden')&&$('shop').classList.contains('hidden')&&!editorOpen;
+ b.classList.toggle('tmatch',inMatch);
+ if(!inMatch)return;
+ let me=myTank(),pd=activePilotDrone(),piloting=!!pd&&(!online||myId===pd.owner);
+ b.classList.toggle('tpilot',piloting);
+ b.classList.toggle('tdriving',!!activeDrive());
+ b.classList.toggle('tmyturn',canControl());
+ let wrap=$('tPlayers');if(wrap.childElementCount!==S.tanks.length){wrap.replaceChildren();for(let p of S.tanks)wrap.append(TOUCH.el('span',{class:'tp'},[TOUCH.el('i'),TOUCH.el('b'),TOUCH.el('em')]))}
+ S.tanks.forEach((p,i)=>{let n=wrap.children[i];n.style.setProperty('--c',COLORS[p.id]);n.classList.toggle('active',p.id===S.turn);n.classList.toggle('dead',p.hp<=0);n.classList.toggle('me',p===me);n.children[1].textContent=(p.ai?'◈':'')+p.name;n.children[2].textContent=Math.ceil(Math.max(0,p.hp))+''});
+ $('tWind').textContent=$('wind').textContent;
+ $('tActs').textContent='ACT '+(S.actionsLeft??'-')+'/'+(S.actionsMax??'-');
+ $('tStatus').textContent=$('turnLabel').textContent+' '+$('status').textContent;
+ $('tVal_angle').textContent=(+$('angle').value).toFixed(1)+'°';
+ $('tVal_power').textContent=String(Math.round(+$('power').value));
+ $('tVal_az').textContent=Math.round(+$('azimuth').value)+'°';
+ let opt=$('weapon').selectedOptions[0];$('tWeaponName').textContent=opt?opt.textContent:'—';
+ let kind=WEAPONS_CONFIG[$('weapon').value]?.kind;
+ $('tFire').textContent=piloting?(pd.role==='fpv'?'BOOM':'FIRE'):(kind&&!SHOT_KINDS.has(kind)?'USE':'FIRE');
+ $('tFire').disabled=!(canControl()||piloting);
+ $('tStop').style.display=activeDrive()&&canSteerDrive()?'block':'none';
+ for(let btn of document.querySelectorAll('#tCam [data-cam-shortcut]'))btn.setAttribute('aria-pressed',String((btn.dataset.camShortcut==='focus'&&viewMode==='focus')||(btn.dataset.camShortcut==='explore'&&viewMode==='explore')||(btn.dataset.camShortcut==='gunner'&&viewMode==='gunner')))}
+
+/* Drag from your own tank to aim: the finger's direction is the barrel's direction and its distance is
+   the power. Only the barrel and two numbers are shown: never a trajectory (owner rule: no aim arc). */
+function tankWorld(t){return new THREE.Vector3(t.x,(Number.isFinite(t.y)?t.y:height(t.x,t.z||0))+3.5,t.z||0)}
+function screenOf(v){let p=v.clone().project(camera);return{x:(p.x+1)/2*innerWidth,y:(1-p.y)/2*innerHeight,z:p.z}}
+function tankScreen(t){if(!camera||!t)return null;let w=tankWorld(t),s=screenOf(w);if(s.z>1)return null;return{x:s.x,y:s.y,world:w}}
+function aimFromDrag(t,fx,fy){
+ let o=tankScreen(t);if(!o)return null;let az=(+$('azimuth').value||0)*rad,up=screenOf(o.world.clone().add(new THREE.Vector3(0,10,0)));
+ let solve=(dir)=>{let a=screenOf(o.world.clone().add(dir)),rx=a.x-o.x,ry=a.y-o.y,ux=up.x-o.x,uy=up.y-o.y,det=rx*uy-ry*ux;if(Math.abs(det)<40)return null;let fxr=fx-o.x,fyr=fy-o.y;return{h:(fxr*uy-fyr*ux)/det,v:(rx*fyr-ry*fxr)/det}};
+ let R=solve(new THREE.Vector3(Math.cos(az)*10,0,Math.sin(az)*10)),L=solve(new THREE.Vector3(-Math.cos(az)*10,0,Math.sin(az)*10));
+ let ang=null;if(R&&R.h>=0)ang=Math.atan2(Math.max(0,R.v),R.h)/rad;else if(L&&L.h>0)ang=180-Math.atan2(Math.max(0,L.v),L.h)/rad;else if(R)ang=R.v>0?90:180;
+ let len=Math.hypot(fx-o.x,fy-o.y),full=Math.max(140,Math.min(innerWidth,innerHeight)*.42);
+ return{angle:ang==null?null:clamp(Math.round(ang*2)/2,0,180),power:clamp(Math.round(len/full*1000/5)*5,0,Math.floor((t.hp||100)*10)),o}}
+function showAimIndicator(o,fx,fy,a){let ind=$('tAimInd');if(!o){ind.style.display='none';return}ind.style.display='block';let dx=fx-o.x,dy=fy-o.y,len=Math.hypot(dx,dy);let line=ind.children[0];line.style.left=o.x+'px';line.style.top=o.y+'px';line.style.width=Math.min(len,90)+'px';line.style.transform='rotate('+Math.atan2(dy,dx)+'rad)';let lab=ind.children[1];lab.style.left=clamp(fx,60,innerWidth-60)+'px';lab.style.top=clamp(fy-56,40,innerHeight-40)+'px';lab.textContent=(a.angle==null?'—':a.angle.toFixed(1)+'°')+' · '+a.power}
+function initDragAim(){
+ const canvas=$('world');
+ window.addEventListener('pointerdown',e=>{
+  if(e.target!==canvas||!compactTouch()||!S||editorOpen||(e.pointerType==='mouse'&&e.button!==0))return;
+  if(!canControl()||aimBlockReason()||viewMode==='gunner'||activePilotDrone())return;
+  let t=current(),o=tankScreen(t);if(!o)return;
+  let reach=Math.max(56,Math.min(innerWidth,innerHeight)*.12);
+  if(Math.hypot(e.clientX-o.x,e.clientY-o.y)>reach)return;
+  e.stopPropagation();e.preventDefault();
+  TOUCH.st.aimDrag={id:e.pointerId,moved:false};try{canvas.setPointerCapture(e.pointerId)}catch(_){}
+  TG.haptic('impact','light');hudPulse('aim')
+ },true);
+ window.addEventListener('pointermove',e=>{let d=TOUCH.st.aimDrag;if(!d||e.pointerId!==d.id)return;e.stopPropagation();if(!canControl()){TOUCH.st.aimDrag=null;showAimIndicator(null);return}let t=current(),a=aimFromDrag(t,e.clientX,e.clientY);if(!a)return;if(Math.hypot(e.clientX-a.o.x,e.clientY-a.o.y)<18&&!d.moved)return;d.moved=true;let prevA=+$('angle').value,prevP=+$('power').value;if(a.angle!=null)$('angle').value=a.angle;$('power').value=a.power;if(Math.floor(prevA)!==Math.floor(+$('angle').value)||Math.floor(prevP/50)!==Math.floor(a.power/50))TG.haptic('select');updateUI();syncTouchHud();showAimIndicator(a.o,e.clientX,e.clientY,a);hudPulse('aim')},true);
+ const end=e=>{let d=TOUCH.st.aimDrag;if(!d||e.pointerId!==d.id)return;e.stopPropagation();TOUCH.st.aimDrag=null;showAimIndicator(null)};
+ for(let ev of ['pointerup','pointercancel'])window.addEventListener(ev,end,true)}
+
+/* Drone stick, throttle and optional tilt steering feed the same keys the keyboard uses. */
+function setPilotKeys(pitch,yaw,thr){let pd=activePilotDrone();if(!pd)return;if(pilotInputId!==pd.id){pilotKeys.clear();pilotInputId=pd.id}for(let k of ['w','s','a','d','q','e'])pilotKeys.delete(k);if(pitch>.35)pilotKeys.add('w');if(pitch<-.35)pilotKeys.add('s');if(yaw>.35)pilotKeys.add('d');if(yaw<-.35)pilotKeys.add('a');if(thr>.3)pilotKeys.add('q');if(thr<-.3)pilotKeys.add('e');pilotInputClock=.1;pilotInputTick(0)}
+const pilotState={pitch:0,yaw:0,tilt:false,base:null};
+function initPilotControls(){
+ let stick=$('tStick'),knob=$('tKnob'),active=null;
+ const upd=e=>{let r=stick.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2,dx=(e.clientX-cx)/(r.width/2),dy=(e.clientY-cy)/(r.height/2),m=Math.hypot(dx,dy);if(m>1){dx/=m;dy/=m}knob.style.transform='translate('+dx*38+'px,'+dy*38+'px)';pilotState.pitch=-dy;pilotState.yaw=dx;setPilotKeys(pilotState.pitch,pilotState.yaw,+$('tThr').value)};
+ stick.addEventListener('pointerdown',e=>{e.preventDefault();active=e.pointerId;try{stick.setPointerCapture(e.pointerId)}catch(_){}upd(e)});
+ stick.addEventListener('pointermove',e=>{if(e.pointerId===active)upd(e)});
+ for(let ev of ['pointerup','pointercancel','lostpointercapture'])stick.addEventListener(ev,e=>{if(e.pointerId!==active)return;active=null;knob.style.transform='';pilotState.pitch=0;pilotState.yaw=0;setPilotKeys(0,0,+$('tThr').value)});
+ $('tThr').addEventListener('input',()=>{setPilotKeys(pilotState.pitch,pilotState.yaw,+$('tThr').value);TG.haptic('select')});
+ $('tTilt').onclick=()=>{pilotState.tilt=!pilotState.tilt;pilotState.base=null;$('tTilt').setAttribute('aria-pressed',String(pilotState.tilt));TOUCH.st.settings.tiltDrone=pilotState.tilt;saveTouchSettings();startOrientation(pilotState.tilt||TOUCH.st.settings.tiltGunner)}}
+
+/* Device orientation: Telegram's DeviceOrientation (Bot API 8.0) when present, else the browser event. */
+const orient={on:false,gbase:null};
+function onOrient(beta,gamma){
+ let pd=activePilotDrone(),land=innerWidth>innerHeight;
+ if(pilotState.tilt&&pd&&(!online||myId===pd.owner)){if(!pilotState.base)pilotState.base={b:beta,g:gamma};let db=beta-pilotState.base.b,dg=gamma-pilotState.base.g,pitch=clamp(-(land?dg:db)/18,-1,1),yaw=clamp((land?db:dg)/18,-1,1);setPilotKeys(pitch,yaw,+$('tThr').value)}
+ if(TOUCH.st.settings.tiltGunner&&viewMode==='gunner'&&canControl()&&!aimBlockReason()){if(!orient.gbase)orient.gbase={b:beta,g:gamma,a:+$('angle').value,z:+$('azimuth').value};let dv=land?(gamma-orient.gbase.g):(beta-orient.gbase.b),dh=land?(beta-orient.gbase.b):(gamma-orient.gbase.g);$('angle').value=clamp(Math.round((orient.gbase.a-dv*.6)*2)/2,0,180);let z=wrapAzDeg(Math.round(orient.gbase.z+dh*.6));$('azimuth').value=z;if(current())current().az=z;updateUI()}else orient.gbase=null}
+function orientFromTg(){let d=TG.wa.DeviceOrientation;onOrient((d.beta||0)/rad,(d.gamma||0)/rad)}
+function orientFromWeb(e){if(e.beta!=null)onOrient(e.beta,e.gamma||0)}
+function startOrientation(want){
+ want=!!want;if(want===orient.on)return;orient.on=want;let dO=TG.wa?.DeviceOrientation;
+ if(dO&&TG.ok('8.0')){try{if(want){dO.start({refresh_rate:40});TG.wa.onEvent('deviceOrientationChanged',orientFromTg)}else{dO.stop();TG.wa.offEvent('deviceOrientationChanged',orientFromTg)}}catch(e){}return}
+ if(want){let go=()=>window.addEventListener('deviceorientation',orientFromWeb);if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function')DeviceOrientationEvent.requestPermission().then(r=>{if(r==='granted')go()}).catch(()=>{});else go()}else window.removeEventListener('deviceorientation',orientFromWeb)}
+
+function saveTouchSettings(){TG.cloudSet('cg_settings',JSON.stringify(TOUCH.st.settings))}
+async function loadTouchSettings(){let raw=await TG.cloudGet('cg_settings');if(!raw)return;try{let s=JSON.parse(raw);if(s&&typeof s==='object')Object.assign(TOUCH.st.settings,s,{cos:{...TOUCH.st.settings.cos,...(s.cos||{})}})}catch(e){}}
+
+function renderSettings(){
+ let list=$('tSettingsList');list.replaceChildren();let s=TOUCH.st.settings;
+ const tog=(key,label,after)=>{let b=TOUCH.el('button',{type:'button',class:'trow','aria-pressed':String(!!s[key])},[TOUCH.el('span',{text:label}),TOUCH.el('b',{text:s[key]?'ON':'OFF'})]);b.onclick=()=>{s[key]=!s[key];saveTouchSettings();renderSettings();after?.();syncTouchHud()};list.append(b)};
+ tog('haptics','Vibration feedback');tog('lefty','Left-handed layout');
+ tog('tiltDrone','Tilt to steer drones',()=>{pilotState.tilt=s.tiltDrone;$('tTilt').setAttribute('aria-pressed',String(s.tiltDrone));startOrientation(s.tiltDrone||s.tiltGunner)});
+ tog('tiltGunner','Tilt to aim in Gunner scope',()=>startOrientation(s.tiltDrone||s.tiltGunner));
+ let q=TOUCH.el('label',{class:'trow'},[TOUCH.el('span',{text:'Graphics quality'})]),sel=$('quality').cloneNode(true);sel.id='tQuality';sel.value=$('quality').value;sel.onchange=()=>{$('quality').value=sel.value;$('quality').onchange();TG.cloudSet('cg_quality',sel.value)};q.append(sel);list.append(q)}
+
+function renderMenu(){
+ let list=$('tMenuList');list.replaceChildren();
+ const item=(label,fn,cls='')=>{let b=TOUCH.el('button',{type:'button',class:'trow '+cls,text:label});b.onclick=()=>{closeSheets();fn()};list.append(b)};
+ item('◀ Match menu',()=>$('menuBtn').click());
+ if(TG.wa&&online&&host&&roomId)item('⚔ Invite friends to this room',inviteFriends,'acid');
+ item('★ Armory store',openStore);
+ item('🏆 Leaderboard',()=>$('leaderboardBtn').click());
+ item('👤 Commander profile',()=>$('accountBtn').click());
+ item('🗺 Map editor',()=>$('editBtn').click());
+ if(TG.wa&&S&&running&&!online)item('🎯 Challenge a friend to this battle',shareChallenge);
+ if(TG.wa&&lastResult&&TG.ok('7.8'))item('📸 Share last round to Story',shareToStory);
+ if(TG.wa&&TG.ok('6.4'))item('📷 Scan a room QR code',scanRoomQr);
+ item('⚙ Settings',()=>{renderSettings();openSheet('tSettings')});
+ item('? Field manual',()=>$('helpBtn').click())}
+
+function initTouchHud(){
+ buildTouchHud();
+ for(let b of document.querySelectorAll('#tAim [data-step]'))bindStepper(b);
+ bindDrive('tFwd','w');bindDrive('tRev','s');bindDrive('tTurnL','a');bindDrive('tTurnR','d');
+ $('tLeft').onclick=()=>{$('moveL').click();TG.haptic('impact','soft')};$('tRight').onclick=()=>{$('moveR').click();TG.haptic('impact','soft')};
+ $('tStop').onclick=()=>{$('moveStop').click();TG.haptic('impact','medium')};
+ $('tFire').addEventListener('click',()=>{fire();TG.haptic('impact','medium')});
+ $('tWeaponBtn').onclick=()=>{renderWeaponSheet();openSheet('tWeapons')};
+ $('tMenuBtn').onclick=()=>{renderMenu();openSheet('tMenu')};
+ for(let b of document.querySelectorAll('#tCam [data-cam-shortcut]'))b.onclick=()=>{camShortcut(b.dataset.camShortcut);TG.haptic('select');syncTouchHud()};
+ document.addEventListener('click',e=>{if(e.target.closest?.('[data-close]'))closeSheets();else if(e.target.classList?.contains('tsheet'))closeSheets()});
+ initDragAim();initPilotControls();
+ window.addEventListener('resize',()=>syncTouchHud());
+ setInterval(touchTick,200);
+ syncTouchHud()}
+
+function touchTick(){
+ syncTouchHud();syncTelegramChrome();
+ if(!S)return;
+ let me=myTank();
+ if(me&&TOUCH.st.lastHp!=null&&me.hp<TOUCH.st.lastHp-.5){TG.haptic('impact',me.hp<=0||TOUCH.st.lastHp-me.hp>25?'heavy':'rigid');if(me.hp<=0)TG.haptic('note','error')}
+ TOUCH.st.lastHp=me?me.hp:null;
+ if(S.phase!==TOUCH.st.lastPhase){let prev=TOUCH.st.lastPhase;TOUCH.st.lastPhase=S.phase;if(S.phase==='shop'&&prev&&prev!=='shop')onRoundEnd();if(S.phase==='aim'&&prev==='flight'&&canControl())TG.haptic('note','warning')}
+ if(compactTouch()&&running&&!TOUCH.st.settings.tipSeen&&$('menu').classList.contains('hidden')){TOUCH.st.settings.tipSeen=true;saveTouchSettings();notice(innerWidth<innerHeight?'Tip: drag from your tank to aim · pinch to zoom · turn sideways for a wider view':'Tip: drag from your tank to aim · pinch to zoom · two fingers pan')}}
+
+/* Haptics on the shared audio cues, so hosts and guests both feel shots and blasts. */
+{const _origSound=sound;sound=function(type){_origSound(type);if(type==='blast')TG.haptic('impact','heavy');else if(type==='shot')TG.haptic('impact','light')}}
+
+/* ---- Cosmetics: a tank accent (barrel trim) and a shell-trail colour, bought with Stars ---- */
+function sanitizeCos(c){let o={};if(c&&Object.prototype.hasOwnProperty.call(TOUCH.ACCENT_COLORS,c.accent))o.accent=c.accent;if(c&&Object.prototype.hasOwnProperty.call(TOUCH.TRAIL_COLORS,c.trail))o.trail=c.trail;return o}
+function myCos(){let c=TOUCH.st.settings.cos||{},e=TOUCH.st.ent;return sanitizeCos({accent:(e.accents||[]).includes(c.accent)?c.accent:'',trail:(e.trails||[]).includes(c.trail)?c.trail:''})}
+function applyCosToState(){if(!S||!S.tanks)return;if(online){if(host)for(let t of S.tanks){let l=lobby[t.id];t.cos=sanitizeCos(t.id===0?myCos():l?.cos)}}else{let me=S.tanks.find(t=>!t.ai);for(let t of S.tanks)t.cos=t===me?myCos():{}}}
+{const _origStartMatch=startMatch;startMatch=function(){_origStartMatch();applyCosToState();updateUI()}}
+function sendMyCos(){if(online&&!host)connections.get('host')?.send({type:'cos',cos:myCos()});else applyCosToState()}
+{const _hc=hostConnections;hostConnections=function(p){_hc(p);p.on('connection',c=>{c.on('data',d=>{if(!d||typeof d!=='object'||!lobby[c.playerId])return;if(d.type==='cos'){lobby[c.playerId].cos=sanitizeCos(d.cos);if(S&&running&&S.tanks[c.playerId])S.tanks[c.playerId].cos=lobby[c.playerId].cos}if(d.type==='tgaway'){lobby[c.playerId].away=!!d.away;if(typeof d.watch==='string'&&d.watch.length<80)lobby[c.playerId].watch=d.watch;if(d.away)maybeNotifyTurn()}})})}}
+{const _ac=attachClient;attachClient=function(p,c,d){_ac(p,c,d);setTimeout(()=>{sendMyCos();registerTurnWatch()},300)}}
+function cosColorFor(id){let t=S?.tanks?.[id];return t&&t.cos&&TOUCH.TRAIL_COLORS[t.cos.trail]||null}
+const _cosView=new WeakMap();
+function syncCosmeticViews(){if(!S)return;for(let t of S.tanks){let v=views.get('t'+t.id);if(!v||!v.turret)continue;let acc=t.cos?.accent||'';if(_cosView.get(v)===acc)continue;_cosView.set(v,acc);let barrel=v.turret.children[0];if(!barrel?.material)continue;if(barrel.userData.baseColor==null)barrel.userData.baseColor=barrel.material.color.getHex();barrel.material.color.set(acc?TOUCH.ACCENT_COLORS[acc]:barrel.userData.baseColor);if(barrel.material.emissive){barrel.material.emissive.set(acc?TOUCH.ACCENT_COLORS[acc]:'#000000');barrel.material.emissiveIntensity=acc?.35:0}}}
+let trailColorBuf=null;const shotOwners=new Map();
+function initTrailColors(){if(!trailGeo||trailColorBuf)return;trailColorBuf=new Float32Array(trailBuffer.length);trailGeo.setAttribute('color',new THREE.BufferAttribute(trailColorBuf,3));trailLine.material.vertexColors=true;trailLine.material.color.set('#ffffff');trailLine.material.needsUpdate=true}
+{const _ut=updateTrails;updateTrails=function(dt){if(!trailGeo||!S){_ut(dt);return}initTrailColors();for(let p of S.shots)if(!shotOwners.has(p.id))shotOwners.set(p.id,p.owner);_ut(dt);let out=0,c=new THREE.Color();for(let[id,tr]of traces){c.set(cosColorFor(shotOwners.get(id))||'#ffdf8d');for(let i=1;i<tr.count&&out+6<=trailColorBuf.length;i++){trailColorBuf[out++]=c.r;trailColorBuf[out++]=c.g;trailColorBuf[out++]=c.b;trailColorBuf[out++]=c.r;trailColorBuf[out++]=c.g;trailColorBuf[out++]=c.b}}trailGeo.attributes.color.needsUpdate=true;if(shotOwners.size>256)for(let k of [...shotOwners.keys()]){if(!traces.has(k))shotOwners.delete(k);if(shotOwners.size<=128)break}}}
+{const _draw=draw;draw=function(dt){_draw(dt);syncCosmeticViews()}}
+
+/* ---- Telegram chrome: Back, Main, Secondary and Settings buttons follow the game state ---- */
+const tgButtons={main:null,second:null};
+function setBottomButton(which,spec){
+ let wa=TG.wa;if(!wa)return;let btn=which==='main'?wa.MainButton:wa.SecondaryButton;if(!btn||(which==='second'&&!TG.ok('7.10')))return;
+ let key=spec?spec.text+'|'+(spec.active!==false):'';if(tgButtons[which]&&tgButtons[which].key===key)return;
+ if(tgButtons[which]?.fn)btn.offClick(tgButtons[which].fn);
+ if(!spec){btn.hide();tgButtons[which]={key};return}
+ let fn=()=>{TG.haptic('impact','medium');spec.fn?.()};
+ try{btn.setParams({text:spec.text,is_active:spec.active!==false,is_visible:true,...(spec.color?{color:spec.color,text_color:'#182012'}:{}),...(which==='second'&&TG.ok('7.10')?{position:'left'}:{})})}catch(e){btn.setText(spec.text);btn.show()}
+ btn.onClick(fn);tgButtons[which]={key,fn}}
+function backAction(){
+ if(anySheetOpen())return closeSheets;
+ if(!$('help').classList.contains('hidden'))return()=>$('help').classList.add('hidden');
+ if(!$('accountModal').classList.contains('hidden'))return()=>$('accountModal').classList.add('hidden');
+ if(!$('leaderboardModal').classList.contains('hidden'))return()=>$('leaderboardModal').classList.add('hidden');
+ if(editorOpen)return()=>{TG.popup({title:'Leave the editor?',message:'Unsaved terrain changes will be discarded.',buttons:[{id:'discard',type:'destructive',text:'Discard'},{type:'cancel'}]}).then(id=>{if(id==='discard')cancelEditor()})};
+ if(running&&!$('menu').classList.contains('hidden'))return()=>$('resumeBtn').click();
+ if(running&&viewMode!=='tactical'&&$('shop').classList.contains('hidden'))return()=>{resetCamera();syncTouchHud()};
+ if(running&&$('menu').classList.contains('hidden')&&$('shop').classList.contains('hidden'))return()=>$('menuBtn').click();
+ return null}
+let tgBackFn=null;
+function syncTelegramChrome(){
+ let wa=TG.wa;if(!wa||!TG.ready)return;
+ let act=backAction();
+ try{if(act){if(!wa.BackButton.isVisible)wa.BackButton.show()}else if(wa.BackButton.isVisible)wa.BackButton.hide()}catch(e){}
+ tgBackFn=act;
+ let menuOpen=!$('menu').classList.contains('hidden'),shopOpen=!$('shop').classList.contains('hidden');
+ if(anySheetOpen()||editorOpen||!$('accountModal').classList.contains('hidden')||!$('leaderboardModal').classList.contains('hidden')||!$('help').classList.contains('hidden')){setBottomButton('main',null);setBottomButton('second',null)}
+ else if(menuOpen){
+  if(online&&!host)setBottomButton('main',{text:'WAITING FOR HOST…',active:false});
+  else if(running)setBottomButton('main',{text:'RESUME BATTLE',fn:()=>$('resumeBtn').click(),color:'#d8ee73'});
+  else setBottomButton('main',{text:online?(lobby.length<2?'WAITING FOR COMMANDERS…':'START BATTLE ('+lobby.length+')'):'START BATTLE',active:!online||lobby.length>=2,fn:()=>$('startBtn').click(),color:'#d8ee73'});
+  setBottomButton('second',online&&host&&roomId&&!running?{text:'INVITE',fn:inviteFriends}:null)}
+ else if(shopOpen){let rb=$('readyBtn');setBottomButton('main',{text:rb.disabled?'WAITING FOR COMMANDERS…':'READY / DEPLOY',active:!rb.disabled,fn:()=>rb.click(),color:'#d8ee73'});setBottomButton('second',lastResult?{text:'SHARE RESULT',fn:shareResult}:null)}
+ else{setBottomButton('main',null);setBottomButton('second',null)}
+ try{if(running&&S&&S.phase!=='shop'){if(!wa.isClosingConfirmationEnabled)wa.enableClosingConfirmation()}else if(wa.isClosingConfirmationEnabled)wa.disableClosingConfirmation()}catch(e){}
+ try{if(TG.ok('7.7')){if(running&&$('menu').classList.contains('hidden')){if(wa.isVerticalSwipesEnabled)wa.disableVerticalSwipes()}else if(!wa.isVerticalSwipesEnabled)wa.enableVerticalSwipes()}}catch(e){}}
+
+/* ---- Telegram sign-in, deep links, sharing, notifications ---- */
+async function telegramSignIn(){
+ let r=await apiFetch('/api/auth/telegram',{method:'POST',body:JSON.stringify({initData:TG.wa.initData})});
+ if(!r.ok){notice('Telegram sign-in unavailable: '+(r.data.error||r.status));return false}
+ account.token=r.data.token;account.user=r.data.user;TG.chatInstance=r.data.telegram?.chatInstance||null;
+ syncAccountUI();loadSelfHistory();await refreshEntitlements();return true}
+async function refreshEntitlements(){if(!account.token)return;let r=await apiFetch('/api/store/entitlements');if(r.ok){TOUCH.st.ent=r.data;sendMyCos()}}
+async function routeStartParam(p){
+ if(!p)return;let m;
+ if((m=p.match(/^r_([a-z0-9]{6})$/i))){$('roomCode').value='CHARRED-'+m[1].toUpperCase();notice('Joining room CHARRED-'+m[1].toUpperCase()+'…');joinRoom('charred-'+m[1].toLowerCase());return}
+ if((m=p.match(/^([cm])_([A-Za-z0-9_-]{4,24})$/))){let r=await apiFetch('/api/shares/'+m[2]);if(!r.ok){notice('That shared '+(m[1]==='m'?'map':'challenge')+' is no longer available.');return}if(m[1]==='m')loadSharedMap(r.data);else startChallenge(r.data);return}
+ if(p==='lb'){$('leaderboardBtn').click();return}
+ if(p==='shop'||p==='store'){openStore();return}}
+function loadSharedMap(share){let rec=share.payload,v=validateCustomMap(rec);if(!v){notice('The shared map is invalid.');return false}v.name=safeMapKey(String(rec.name||'Shared map').slice(0,40));saveMapToStorage(v);activeCustomMap=cloneMapData(v);$('terrainType').value='Custom';notice('Map "'+v.name+'" from '+(share.owner||'a friend')+' loaded. Press START to play it.');return true}
+function startChallenge(share){
+ let c=share.payload||{};if(!Number.isInteger(c.seed)||c.seed<0){notice('The challenge is invalid.');return}
+ for(let[id,k]of [['terrainType','terrain'],['wallType','wall'],['difficulty','difficulty'],['market','market'],['moveDuration','moveDuration'],['maxWind','maxWind'],['windCadence','windCadence']])if(c.cfg&&c.cfg[k]!=null&&$(id))$(id).value=String(c.cfg[k]);
+ let sels=[...document.querySelectorAll('.slot select')];if(Array.isArray(c.slots))sels.forEach((s,i)=>{let v=c.slots[i];if(v&&[...s.options].some(o=>o.value===v))s.value=v});
+ if(c.map){let v=validateCustomMap(c.map);if(v){activeCustomMap=cloneMapData(v);$('terrainType').value='Custom'}}
+ let orig=crypto.getRandomValues,used=false;crypto.getRandomValues=function(a){if(!used&&a instanceof Uint32Array&&a.length===1){used=true;a[0]=c.seed>>>0;return a}return orig.call(crypto,a)};
+ try{leaveNetwork();startMatch()}finally{crypto.getRandomValues=orig}
+ notice('Challenge from '+(share.owner||'a friend')+': '+(c.name||'same battlefield, same enemies')+'. Good luck!')}
+async function shareChallenge(){
+ if(!S)return;let slots=[...document.querySelectorAll('.slot select')].map(s=>s.value);
+ let payload={seed:S.seed>>>0,cfg:{terrain:S.cfg?.terrain,wall:$('wallType').value,difficulty:$('difficulty').value,market:$('market').value,moveDuration:$('moveDuration').value,maxWind:$('maxWind').value,windCadence:$('windCadence').value},slots,name:(S.cfg?.terrain||'Battle')+' vs '+S.tanks.filter(t=>t.ai).length+' AI'};
+ if(S.customMap)payload.map=serializeMapRecord(S.customMap);
+ let r=await apiFetch('/api/shares',{method:'POST',body:JSON.stringify({kind:'challenge',payload})});if(!r.ok)return notice(r.data.error||'Could not create the challenge.');
+ sharePrepared({kind:'challenge',shareId:r.data.id},'')}
+async function shareMap(){let m=serializeCurrentMap();if(!m)return notice('Map needs six separate spawns on dry ground or platforms.');let rec=serializeMapRecord({...m,name:$('mapName').value||'Custom map'});let r=await apiFetch('/api/shares',{method:'POST',body:JSON.stringify({kind:'map',payload:rec})});if(!r.ok)return notice(r.data.error||'Could not share the map.');sharePrepared({kind:'map',shareId:r.data.id},'')}
+async function sharePrepared(body,fallbackQuery){
+ if(!TG.wa)return;let r=await apiFetch('/api/telegram/prepared',{method:'POST',body:JSON.stringify(body)});
+ if(r.ok&&TG.ok('8.0')){try{TG.wa.shareMessage(r.data.id,ok=>{if(ok)TG.haptic('note','success')});return}catch(e){}}
+ if(TG.ok('6.7'))try{TG.wa.switchInlineQuery(fallbackQuery||'',['users','groups']);return}catch(e){}
+ notice(r.ok?'Sharing is not available in this Telegram version.':(r.data.error||'Sharing failed.'))}
+function inviteFriends(){if(!online||!host||!roomId)return notice('Host a private room first.');let code=roomId.replace(/^charred-/,'');if(!/^[a-z0-9]{6}$/.test(code))return notice('Public rooms cannot be shared; host a private room.');sharePrepared({kind:'invite',roomCode:code},'r_'+code)}
+let lastResult=null;
+function onRoundEnd(){let me=myTank(),winner=S.tanks.find(t=>t.hp>0);lastResult={won:!!me&&winner===me,winner:winner?.name||'',kills:me?.score||0,round:S.round,terrain:S.cfg?.terrain||''};TG.haptic('note',lastResult.won?'success':'warning');if(lastResult.won)maybeOfferChampionPerks();maybeOfferHomeScreen()}
+function shareResult(){if(!lastResult)return;sharePrepared({kind:'result',...lastResult},'')}
+async function shareToStory(){
+ if(!TG.wa||!TG.ok('7.8'))return notice('Stories need a newer Telegram app.');
+ try{renderer.render(scene,camera);let blob=await new Promise(r=>renderer.domElement.toBlob(r,'image/jpeg',.82));if(!blob)throw Error('capture failed');let r=await fetch('/api/telegram/story-image',{method:'POST',headers:{'Content-Type':'image/jpeg',Authorization:'Bearer '+account.token},body:blob});let d=await r.json();if(!r.ok)throw Error(d.error);let url=d.url.startsWith('http')?d.url:location.origin+d.url;let params={text:lastResult?.won?'Victory in Charred Ground 🏆':'Charred Ground 💥'};if(TG.user?.is_premium&&TG.config?.appLink)params.widget_link={url:TG.config.appLink,name:'Play Charred Ground'};TG.wa.shareToStory(url,params)}catch(e){notice('Could not share to Stories: '+e.message)}}
+function maybeOfferHomeScreen(){if(!TG.wa||!TG.ok('8.0')||TOUCH.st.settings.homeAsked)return;TOUCH.st.settings.homeAsked=true;saveTouchSettings();try{TG.wa.checkHomeScreenStatus(st=>{if(st==='missed')TG.popup({title:'Keep Charred Ground handy',message:'Add the game to your home screen for one-tap battles.',buttons:[{id:'add',type:'default',text:'Add to home screen'},{type:'cancel'}]}).then(id=>{if(id==='add')TG.wa.addToHomeScreen()})})}catch(e){}}
+async function maybeOfferChampionPerks(){let id=TG.config?.championEmojiId;if(!TG.wa||!id||!TG.ok('8.0')||!account.user)return;let r=await apiFetch('/api/leaderboard?limit=1');if(r.ok&&r.data.leaderboard?.[0]?.username===account.user.username){let ans=await TG.popup({title:'You are #1!',message:'Wear the Charred Ground champion badge as your emoji status for a week?',buttons:[{id:'yes',type:'default',text:'Wear it'},{type:'cancel'}]});if(ans==='yes')try{TG.wa.setEmojiStatus(id,{duration:7*86400})}catch(e){}}}
+function scanRoomQr(){try{TG.wa.showScanQrPopup({text:'Scan a Charred Ground room code'},text=>{let m=String(text||'').match(/(?:startapp=r_|CHARRED-)([a-z0-9]{6})/i);if(m){TG.wa.closeScanQrPopup();routeStartParam('r_'+m[1].toLowerCase());return true}return false})}catch(e){notice('QR scanning is not available here.')}}
+
+/* Turn notifications: guests register a watch token and tell the host when the app is minimised.
+   The host forwards the token, never a Telegram id, to the server, which messages the guest. */
+let turnWatch=null,lastNotified='';
+async function registerTurnWatch(){
+ if(!TG.wa||!account.token||!online||host||!roomId)return;
+ let ensureWrite=()=>new Promise(res=>{if(TG.user?.allows_write_to_pm||!TG.ok('6.9'))return res(true);try{TG.wa.requestWriteAccess(ok=>res(!!ok))}catch(e){res(false)}});
+ if(!await ensureWrite())return;
+ let r=await apiFetch('/api/telegram/turn-watch',{method:'POST',body:JSON.stringify({roomCode:roomId})});if(r.ok)turnWatch=r.data.token}
+function sendPresence(away){if(online&&!host&&turnWatch)connections.get('host')?.send({type:'tgaway',away,watch:turnWatch})}
+function maybeNotifyTurn(){if(!online||!host||!S||!running)return;let t=current(),l=lobby[t?.id];if(!l||!l.away||!l.watch||S.phase==='shop')return;let key=S.round+':'+t.id+':'+(t.turnsTaken||0);if(key===lastNotified)return;lastNotified=key;fetch('/api/telegram/notify-turn',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:l.watch})}).catch(()=>{})}
+{const _bt=beginTurn;beginTurn=function(){_bt();maybeNotifyTurn()}}
+
+/* ---- Stars store ---- */
+let storeCatalog=null;
+async function openStore(){
+ openSheet('tStore');$('tStoreNote').textContent='Loading…';
+ if(!storeCatalog){let r=await apiFetch('/api/store/catalog');storeCatalog=r.ok?r.data:{enabled:false,items:[]}}
+ await refreshEntitlements();renderStore()}
+function renderStore(){
+ let note=$('tStoreNote'),grid=$('tStoreGrid'),e=TOUCH.st.ent;grid.replaceChildren();
+ note.textContent=!storeCatalog?.enabled?'The store is closed on this server.':!TG.wa?'Purchases use Telegram Stars: open Charred Ground in Telegram to buy. Everything is cosmetic or a convenience pass; nothing changes weapons, damage or ranked play.':'Everything is cosmetic or a convenience pass; nothing changes weapons, damage or ranked play.';
+ let owned=new Set((e.owned||[]).map(o=>o.sku));
+ for(let it of storeCatalog?.items||[]){let have=owned.has(it.sku),btn=TOUCH.el('button',{type:'button',class:'tbuy'+(have?' owned':''),text:have?(it.kind==='subscription'?'ACTIVE':'OWNED'):'⭐ '+it.stars+(it.kind==='subscription'?' / 30 DAYS':'')});btn.disabled=have||!TG.wa||!storeCatalog.enabled;btn.onclick=()=>buySku(it,btn);grid.append(TOUCH.el('div',{class:'titem'},[TOUCH.el('div',{},[TOUCH.el('b',{text:it.title}),TOUCH.el('small',{text:it.description})]),btn]))}
+ let eq=$('tEquip');eq.replaceChildren();
+ const pick=(kind,list,colors)=>{let row=TOUCH.el('div',{class:'tcards'});for(let v of ['',...list]){let chosen=(TOUCH.st.settings.cos[kind]||'')===v,sw=TOUCH.el('i');sw.style.background=v?colors[v]:'#394330';let b=TOUCH.el('button',{type:'button',class:'tcard'+(chosen?' chosen':'')},[sw,TOUCH.el('b',{text:v?v.toUpperCase():'STANDARD'})]);b.onclick=()=>{TOUCH.st.settings.cos[kind]=v;saveTouchSettings();sendMyCos();renderStore();TG.haptic('select')};row.append(b)}eq.append(TOUCH.el('small',{text:kind==='accent'?'TANK ACCENT':'SHELL TRAIL'}),row)};
+ pick('accent',e.accents||[],TOUCH.ACCENT_COLORS);pick('trail',e.trails||[],TOUCH.TRAIL_COLORS);
+ if(e.supporter)eq.append(TOUCH.el('p',{class:'notice',text:'★ Supporter active'+(e.supporterExpiresAt?' until '+new Date(e.supporterExpiresAt).toLocaleDateString():'')+'. Thank you!'}))}
+async function buySku(it,btn){
+ if(!TOUCH.st.settings.terms){let ok=await TG.popup({title:'Purchase terms',message:'Items are cosmetic or convenience passes and never change gameplay. Undelivered purchases are refunded via /paysupport. Telegram support cannot help with bot purchases.',buttons:[{id:'agree',type:'default',text:'I agree'},{type:'cancel'}]});if(ok!=='agree')return;TOUCH.st.settings.terms=true;saveTouchSettings()}
+ btn.disabled=true;let r=await apiFetch('/api/store/invoice',{method:'POST',body:JSON.stringify({sku:it.sku})});
+ if(!r.ok){btn.disabled=false;notice(r.data.error||'Could not start the purchase.');return}
+ TG.wa.openInvoice(r.data.link,async status=>{if(status==='paid'){TG.haptic('note','success');for(let i=0;i<6;i++){await new Promise(z=>setTimeout(z,700));await refreshEntitlements();if((TOUCH.st.ent.owned||[]).some(o=>o.sku===it.sku))break}renderStore();notice(it.title+' unlocked!')}else{btn.disabled=false;if(status==='failed')TG.haptic('note','error')}})}
+
+/* Group leaderboard: when the game was opened from a chat, the leaderboard offers THIS CHAT. */
+function initChatLeaderboard(){
+ let head=document.querySelector('#leaderboardModal .accthead');if(!head||$('lbScope'))return null;
+ let b=TOUCH.el('button',{type:'button',id:'lbScope',text:'THIS CHAT'});head.insertBefore(b,head.lastElementChild);let chat=false;
+ b.onclick=async()=>{chat=!chat;b.textContent=chat?'GLOBAL':'THIS CHAT';if(!chat){loadLeaderboard();return}let r=await apiFetch('/api/telegram/leaderboard?chatInstance='+encodeURIComponent(TG.chatInstance));if(!r.ok)return notice(r.data.error||'Unavailable');$('leaderboardBody').replaceChildren();for(let row of r.data.leaderboard||[]){let tr=document.createElement('tr');tr.className='clickable';for(let v of ['#'+row.rank,row.displayName+' (@'+row.username+')',String(row.wins),String(row.kills),String(row.matchesPlayed),row.winRate+'%']){let td=document.createElement('td');td.textContent=v;tr.appendChild(td)}tr.onclick=()=>inspectCommander(row.username);$('leaderboardBody').appendChild(tr)}};
+ return b}
+
+/* Persist the two localStorage records (HUD layout, custom maps) in Telegram's DeviceStorage, which
+   survives WebView cache clears; restore them when the WebView storage comes back empty. */
+async function syncDeviceStorage(restore){let restored=false;for(let key of [HUD_LAYOUT_KEY,CUSTOM_MAP_KEY]){try{let local=localStorage.getItem(key);if(restore&&!local){let v=await TG.deviceGet(key);if(v){localStorage.setItem(key,v);restored=true}}else if(local)TG.deviceSet(key,local)}catch(e){}}if(restored){loadSavedMaps();hudLayout=null;hudRefresh()}}
+
+async function initTelegram(){
+ let wa=await loadTelegramSdk();if(!wa||!wa.initData)return;
+ TG.wa=wa;TG.user=wa.initDataUnsafe?.user||null;TG.startParam=wa.initDataUnsafe?.start_param||'';
+ document.body.classList.add('tg');
+ try{wa.ready();wa.expand()}catch(e){}
+ try{if(TG.ok('6.9')){wa.setHeaderColor('#101713');wa.setBackgroundColor('#101713')}if(TG.ok('7.10'))wa.setBottomBarColor('#101713')}catch(e){}
+ if(TG.mobile()&&TG.ok('8.0')){try{wa.requestFullscreen()}catch(e){}}
+ wa.onEvent('backButtonClicked',()=>{TG.haptic('select');tgBackFn?.()});
+ if(wa.SettingsButton&&TG.ok('7.0')){try{wa.SettingsButton.show();wa.onEvent('settingsButtonClicked',()=>{renderSettings();openSheet('tSettings')})}catch(e){}}
+ wa.onEvent('deactivated',()=>{try{audio?.suspend?.()}catch(e){}sendPresence(true);syncDeviceStorage(false)});
+ wa.onEvent('activated',()=>{try{if(audio&&audio.state!=='closed')audio.resume()}catch(e){}sendPresence(false)});
+ wa.onEvent('fullscreenChanged',()=>setTimeout(()=>{resize();hudRefresh();syncTouchHud()},50));
+ wa.onEvent('viewportChanged',e=>{if(e?.isStateStable)setTimeout(()=>{resize();syncTouchHud()},30)});
+ TG.ready=true;
+ let cfg=await apiFetch('/api/telegram/config');TG.config=cfg.ok?cfg.data:null;
+ await loadTouchSettings();
+ let q=await TG.cloudGet('cg_quality');if(q&&['Low','Balanced','High'].includes(q)){if($('quality').value!==q){$('quality').value=q;$('quality').onchange()}}
+ else if(/\bLOW\)?\s*$/.test(navigator.userAgent)){$('quality').value='Low';$('quality').onchange()}
+ pilotState.tilt=!!TOUCH.st.settings.tiltDrone;$('tTilt').setAttribute('aria-pressed',String(pilotState.tilt));
+ await syncDeviceStorage(true);
+ if(TG.config?.enabled)await telegramSignIn();
+ if(TG.chatInstance)initChatLeaderboard();
+ let edRow=$('edExportBtn')?.parentElement;if(edRow&&!$('edShareBtn')&&TG.config?.enabled){let b=TOUCH.el('button',{type:'button',id:'edShareBtn',text:'SHARE'});b.onclick=shareMap;edRow.append(b)}
+ syncTelegramChrome();
+ routeStartParam(TG.startParam)}
+
+if(TOUCH.st.on)document.body.classList.add('touch');
+initTouchHud();
+(async()=>{await loadTouchSettings();syncTouchHud();if(TOUCH.tgLaunch)initTelegram().catch(e=>console.warn('Telegram init failed',e))})();
 </script></body></html>

@@ -9,9 +9,11 @@
     "start": "node scripts/serve.cjs",
     "test": "node tests/game.cjs && node tests/ai.cjs && node tests/telegram.cjs",
     "db:check": "node scripts/db-check.cjs",
-    "test:browser": "node tests/browser/run.cjs && node tests/browser/hud-camera.cjs",
+    "test:browser": "node tests/browser/run.cjs && node tests/browser/hud-camera.cjs && node tests/browser/telegram-mobile.cjs",
     "test:browser:hud": "node tests/browser/hud-camera.cjs",
-    "qa:sweep": "node scripts/qa-sweep.cjs"
+    "qa:sweep": "node scripts/qa-sweep.cjs",
+    "test:browser:telegram": "node tests/browser/telegram-mobile.cjs",
+    "telegram:setup": "node scripts/telegram-setup.cjs"
   },
   "devDependencies": {
     "@sparticuz/chromium": "153.0.0",

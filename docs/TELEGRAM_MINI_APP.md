@@ -2,6 +2,46 @@
 
 Research date: 18 November 2026. Telegram facts come from the official pages listed under **Sources** (Bot API up to 10.4, 9 November 2026). Facts about Charred Ground come from this repository at the time of writing. Anything that is a recommendation or an inference is marked as such.
 
+## 0. Implementation status (branch `ccr-bbd78e22-63xcmm`, not merged)
+
+### What was built
+
+| Area | Where | Notes |
+|---|---|---|
+| Telegram sign-in and linking | `scripts/telegram.cjs`: `POST /api/auth/telegram`, `/api/auth/telegram/link` | HMAC check of `initData` with a 24 h `auth_date` window. New Telegram accounts are verified and use a non-deliverable `tg_<id>@telegram.invalid` address. The client signs in silently on every launch, so no token is stored on the device. |
+| Bot webhook | `POST /api/telegram/webhook` | Secret-token header required. Handles `/start <param>`, `/play`, `/help`, `/terms`, `/support`, `/paysupport`, admin-only `/refund <charge_id>`, inline-mode invites, `pre_checkout_query`, `successful_payment`, `refunded_payment`. |
+| Stars store | `scripts/telegram-catalog.cjs`, `/api/store/*` | Cosmetic and convenience SKUs only. XTR invoices; pre-checkout checks owner, price and ownership; payments are idempotent by charge id; payments that can't be matched to an item are refunded automatically; 30-day Supporter subscription; optional AI-pass gate. |
+| Data | `scripts/telegram-store.cjs` | New tables only, for SQLite and MySQL, created on the first Telegram request. |
+| Sharing | `/api/telegram/prepared`, `/api/shares`, `/api/telegram/story-image` | Room invites, round results, challenges (same seed, settings and AI slots) and custom maps go through `savePreparedInlineMessage`, then `shareMessage` in the client. Story images are held in memory for 1 h. |
+| Turn notifications | `/api/telegram/turn-watch`, `/api/telegram/notify-turn` | A guest registers an opaque token. The host forwards it when the guest is away; the host never sees a Telegram id. |
+| TURN | `GET /api/turn` | Short-lived coturn REST credentials (`TURN_SECRET`, `TURN_URLS`). |
+| Group leaderboard | `GET /api/telegram/leaderboard` | Ranks the players who opened the game from that chat (signed `chat_instance`). Only those members can read it. |
+| Touch HUD | `index.html`, after the test sentinel | Compact-screen layout for touch-first devices and Telegram. Includes drag-to-aim from your tank (barrel direction and power only, never a trajectory), hold-to-repeat steppers, a weapon sheet, a drive pad, camera snap buttons, a drone joystick and throttle, optional tilt steering and tilt-to-aim in the Gunner scope, a left-handed layout, and haptics. |
+| Telegram shell | `index.html` | The SDK loads only when launched from Telegram. Also covers `ready`/`expand`/fullscreen, header and bottom-bar colours, the Back button (closes sheets and modals, leaves 3D views, opens the menu), Main button (START / RESUME / READY), Secondary button (INVITE / SHARE RESULT) and Settings button, closing confirmation and swipe lock during battles, safe areas, CloudStorage settings, a DeviceStorage backup of maps and HUD layout, and `start_param` routing (`r_`, `c_`, `m_`, `lb`, `shop`). It also offers QR scan to join, Story sharing, the home-screen prompt and the champion emoji status. |
+| Cosmetics | `index.html` | Tank accent (barrel trim) and shell-trail colour. They are carried on the tank in snapshots, validated against a fixed list, and rendered for everyone. |
+| Setup | `npm run telegram:setup` (`scripts/telegram-setup.cjs`) | Sets the webhook, commands, menu button and descriptions; `--dry-run` prints the calls. All variables are documented in `.env.example`. |
+| Tests | `tests/telegram.cjs` (in `npm test`), `tests/browser/telegram-mobile.cjs` (in `npm run test:browser`) | The server tests use a fake Bot API. The browser tests use the real server and a stubbed `telegram-web-app.js` on emulated iPhones in landscape and portrait. |
+
+### Going live
+
+1. Deploy the Node server (`npm start`) behind HTTPS on a stable domain. The static Sites deployment cannot run sign-in, payments or the webhook.
+2. Create the bot in @BotFather. Set `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_BOT_USERNAME` and `PUBLIC_BASE_URL` in `.env`.
+3. Run `npm run telegram:setup`, then follow the four manual @BotFather steps it prints: enable the Main Mini App, set the loading-screen icon and colours, add `/newapp play`, and enable `/setinline`.
+4. Optional: set `TURN_SECRET` and `TURN_URLS` for a coturn relay, `TELEGRAM_ADMIN_IDS` for refunds, `TELEGRAM_SUPPORT_CONTACT`, and price overrides.
+5. Test in Telegram's test environment first (`TELEGRAM_TEST_ENV=1`, with a test-server bot). Stars there are not real.
+
+### Differences from the plan below, and known gaps
+
+- **FIRE stays an in-game button.** It is not Telegram's MainButton during battles: the bottom bar would take about 15% of a landscape phone's height. The MainButton handles START, RESUME and READY.
+- **No stored session token.** The client re-signs in from `initData` on every launch, so SecureStorage is not used.
+- **No room QR display.** Scanning a room QR is supported, but generating one would need a QR library. Hosts share an invite link instead.
+- **No terrain LOD mesh for low-end Android.** The `LOW` performance class selects the existing Low quality (pixel ratio 1, 30 fps cap). A coarser terrain mesh still needs real-device profiling.
+- **Cosmetic ownership is not checked by the host.** Each client only offers cosmetics it owns, but a modified client could send an unowned accent. It is visual only.
+- **MySQL tables are untested against a live database.** The DDL exists but has only run on SQLite in tests.
+- **Ranked rules for linked accounts are unchanged.** Linking Telegram to an existing web account with an unverified email does not make it ranked-eligible. That is open decision 5.
+- **Portrait battlefield is small.** Portrait play works, but the 960 m battlefield is small at that width, so the first-match tip suggests turning sideways. Telegram's `lockOrientation` can only lock the current orientation; it cannot force landscape.
+- **Not tested on real devices.** Nothing has been run on an actual phone or against the real Telegram API. Use the device matrix in section 13.
+
 ## 1. Summary
 
 Charred Ground can run as a Telegram Mini App with no change to its architecture. The game is already one HTTPS-servable page, and `scripts/serve.cjs` already provides accounts, sessions, leaderboards, match attestation and server-side AI. Telegram adds four things on top:
